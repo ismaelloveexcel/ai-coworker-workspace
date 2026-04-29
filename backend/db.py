@@ -30,7 +30,7 @@ async def _get_db() -> aiosqlite.Connection:
 async def init_db() -> None:
     """Idempotent schema creation."""
     db = await _get_db()
-    async with db:
+    async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript("""
             CREATE TABLE IF NOT EXISTS tasks (
                 id          TEXT PRIMARY KEY,
