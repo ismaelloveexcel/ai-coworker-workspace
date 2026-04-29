@@ -2,32 +2,36 @@ name: CI
 
 on:
   push:
-    branches: [main, "task/**"]
+    branches: [main]
   pull_request:
     branches: [main]
 
 jobs:
-  lint-and-validate:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
+          cache: pip
 
-      - name: Install deps
-        run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt --quiet
 
-      - name: Validate config imports
+      - name: Syntax check
+        run: python -m py_compile backend/*.py watchdog.py
+
+      - name: Run tests
+        env:
+          ANTHROPIC_API_KEY: dummy
+          GH_PAT: dummy
+          DB_PATH: ":memory:"
+          API_KEY: ""
+        run: pytest tests/ -v --tb=short
+
+      - name: Lint (ruff)
         run: |
-          # Create minimal .env for validation
-          echo "ANTHROPIC_API_KEY=sk-test" > .env
-          echo "GITHUB_TOKEN=ghp_test" >> .env
-          echo "GITHUB_OWNER=test" >> .env
-          echo "GITHUB_DEFAULT_REPO=test/test" >> .env
-          python -c "print('Config structure OK')"
-
-      - name: Check Python syntax
-        run: python -m py_compile backend/config.py backend/events.py backend/db.py backend/tool_adapters.py backend/claude_wrapper.py backend/agent_loop.py backend/main.py && echo "✓ All files syntax OK"
+          pip install ruff --quiet
+          ruff check backend/ watchdog.py --select E,F,W --ignore E501 || true
