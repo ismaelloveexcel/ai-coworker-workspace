@@ -1,29 +1,38 @@
-FROM python:3.12-slim
+# Multi-stage build — keeps runtime image small and secret-free (F12/E8)
+# Stage 1: install Python deps
+FROM python:3.12-slim AS builder
+WORKDIR /build
 
+# Install build deps
+RUN apt-get update && apt-get install -y --no-install-recommends gcc && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# Conditionally install Playwright only when PLAYWRIGHT_ENABLED=true (F12/F44)
+ARG PLAYWRIGHT_ENABLED=false
+RUN if [ "$PLAYWRIGHT_ENABLED" = "true" ]; then \
+      pip install --no-cache-dir --prefix=/install playwright && \
+      /install/bin/playwright install chromium --with-deps; \
+    fi
+
+# Stage 2: lean runtime image
+FROM python:3.12-slim AS runtime
 WORKDIR /app
 
-# System deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl && rm -rf /var/lib/apt/lists/*
+# Non-root user (F12/E8)
+RUN groupadd -r app && useradd -r -g app -d /app -s /sbin/nologin app
 
-# Install Python deps
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy installed packages from builder
+COPY --from=builder /install /usr/local
 
-# Install Playwright browsers (only if enabled)
-RUN playwright install chromium --with-deps 2>/dev/null || true
+# Copy application source (no .env, no .git — excluded via .dockerignore)
+COPY --chown=app:app . .
 
-# Copy source
-COPY backend/ ./backend/
-COPY CLAUDE.md .
-COPY .env.example .
+# Create data directory with correct ownership
+RUN mkdir -p /app/data && chown -R app:app /app/data
 
-# Create data directory
-RUN mkdir -p data
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
+USER app
 
 EXPOSE 8000
 
