@@ -53,7 +53,14 @@ MODEL             = os.environ.get("WATCHDOG_MODEL", "claude-sonnet-4-5")
 FAILED_RUN_ID     = os.environ.get("FAILED_RUN_ID", "")
 FAILED_WORKFLOW   = os.environ.get("FAILED_WORKFLOW", "")
 
-_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+_client = None  # lazy-loaded via _get_client()
+
+def _get_client():
+    """Lazily initialize Anthropic client (avoids import-time failure in tests)."""
+    global _client
+    if _client is None:
+        _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    return _client
 _gh     = Github(GITHUB_TOKEN)
 _repo   = None  # lazy-loaded; use _get_repo() instead of _repo directly
 
@@ -454,7 +461,7 @@ Rules:
 - Each patch.find must appear EXACTLY ONCE in the target file
 - Do not invent variable names or functions that don't exist
 """
-    response = _client.messages.create(
+    response = _get_client().messages.create(
         model=MODEL,
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
@@ -500,7 +507,7 @@ Respond with ONLY a JSON object:
 If approved=true, corrected_patches may be the same as the input or improved.
 If approved=false, corrected_patches should be empty and rejection_reason must be set.
 """
-    response = _client.messages.create(
+    response = _get_client().messages.create(
         model=MODEL,
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
