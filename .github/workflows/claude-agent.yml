@@ -28,6 +28,10 @@ jobs:
     # manually cancelled hours later. 25 steps × ~60s/step + overhead fits
     # comfortably in 45 minutes; bump if MAX_STEPS_PER_TASK is increased.
     timeout-minutes: 45
+    # F30: one run per repo at a time; don't cancel in-progress so we don't orphan branches
+    concurrency:
+      group: agent-${{ github.repository }}-${{ inputs.target_repo || github.repository }}
+      cancel-in-progress: false
     # Only run on labeled issues if label is "agent-task"
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -54,11 +58,15 @@ jobs:
       - name: Extract task from issue (if triggered by issue)
         if: github.event_name == 'issues'
         id: issue-task
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
-          TITLE="${{ github.event.issue.title }}"
-          BODY="${{ github.event.issue.body }}"
-          echo "task_title=$TITLE" >> $GITHUB_OUTPUT
-          echo "task_body=$BODY"   >> $GITHUB_OUTPUT
+          # F1: inputs passed via env vars — shell never re-parses ${{ }} expressions
+          printf '%s' "$ISSUE_TITLE" | head -c 500 > /tmp/issue_title
+          printf '%s' "$ISSUE_BODY"  | head -c 5000 > /tmp/issue_body
+          echo "task_title=$(cat /tmp/issue_title)" >> $GITHUB_OUTPUT
+          echo "task_body=$(cat /tmp/issue_body)"   >> $GITHUB_OUTPUT
 
       - name: Set up environment
         run: |
@@ -68,7 +76,7 @@ jobs:
           GITHUB_OWNER=${{ github.repository_owner }}
           GITHUB_DEFAULT_REPO=${{ inputs.target_repo || github.repository }}
           MAX_STEPS_PER_TASK=25
-          STEP_TIMEOUT_SECONDS=300
+          STEP_TIMEOUT_SECONDS=90  # 25 steps × 90s = 37.5min fits within timeout-minutes: 45
           ALLOWED_TOOLS=github,filesystem
           PLAYWRIGHT_ENABLED=false
           WHITELISTED_DOMAINS=github.com
