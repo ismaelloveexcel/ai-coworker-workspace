@@ -52,7 +52,7 @@ MAX_FIX_ATTEMPTS    = int(os.environ.get("WATCHDOG_MAX_RETRIES", "3"))
 WATCHDOG_ATTEMPT    = int(os.environ.get("WATCHDOG_ATTEMPT", "1"))
 CI_WAIT_TIMEOUT_S   = 180   # max seconds to wait for CI after patching
 MAX_LOG_CHARS       = 14_000
-MODEL               = "claude-sonnet-4-6"
+MODEL               = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 gh     = Github(auth=GHToken(GITHUB_TOKEN))
