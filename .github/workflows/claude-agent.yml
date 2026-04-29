@@ -24,6 +24,10 @@ on:
 jobs:
   run-agent:
     runs-on: ubuntu-latest
+    # Hard ceiling so a slow / runaway agent fails fast instead of being
+    # manually cancelled hours later. 25 steps × ~60s/step + overhead fits
+    # comfortably in 45 minutes; bump if MAX_STEPS_PER_TASK is increased.
+    timeout-minutes: 45
     # Only run on labeled issues if label is "agent-task"
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -64,7 +68,7 @@ jobs:
           GITHUB_OWNER=${{ github.repository_owner }}
           GITHUB_DEFAULT_REPO=${{ inputs.target_repo || github.repository }}
           MAX_STEPS_PER_TASK=25
-          STEP_TIMEOUT_SECONDS=120
+          STEP_TIMEOUT_SECONDS=300
           ALLOWED_TOOLS=github,filesystem
           PLAYWRIGHT_ENABLED=false
           WHITELISTED_DOMAINS=github.com

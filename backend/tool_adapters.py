@@ -124,12 +124,22 @@ def github_list_files(path: str = "", branch: str = "main", repo: str = None) ->
 
 # ── Filesystem Tools ───────────────────────────────────────────────────────────
 
-_SAFE_ROOT = "/tmp/agent_workspace"
+_SAFE_ROOT = os.path.realpath("/tmp/agent_workspace")
+os.makedirs(_SAFE_ROOT, exist_ok=True)
 
 def _sanitize_path(path: str) -> str:
-    """Prevent path traversal."""
-    safe = os.path.normpath(os.path.join(_SAFE_ROOT, path.lstrip("/")))
-    if not safe.startswith(_SAFE_ROOT):
+    """Prevent path traversal, including via symlinks.
+
+    Resolves the candidate path with ``os.path.realpath`` and verifies the
+    resolved location is contained within ``_SAFE_ROOT`` (also realpath-resolved).
+    Using ``startswith`` on the joined path alone is insufficient because a
+    symlink inside ``_SAFE_ROOT`` could point outside of it.
+    """
+    candidate = os.path.normpath(os.path.join(_SAFE_ROOT, path.lstrip("/")))
+    safe = os.path.realpath(candidate)
+    # Compare with a trailing separator so /tmp/agent_workspace_evil is rejected.
+    root_with_sep = _SAFE_ROOT.rstrip(os.sep) + os.sep
+    if safe != _SAFE_ROOT and not safe.startswith(root_with_sep):
         raise ValueError(f"Path traversal denied: {path}")
     return safe
 

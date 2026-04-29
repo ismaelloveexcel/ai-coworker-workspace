@@ -16,6 +16,7 @@ import io
 import json
 import os
 import py_compile
+import re
 import sys
 import tempfile
 import time
@@ -51,7 +52,7 @@ MAX_FIX_ATTEMPTS    = int(os.environ.get("WATCHDOG_MAX_RETRIES", "3"))
 WATCHDOG_ATTEMPT    = int(os.environ.get("WATCHDOG_ATTEMPT", "1"))
 CI_WAIT_TIMEOUT_S   = 180   # max seconds to wait for CI after patching
 MAX_LOG_CHARS       = 14_000
-MODEL               = "claude-sonnet-4-6"
+MODEL               = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 gh     = Github(auth=GHToken(GITHUB_TOKEN))
@@ -169,6 +170,87 @@ def open_escalation_issue(diagnosis: str, logs: str, run_url: str, reason: str) 
         print(f"  ✓ Escalation issue: {issue.html_url}")
     except GithubException as e:
         print(f"  ✗ Could not create issue: {e}")
+
+
+# ── Claude response parsing ────────────────────────────────────────────────────
+
+def _parse_claude_json(text: str, phase: str) -> dict:
+    """
+    Robustly parse a JSON object out of a Claude response.
+
+    Handles common failure modes that previously crashed the watchdog:
+      - Empty / whitespace-only response (json.loads("") → JSONDecodeError)
+      - Markdown fences (```json ... ``` or ``` ... ```)
+      - Leading/trailing prose around the JSON object
+
+    Raises ValueError with a useful message on failure (caller decides whether
+    to escalate or retry).
+    """
+    if text is None:
+        raise ValueError(f"{phase}: Claude returned no content")
+    stripped = text.strip()
+    if not stripped:
+        raise ValueError(f"{phase}: Claude returned an empty response")
+
+    # Strip code fences if present (```json ... ``` or ``` ... ```).
+    fence_match = re.match(
+        r"^```(?:json)?\s*\n(.*?)\n```\s*$", stripped, re.DOTALL | re.IGNORECASE
+    )
+    if fence_match:
+        stripped = fence_match.group(1).strip()
+
+    # First try direct parse.
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+    else:
+        if isinstance(parsed, dict):
+            return parsed
+        # Valid JSON but not an object — fall through to scanning, in case the
+        # object is embedded inside a larger structure or surrounding prose.
+
+    # Fall back to scanning for the first balanced JSON object. We honor string
+    # literals so a stray '{' or '}' inside a quoted value doesn't throw off
+    # the brace counter (a naive find/rfind would pick the wrong substring
+    # when the response contains prose with braces before the real JSON).
+    for start in range(len(stripped)):
+        if stripped[start] != "{":
+            continue
+        depth = 0
+        in_str = False
+        escape = False
+        for i in range(start, len(stripped)):
+            ch = stripped[i]
+            if in_str:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = stripped[start : i + 1]
+                    try:
+                        parsed = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        break  # try next opening brace
+                    if isinstance(parsed, dict):
+                        return parsed
+                    break  # parsed but wrong type; try next opening brace
+        # if we fall out without depth==0, try next start
+
+    raise ValueError(
+        f"{phase}: response contains no parseable JSON *object*; "
+        f"raw preview: {stripped[:200]!r}"
+    )
 
 
 # ── Patch validation ───────────────────────────────────────────────────────────
@@ -327,12 +409,8 @@ Commit:     {run_meta.get('head_commit',{}).get('message','?')[:100]}
         model=MODEL, max_tokens=2048, system=PHASE1_SYSTEM,
         messages=[{"role": "user", "content": context}]
     )
-    text = resp.content[0].text.strip()
-    if text.startswith("```"):
-        text = "\n".join(text.splitlines()[1:])
-        if text.endswith("```"):
-            text = text[:-3].strip()
-    return json.loads(text)
+    text = resp.content[0].text if resp.content else ""
+    return _parse_claude_json(text, "phase1_diagnose")
 
 
 # ── Claude phase 2: review own patch ──────────────────────────────────────────
@@ -399,12 +477,8 @@ If there are issues, set approved=false, list them, and provide corrected_patche
         model=MODEL, max_tokens=2048, system=PHASE2_SYSTEM,
         messages=[{"role": "user", "content": prompt}]
     )
-    text = resp.content[0].text.strip()
-    if text.startswith("```"):
-        text = "\n".join(text.splitlines()[1:])
-        if text.endswith("```"):
-            text = text[:-3].strip()
-    return json.loads(text)
+    text = resp.content[0].text if resp.content else ""
+    return _parse_claude_json(text, "phase2_review")
 
 
 # ── Apply patches ──────────────────────────────────────────────────────────────
@@ -452,6 +526,13 @@ def main():
     print(f"Conclusion: {conclusion}")
     print(f"URL:        {run_url}\n")
 
+    # Skip cancelled runs — these are usually user-initiated cancels (or job
+    # timeouts) and have no meaningful logs to diagnose. Trying to "fix" them
+    # wastes Claude calls and used to crash Phase 1 on empty responses.
+    if conclusion == "cancelled":
+        print("Target run was cancelled (not a real failure) — nothing to diagnose. Exiting cleanly.")
+        sys.exit(0)
+
     # Max attempts check
     if WATCHDOG_ATTEMPT > MAX_FIX_ATTEMPTS:
         print(f"Max attempts exceeded — escalating")
@@ -469,8 +550,16 @@ def main():
     print("Phase 1: Diagnosing with Claude...")
     try:
         fix = phase1_diagnose(logs, run_meta)
-    except (json.JSONDecodeError, Exception) as e:
-        print(f"  ✗ Phase 1 failed: {e}"); sys.exit(1)
+    except Exception as e:
+        # Don't crash the whole watchdog on a bad Claude response — escalate
+        # so a human can decide what to do, then exit successfully.
+        print(f"  ✗ Phase 1 failed: {e}")
+        open_escalation_issue(
+            "Watchdog Phase 1 diagnosis failed",
+            logs, run_url,
+            f"Could not parse Claude diagnosis response: {e}",
+        )
+        sys.exit(0)
 
     print(f"  Diagnosis:  {fix.get('diagnosis','?')}")
     print(f"  Severity:   {fix.get('severity','?')}")
@@ -491,9 +580,13 @@ def main():
         print("\nPhase 2: Claude self-reviewing patches...")
         try:
             review = phase2_review(patches, fix)
-        except (json.JSONDecodeError, Exception) as e:
+        except Exception as e:
             print(f"  ✗ Phase 2 review failed: {e} — aborting patch application")
-            sys.exit(1)
+            open_escalation_issue(
+                fix.get("diagnosis","?"), logs, run_url,
+                f"Phase 2 review could not be parsed: {e}",
+            )
+            sys.exit(0)
 
         if not review.get("approved"):
             issues = review.get("issues", [])

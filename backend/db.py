@@ -5,8 +5,9 @@ Schema is idempotent (CREATE TABLE IF NOT EXISTS).
 import asyncio
 import os
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import aiosqlite
 
@@ -17,14 +18,28 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def _get_db() -> aiosqlite.Connection:
+@asynccontextmanager
+async def _get_db() -> AsyncIterator[aiosqlite.Connection]:
+    """Open a connection, commit on success, always close.
+
+    The previous implementation returned a bare ``Connection`` from an
+    ``await``-only function and relied on callers to use ``async with db:``.
+    aiosqlite's ``Connection.__aexit__`` closes the connection but does NOT
+    commit, so every write was rolled back on close — a real data-loss bug,
+    not just a leak. This context manager guarantees both commit-on-success
+    and close-on-exit (including exceptions).
+    """
     os.makedirs(os.path.dirname(settings.db_path), exist_ok=True)
     db = await aiosqlite.connect(settings.db_path)
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA journal_mode=WAL")
-    await db.execute("PRAGMA synchronous=NORMAL")
-    await db.execute("PRAGMA foreign_keys=ON")
-    return db
+    try:
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA synchronous=NORMAL")
+        await db.execute("PRAGMA foreign_keys=ON")
+        yield db
+        await db.commit()
+    finally:
+        await db.close()
 
 
 async def init_db() -> None:
@@ -76,6 +91,7 @@ async def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_steps_task_id ON steps(task_id);
             CREATE INDEX IF NOT EXISTS idx_logs_task_id  ON logs(task_id);
         """)
+        await db.commit()
 
 
 # ── Tasks ──────────────────────────────────────────────────────────────────────
@@ -83,8 +99,7 @@ async def init_db() -> None:
 async def create_task(title: str, prompt: str, repo_url: str = None) -> Dict:
     task_id = str(uuid.uuid4())
     now = _now()
-    db = await _get_db()
-    async with db:
+    async with _get_db() as db:
         await db.execute(
             """INSERT INTO tasks (id, title, prompt, repo_url, status, created_at, updated_at)
                VALUES (?, ?, ?, ?, 'pending', ?, ?)""",
@@ -94,16 +109,14 @@ async def create_task(title: str, prompt: str, repo_url: str = None) -> Dict:
 
 
 async def get_task(task_id: str) -> Optional[Dict]:
-    db = await _get_db()
-    async with db:
+    async with _get_db() as db:
         async with db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)) as cur:
             row = await cur.fetchone()
             return dict(row) if row else None
 
 
 async def list_tasks() -> List[Dict]:
-    db = await _get_db()
-    async with db:
+    async with _get_db() as db:
         async with db.execute("SELECT * FROM tasks ORDER BY created_at DESC") as cur:
             rows = await cur.fetchall()
             return [dict(r) for r in rows]
@@ -115,14 +128,12 @@ async def update_task(task_id: str, **kwargs) -> None:
     kwargs["updated_at"] = _now()
     cols = ", ".join(f"{k} = ?" for k in kwargs)
     vals = list(kwargs.values()) + [task_id]
-    db = await _get_db()
-    async with db:
+    async with _get_db() as db:
         await db.execute(f"UPDATE tasks SET {cols} WHERE id = ?", vals)
 
 
 async def delete_task(task_id: str) -> None:
-    db = await _get_db()
-    async with db:
+    async with _get_db() as db:
         await db.execute("DELETE FROM steps WHERE task_id = ?", (task_id,))
         await db.execute("DELETE FROM logs  WHERE task_id = ?", (task_id,))
         await db.execute("DELETE FROM tasks WHERE id = ?",      (task_id,))
@@ -133,8 +144,7 @@ async def delete_task(task_id: str) -> None:
 async def create_step(task_id: str, step_num: int, plan: str = None) -> str:
     step_id = str(uuid.uuid4())
     now = _now()
-    db = await _get_db()
-    async with db:
+    async with _get_db() as db:
         await db.execute(
             """INSERT INTO steps (id, task_id, step_num, plan, status, created_at, updated_at)
                VALUES (?, ?, ?, ?, 'running', ?, ?)""",
@@ -149,14 +159,12 @@ async def update_step(step_id: str, **kwargs) -> None:
     kwargs["updated_at"] = _now()
     cols = ", ".join(f"{k} = ?" for k in kwargs)
     vals = list(kwargs.values()) + [step_id]
-    db = await _get_db()
-    async with db:
+    async with _get_db() as db:
         await db.execute(f"UPDATE steps SET {cols} WHERE id = ?", vals)
 
 
 async def get_steps(task_id: str) -> List[Dict]:
-    db = await _get_db()
-    async with db:
+    async with _get_db() as db:
         async with db.execute(
             "SELECT * FROM steps WHERE task_id = ? ORDER BY step_num", (task_id,)
         ) as cur:
@@ -167,8 +175,7 @@ async def get_steps(task_id: str) -> List[Dict]:
 # ── Logs ───────────────────────────────────────────────────────────────────────
 
 async def add_log(task_id: str, level: str, message: str, meta: str = None) -> None:
-    db = await _get_db()
-    async with db:
+    async with _get_db() as db:
         await db.execute(
             "INSERT INTO logs (id, task_id, level, message, meta, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (str(uuid.uuid4()), task_id, level, message, meta, _now()),
@@ -176,8 +183,7 @@ async def add_log(task_id: str, level: str, message: str, meta: str = None) -> N
 
 
 async def get_logs(task_id: str) -> List[Dict]:
-    db = await _get_db()
-    async with db:
+    async with _get_db() as db:
         async with db.execute(
             "SELECT * FROM logs WHERE task_id = ? ORDER BY created_at", (task_id,)
         ) as cur:

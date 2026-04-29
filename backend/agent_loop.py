@@ -8,6 +8,12 @@ v2 fixes:
 - Let Anthropic client handle its own timeout (default 600s)
 - Cleaned up message flow (context rebuilt from DB each step — no stale appends)
 - Stricter correction attempt tracking per step, not globally
+
+v3 fixes:
+- Re-introduced a per-step asyncio.wait_for around the Claude call, but this
+  time it does NOT decrement step_count and does NOT loop — on timeout the
+  step is marked failed and the task fails fast. Without this, a single hung
+  Claude call could burn the entire workflow's timeout-minutes budget.
 """
 import asyncio
 import json
@@ -76,10 +82,26 @@ async def run_task(task_id: str) -> None:
             raw_text, parsed = None, None
             while correction_attempts <= 2:
                 try:
-                    raw_text, parsed = await loop.run_in_executor(
-                        None, run_agent_turn, messages
+                    raw_text, parsed = await asyncio.wait_for(
+                        loop.run_in_executor(None, run_agent_turn, messages),
+                        timeout=settings.step_timeout_seconds,
                     )
                     break  # success
+                except asyncio.TimeoutError:
+                    # Single Claude turn exceeded its budget. Do NOT retry or
+                    # decrement step_count — fail the step and let the task
+                    # fail fast so the job doesn't hang for hours.
+                    #
+                    # Note: asyncio.wait_for cancels the awaitable but cannot
+                    # actually kill the underlying executor thread; the HTTP
+                    # call will continue until the Anthropic SDK's own timeout
+                    # (default 600s) fires. That's acceptable here because the
+                    # task is failing and the workflow process will exit
+                    # shortly after.
+                    raise RuntimeError(
+                        f"Claude call timed out after {settings.step_timeout_seconds}s "
+                        f"on step {step_count}"
+                    )
                 except ValueError as e:
                     correction_attempts += 1
                     await emit_log(task_id, "warn",
