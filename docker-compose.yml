@@ -1,29 +1,29 @@
-version: "3.9"
-
 services:
   backend:
-    build: .
-    restart: always
+    build:
+      context: .
+      args:
+        PLAYWRIGHT_ENABLED: ${PLAYWRIGHT_ENABLED:-false}
+    image: ai-coworker-backend
     env_file: .env
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/app/data
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
 
-  frontend:
-    image: nginx:alpine
-    restart: always
+  nginx:
+    image: nginx:1.27-alpine
     ports:
-      - "3000:80"
+      - "0.0.0.0:80:80"
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - backend
-
+    restart: unless-stopped
