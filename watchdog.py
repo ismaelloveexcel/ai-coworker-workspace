@@ -1,659 +1,650 @@
-#!/usr/bin/env python3
 """
-Watchdog Agent v2 — autonomous failure detection and self-healing.
+Watchdog Agent - autonomous failure diagnosis and self-healing.
 
-Upgrades over v1:
-  - Two-phase Claude review: generate patch → review patch → apply only if approved
-  - Python syntax validation (py_compile) before committing
-  - AST name-resolution check: detects undefined variables in patched code
-  - Dangling code detection: finds unreachable statements after patch
-  - CI gate: waits for CI to pass on patched commit before re-triggering agent
-  - Smarter cancellation handling: user-cancel vs system-kill treated differently
-  - Patch dry-run: full patched file shown to reviewer Claude, not just the diff
+Architecture (v3):
+  - Phase 1: Claude diagnoses failure from logs + relevant source files
+  - Phase 2: Claude reviews its own patches against full file context
+  - Static: py_compile + AST name-resolution check (via pyflakes if available)
+  - SAFE landing: patches are committed to a PR branch, not main (F1/F2/E2)
+    Humans or a merge-gate CI can review before landing. No more silent main writes.
+  - CI gate: waits for CI to pass on the PR branch before marking done
+
+Critical fixes in v3 (from audit report):
+  F1/F2/E2: Watchdog NO LONGER writes to main directly. All patches go to
+             branch watchdog/fix-<run_id> and a PR is opened for review.
+             This eliminates the infinite re-trigger loop (F2) because pushing
+             to a non-main branch does not trigger ci.yml (which only runs on main).
+  Pending:  Robust JSON extraction (_parse_json), full tracebacks on exit,
+             import builtins fix for AST checker.
 """
 import ast
-import io
+import builtins
 import json
 import os
-import py_compile
 import re
 import sys
-import tempfile
-import time
-import zipfile
-import urllib.request
+import traceback as _tb
 import urllib.error
-from typing import Optional
+import urllib.request
+from typing import Any, Dict, List, Optional, Tuple
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+import anthropic
+from github import Github, GithubException
+from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
-try:
-    import anthropic
-except ImportError:
-    print("ERROR: anthropic not installed"); sys.exit(1)
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
 
-try:
-    from github import Github, GithubException
-    from github.Auth import Token as GHToken
-except ImportError:
-    print("ERROR: PyGithub not installed"); sys.exit(1)
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+GITHUB_TOKEN      = os.environ.get("GH_PAT", "") or os.environ.get("GITHUB_TOKEN", "")
+GITHUB_REPO       = os.environ.get("GITHUB_REPO", "ismaelloveexcel/ai-coworker-workspace")
 
-# ── Config ────────────────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
-GITHUB_TOKEN        = os.environ["GITHUB_TOKEN"]
-REPO_FULL           = os.environ["GITHUB_REPOSITORY"]
-FAILED_RUN_ID       = os.environ.get("FAILED_RUN_ID", "")
-FAILED_WORKFLOW     = os.environ.get("FAILED_WORKFLOW", "")
-MAX_FIX_ATTEMPTS    = int(os.environ.get("WATCHDOG_MAX_RETRIES", "3"))
-WATCHDOG_ATTEMPT    = int(os.environ.get("WATCHDOG_ATTEMPT", "1"))
-CI_WAIT_TIMEOUT_S   = 180   # max seconds to wait for CI after patching
-MAX_LOG_CHARS       = 14_000
-MODEL               = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+if not ANTHROPIC_API_KEY:
+    print("ERROR: ANTHROPIC_API_KEY not set", file=sys.stderr)
+    sys.exit(1)
+if not GITHUB_TOKEN:
+    print("ERROR: GH_PAT / GITHUB_TOKEN not set", file=sys.stderr)
+    sys.exit(1)
 
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-gh     = Github(auth=GHToken(GITHUB_TOKEN))
-repo   = gh.get_repo(REPO_FULL)
+WATCHDOG_ATTEMPT  = int(os.environ.get("WATCHDOG_ATTEMPT", "1"))
+MAX_FIX_ATTEMPTS  = int(os.environ.get("WATCHDOG_MAX_RETRIES", "3"))
+MODEL             = os.environ.get("WATCHDOG_MODEL", "claude-sonnet-4-5")
+FAILED_RUN_ID     = os.environ.get("FAILED_RUN_ID", "")
+FAILED_WORKFLOW   = os.environ.get("FAILED_WORKFLOW", "")
+
+_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+_gh     = Github(GITHUB_TOKEN)
+_repo   = _gh.get_repo(GITHUB_REPO)
+
+# ---------------------------------------------------------------------------
+# JSON extraction helper (robust: handles fences, leading prose, nesting)
+# ---------------------------------------------------------------------------
+
+def _parse_json(text: str) -> dict:
+    """
+    Extract and parse the first JSON object from text, regardless of
+    markdown fences, leading/trailing prose, or whitespace variants.
+    Raises json.JSONDecodeError if nothing parseable is found.
+    """
+    text = text.strip()
+    # Strip markdown code fence if present (handles trailing newline variants)
+    fence = re.match(r"^```[a-z]*\s*\n?(.*?)\n?```\s*$", text, re.DOTALL | re.IGNORECASE)
+    if fence:
+        text = fence.group(1).strip()
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Find balanced { ... } block
+    start = text.find('{')
+    if start == -1:
+        raise json.JSONDecodeError("No JSON object found", text, 0)
+    depth, in_str, escape = 0, False, False
+    for i, ch in enumerate(text[start:], start):
+        if escape:
+            escape = False
+            continue
+        if ch == '\\' and in_str:
+            escape = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                return json.loads(text[start:i+1])
+    raise json.JSONDecodeError("Unbalanced JSON object", text, start)
 
 
-# ── GitHub helpers ─────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# GitHub helpers
+# ---------------------------------------------------------------------------
 
-def gh_api(path: str, method: str = "GET", body: dict = None) -> dict:
-    url  = f"https://api.github.com{path}"
-    data = json.dumps(body).encode() if body else None
-    req  = urllib.request.Request(url, data=data, method=method, headers={
+def fetch_logs(run_id: str) -> str:
+    """Download logs for a GitHub Actions run."""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}/logs"
+    req = urllib.request.Request(url, headers={
         "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github+json",
-        "Content-Type": "application/json",
-        "X-GitHub-Api-Version": "2022-11-28",
+        "Accept": "application/vnd.github.v3+json",
     })
     try:
         with urllib.request.urlopen(req) as resp:
             raw = resp.read()
-            return json.loads(raw) if raw else {}
+        # Logs come as a zip; extract text naively
+        if raw[:2] == b'PK':
+            import io, zipfile
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                parts = []
+                for name in sorted(z.namelist()):
+                    if name.endswith('.txt'):
+                        parts.append(z.read(name).decode('utf-8', errors='replace'))
+            return '\n'.join(parts)[-20000:]  # last 20k chars
+        return raw.decode('utf-8', errors='replace')[-20000:]
     except urllib.error.HTTPError as e:
-        return {"__error": e.code, "__msg": e.read().decode()}
+        return f"[Could not fetch logs: HTTP {e.code} {e.reason}]"
+    except Exception as e:
+        return f"[Could not fetch logs: {e}]"
 
 
 def get_file(path: str, ref: str = "main") -> Optional[str]:
+    """Fetch file content from GitHub. Returns None on error."""
     try:
+        contents = _repo.get_contents(path, ref=ref)
         import base64
-        f = repo.get_contents(path, ref=ref)
-        return base64.b64decode(f.content).decode()
-    except GithubException:
+        return base64.b64decode(contents.content).decode('utf-8', errors='replace')
+    except Exception:
         return None
 
 
-def upsert_file(path: str, content: str, message: str) -> None:
+def upsert_file(path: str, content: str, message: str, branch: str) -> bool:
+    """
+    Upsert a file on the given branch (NOT main).
+    Returns True on success.
+    """
     try:
-        existing = repo.get_contents(path, ref="main")
-        repo.update_file(path, message, content, existing.sha, branch="main")
-        print(f"  ✓ Updated: {path}")
-    except GithubException:
-        repo.create_file(path, message, content, branch="main")
-        print(f"  ✓ Created: {path}")
-
-
-def fetch_logs(run_id: str) -> str:
-    url = f"https://api.github.com/repos/{REPO_FULL}/actions/runs/{run_id}/logs"
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github+json"
-    })
-    try:
-        with urllib.request.urlopen(req) as resp:
-            raw = resp.read()
-    except urllib.error.HTTPError as e:
-        if e.code == 302:
-            with urllib.request.urlopen(e.headers["Location"]) as r2:
-                raw = r2.read()
+        existing = _repo.get_contents(path, ref=branch)
+        _repo.update_file(path, message, content, existing.sha, branch=branch)
+    except GithubException as e:
+        if e.status == 404:
+            _repo.create_file(path, message, content, branch=branch)
         else:
-            return f"[Log fetch failed: HTTP {e.code}]"
+            raise
+    return True
+
+
+def create_watchdog_branch(run_id: str) -> str:
+    """Create a branch for watchdog patches. Returns branch name."""
+    branch_name = f"watchdog/fix-{run_id}-attempt-{WATCHDOG_ATTEMPT}"
     try:
-        zf   = zipfile.ZipFile(io.BytesIO(raw))
-        logs = []
-        for name in zf.namelist():
-            text = zf.read(name).decode(errors="replace")
-            logs.append(f"=== {name} ===\n{text}")
-        combined = "\n".join(logs)
-        return ("...[truncated]\n" + combined[-MAX_LOG_CHARS:]) if len(combined) > MAX_LOG_CHARS else combined
-    except Exception as e:
-        return f"[Log parse error: {e}]"
+        main_sha = _repo.get_git_ref("heads/main").object.sha
+        _repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=main_sha)
+        print(f"Created branch: {branch_name}")
+    except GithubException as e:
+        if e.status == 422:  # Already exists
+            print(f"Branch already exists: {branch_name}")
+        else:
+            raise
+    return branch_name
 
 
-def wait_for_ci(commit_sha: str, timeout: int = CI_WAIT_TIMEOUT_S) -> str:
-    """Poll until CI on commit_sha is done. Returns 'success'|'failure'|'timeout'."""
-    print(f"  Waiting for CI on {commit_sha[:7]} (max {timeout}s)...")
-    deadline = time.time() + timeout
+def open_watchdog_pr(branch: str, diagnosis: str, patches: List[Dict], applied: int, total: int) -> str:
+    """Open a PR from the watchdog branch. Returns PR URL."""
+    # Check for existing open PR
+    existing = list(_repo.get_pulls(state="open", head=f"{_repo.owner.login}:{branch}"))
+    if existing:
+        print(f"PR already exists: {existing[0].html_url}")
+        return existing[0].html_url
+
+    patch_summary = "\n".join(
+        f"- `{p.get('file', '?')}`: {p.get('description', 'patch')}"
+        for p in patches[:10]
+    )
+    body = f"""## Watchdog Auto-Fix — Attempt {WATCHDOG_ATTEMPT}/{MAX_FIX_ATTEMPTS}
+
+**Failed run:** [{FAILED_RUN_ID}](https://github.com/{GITHUB_REPO}/actions/runs/{FAILED_RUN_ID})
+**Workflow:** {FAILED_WORKFLOW}
+**Patches applied:** {applied}/{total}
+
+### Diagnosis
+{diagnosis[:2000]}
+
+### Patches
+{patch_summary}
+
+---
+*Generated by Watchdog Agent. Review before merging.*
+*Merging this PR will run CI on the patched code. If CI passes, the fix is validated.*
+"""
+    pr = _repo.create_pull(
+        title=f"[Watchdog] Auto-fix for run {FAILED_RUN_ID} (attempt {WATCHDOG_ATTEMPT})",
+        body=body,
+        head=branch,
+        base="main",
+    )
+    print(f"Opened PR: {pr.html_url}")
+    return pr.html_url
+
+
+def wait_for_ci(branch: str, timeout_seconds: int = 300) -> Optional[str]:
+    """
+    Poll for CI completion on the given branch.
+    Returns 'success', 'failure', or None on timeout.
+    Matches by workflow file path (not display name) to survive renames (F22 fix).
+    """
+    import time
+    deadline = time.time() + timeout_seconds
+    target_workflow = ".github/workflows/ci.yml"
+    print(f"Waiting for CI on branch {branch!r} (timeout={timeout_seconds}s)...")
     while time.time() < deadline:
         time.sleep(12)
-        runs = gh_api(f"/repos/{REPO_FULL}/actions/runs?head_sha={commit_sha}&per_page=5")
-        ci_runs = [r for r in runs.get("workflow_runs", []) if r.get("name") == "CI"]
-        if not ci_runs:
-            continue
-        r = ci_runs[0]
-        if r["status"] == "completed":
-            result = r.get("conclusion", "failure")
-            print(f"  CI {result}: {r['html_url']}")
-            return result
-        print(f"  CI still {r['status']}...")
-    print("  CI timed out")
-    return "timeout"
-
-
-def trigger_workflow(workflow_file: str, inputs: dict = None) -> bool:
-    result = gh_api(
-        f"/repos/{REPO_FULL}/actions/workflows/{workflow_file}/dispatches",
-        method="POST",
-        body={"ref": "main", "inputs": inputs or {}}
-    )
-    ok = not result.get("__error")
-    print(f"  {'✓' if ok else '✗'} Re-trigger {workflow_file}: {'ok' if ok else result}")
-    return ok
-
-
-def open_escalation_issue(diagnosis: str, logs: str, run_url: str, reason: str) -> None:
-    title = f"🚨 Watchdog escalation: {diagnosis[:80]}"
-    body  = (
-        f"## Watchdog Agent — Escalation Required\n\n"
-        f"**Reason:** {reason}\n"
-        f"**Diagnosis:** {diagnosis}\n"
-        f"**Failed run:** {run_url}\n"
-        f"**Watchdog attempt:** {WATCHDOG_ATTEMPT}/{MAX_FIX_ATTEMPTS}\n\n"
-        f"<details><summary>Log excerpt</summary>\n\n```\n{logs[-3000:]}\n```\n</details>"
-    )
-    try:
-        issue = repo.create_issue(title=title, body=body, labels=["watchdog-escalation"])
-        print(f"  ✓ Escalation issue: {issue.html_url}")
-    except GithubException as e:
-        print(f"  ✗ Could not create issue: {e}")
-
-
-# ── Claude response parsing ────────────────────────────────────────────────────
-
-def _parse_claude_json(text: str, phase: str) -> dict:
-    """
-    Robustly parse a JSON object out of a Claude response.
-
-    Handles common failure modes that previously crashed the watchdog:
-      - Empty / whitespace-only response (json.loads("") → JSONDecodeError)
-      - Markdown fences (```json ... ``` or ``` ... ```)
-      - Leading/trailing prose around the JSON object
-
-    Raises ValueError with a useful message on failure (caller decides whether
-    to escalate or retry).
-    """
-    if text is None:
-        raise ValueError(f"{phase}: Claude returned no content")
-    stripped = text.strip()
-    if not stripped:
-        raise ValueError(f"{phase}: Claude returned an empty response")
-
-    # Strip code fences if present (```json ... ``` or ``` ... ```).
-    fence_match = re.match(
-        r"^```(?:json)?\s*\n(.*?)\n```\s*$", stripped, re.DOTALL | re.IGNORECASE
-    )
-    if fence_match:
-        stripped = fence_match.group(1).strip()
-
-    # First try direct parse.
-    try:
-        parsed = json.loads(stripped)
-    except json.JSONDecodeError:
-        pass
-    else:
-        if isinstance(parsed, dict):
-            return parsed
-        # Valid JSON but not an object — fall through to scanning, in case the
-        # object is embedded inside a larger structure or surrounding prose.
-
-    # Fall back to scanning for the first balanced JSON object. We honor string
-    # literals so a stray '{' or '}' inside a quoted value doesn't throw off
-    # the brace counter (a naive find/rfind would pick the wrong substring
-    # when the response contains prose with braces before the real JSON).
-    for start in range(len(stripped)):
-        if stripped[start] != "{":
-            continue
-        depth = 0
-        in_str = False
-        escape = False
-        for i in range(start, len(stripped)):
-            ch = stripped[i]
-            if in_str:
-                if escape:
-                    escape = False
-                elif ch == "\\":
-                    escape = True
-                elif ch == '"':
-                    in_str = False
+        try:
+            runs = _repo.get_workflow_runs(branch=branch, event="push")
+            matching = [
+                r for r in runs
+                if getattr(r, 'path', '') == target_workflow or r.name == "CI"
+            ]
+            if not matching:
                 continue
-            if ch == '"':
-                in_str = True
-            elif ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    candidate = stripped[start : i + 1]
-                    try:
-                        parsed = json.loads(candidate)
-                    except json.JSONDecodeError:
-                        break  # try next opening brace
-                    if isinstance(parsed, dict):
-                        return parsed
-                    break  # parsed but wrong type; try next opening brace
-        # if we fall out without depth==0, try next start
-
-    raise ValueError(
-        f"{phase}: response contains no parseable JSON *object*; "
-        f"raw preview: {stripped[:200]!r}"
-    )
+            # Pick the most recent run
+            latest = sorted(matching, key=lambda r: r.created_at, reverse=True)[0]
+            if latest.status != "completed":
+                continue
+            print(f"CI completed: {latest.conclusion} (run {latest.id})")
+            return latest.conclusion
+        except Exception as e:
+            print(f"CI poll error: {e}")
+    print(f"CI timed out after {timeout_seconds}s")
+    return None
 
 
-# ── Patch validation ───────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Static validation
+# ---------------------------------------------------------------------------
 
-def validate_python_syntax(code: str, filename: str) -> Optional[str]:
-    """Returns error string if syntax is invalid, None if OK."""
-    with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
-        f.write(code)
+def validate_syntax(path: str, content: str) -> Tuple[bool, str]:
+    """py_compile check on the patched content."""
+    import py_compile, tempfile
+    with tempfile.NamedTemporaryFile(suffix='.py', mode='w', delete=False) as f:
+        f.write(content)
         tmp = f.name
     try:
         py_compile.compile(tmp, doraise=True)
-        return None
+        return True, ""
     except py_compile.PyCompileError as e:
-        return str(e)
+        return False, str(e)
     finally:
         os.unlink(tmp)
 
 
-def check_undefined_names(code: str, filename: str) -> list:
+def validate_names(path: str, content: str) -> Tuple[bool, str]:
     """
-    Basic AST walk: find Name nodes that look like undefined globals.
-    Catches simple cases like DB_PATH when only settings.db_path exists.
+    Run pyflakes on patched content if available, else fall back to basic
+    AST undefined-name scan. Uses import builtins to avoid __builtins__ dict/module
+    ambiguity (F25 fix).
     """
-    issues = []
+    # Prefer pyflakes for accurate analysis
     try:
-        tree = ast.parse(code)
-    except SyntaxError:
-        return ["SyntaxError — cannot check names"]
+        from pyflakes import api as pf_api, reporter as pf_reporter
+        import io
+        out = io.StringIO()
+        rep = pf_reporter.Reporter(out, out)
+        warnings = pf_api.check(content, path, reporter=rep)
+        if warnings > 0:
+            msg = out.getvalue().strip()
+            # Filter out known false positives for module-level patterns
+            lines = [l for l in msg.splitlines() if 'imported but unused' not in l]
+            if lines:
+                return False, "\n".join(lines[:5])
+        return True, ""
+    except ImportError:
+        pass
 
-    # Collect all top-level assignments and imports (defined names)
-    defined = set()
+    # Fallback: basic AST name check
+    try:
+        tree = ast.parse(content)
+    except SyntaxError as e:
+        return False, f"SyntaxError: {e}"
+
+    defined: set = set()
+    safe: set = set(dir(builtins))  # import builtins, not __builtins__ (F25)
+    safe |= {"__name__", "__file__", "__doc__", "TYPE_CHECKING", "annotations"}
+
+    # Collect top-level definitions
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            for alias in node.names:
-                defined.add(alias.asname or alias.name.split(".")[0])
-        elif isinstance(node, ast.Assign):
-            for t in node.targets:
-                if isinstance(t, ast.Name):
-                    defined.add(t.id)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             defined.add(node.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                defined.add(alias.asname or alias.name.split('.')[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                defined.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    defined.add(target.id)
 
-    # Python builtins + common names we know are safe
-    safe = set(dir(__builtins__)) | {"settings", "aiosqlite", "os", "uuid", "datetime",
-                                      "timezone", "List", "Dict", "Optional", "Any"}
-    defined |= safe
-
-    # Look for Name references that are not in defined set (shallow pass only)
+    # Check top-level Name loads
+    undefined = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
-            if node.id not in defined and not node.id.startswith("_"):
-                issues.append(f"Possibly undefined name '{node.id}' at line {node.lineno}")
+            if node.id not in defined and node.id not in safe:
+                undefined.append(node.id)
 
-    return issues
+    if undefined:
+        unique = list(dict.fromkeys(undefined))[:5]
+        return False, f"Possibly undefined names: {unique}"
+    return True, ""
 
 
-def validate_patches(patches: list) -> list:
+# ---------------------------------------------------------------------------
+# Patch application
+# ---------------------------------------------------------------------------
+
+def apply_patches(patches: List[Dict], branch: str) -> Tuple[int, int]:
     """
-    For each patch, apply it to the current file content and validate.
-    Returns list of problem strings (empty = all good).
+    Apply patches to the given branch (NOT main).
+    Returns (applied_count, total_count).
+    Patches with 'find' that are not found in the current file are skipped
+    with a warning (logged) — caller checks applied < total.
     """
-    problems = []
-    import base64
-
-    for patch in patches:
-        path    = patch.get("file", "")
-        find    = patch.get("find", "")
-        replace = patch.get("replace", "")
-
-        if not path or not find:
-            problems.append(f"Empty path or find in patch for '{path}'")
-            continue
-
-        current = get_file(path)
-        if current is None:
-            problems.append(f"File not found: {path}")
-            continue
-
-        if find not in current:
-            problems.append(f"find-string not in {path}: {find[:60]!r}")
-            continue
-
-        patched = current.replace(find, replace, 1)
-
-        if path.endswith(".py"):
-            err = validate_python_syntax(patched, path)
-            if err:
-                problems.append(f"Syntax error in {path} after patch: {err}")
-                continue
-
-            undefined = check_undefined_names(patched, path)
-            # Only flag names that actually appear in the replaced block
-            new_names = [n for n in undefined if n.split("'")[1] in replace]
-            if new_names:
-                problems.append(f"Potential undefined names in {path}: {'; '.join(new_names)}")
-
-    return problems
-
-
-# ── Claude phase 1: diagnose ───────────────────────────────────────────────────
-
-PHASE1_SYSTEM = """You are a DevOps self-healing agent. Diagnose a GitHub Actions failure and produce exact patches.
-
-Respond ONLY in this JSON format (no other text, no markdown fences):
-{
-  "diagnosis": "one sentence root cause",
-  "severity": "critical|high|medium|low",
-  "fix_type": "code_patch|config_change|transient|escalate",
-  "patches": [
-    {
-      "file": "relative/path/to/file",
-      "description": "what changes and why",
-      "find": "exact verbatim string to replace (including all whitespace)",
-      "replace": "exact replacement string"
-    }
-  ],
-  "retrigger": true,
-  "notes": "any extra context"
-}
-
-Critical rules for patches:
-- find must be a VERBATIM substring of the current file (check carefully)
-- replace must be complete and self-contained — no partial statements
-- Every name you introduce in replace must already be imported/defined in that file
-- If you reference a variable, verify it exists in the file context provided
-- Prefer minimal targeted changes — never patch more than needed
-- For transient errors (network, rate limit, cancel): set patches=[], retrigger=true
-- For auth/secrets issues: set fix_type=escalate
-"""
-
-
-def phase1_diagnose(logs: str, run_meta: dict) -> dict:
-    context = f"""Workflow: {run_meta.get('name','?')}
-Run ID:     {run_meta.get('id','?')}
-Conclusion: {run_meta.get('conclusion','?')}
-Event:      {run_meta.get('event','?')}
-Attempt:    {WATCHDOG_ATTEMPT}/{MAX_FIX_ATTEMPTS}
-Commit:     {run_meta.get('head_commit',{}).get('message','?')[:100]}
-
---- LOGS ---
-{logs}
-
---- backend/config.py ---
-{get_file('backend/config.py') or '[not found]'}
-
---- backend/db.py ---
-{get_file('backend/db.py') or '[not found]'}
-
---- backend/agent_loop.py (first 80 lines) ---
-{(get_file('backend/agent_loop.py') or '')[:3000]}
-
---- requirements.txt ---
-{get_file('requirements.txt') or '[not found]'}
-"""
-    resp = client.messages.create(
-        model=MODEL, max_tokens=2048, system=PHASE1_SYSTEM,
-        messages=[{"role": "user", "content": context}]
-    )
-    text = resp.content[0].text if resp.content else ""
-    return _parse_claude_json(text, "phase1_diagnose")
-
-
-# ── Claude phase 2: review own patch ──────────────────────────────────────────
-
-PHASE2_SYSTEM = """You are a senior Python code reviewer. Your job is to verify a proposed code patch
-before it is committed. Be strict — catch anything that would cause a runtime error.
-
-Respond ONLY in this JSON format:
-{
-  "approved": true,
-  "issues": [],
-  "corrected_patches": null
-}
-
-OR if you find problems:
-{
-  "approved": false,
-  "issues": ["issue 1", "issue 2"],
-  "corrected_patches": [
-    {
-      "file": "...",
-      "description": "...",
-      "find": "...",
-      "replace": "..."
-    }
-  ]
-}
-
-Check specifically:
-1. Every name in 'replace' is defined in the file (imports, module-level vars, builtins)
-2. No partial statements (dangling assignments, unclosed blocks)
-3. No leftover code from the original that is now unreachable or duplicated
-4. Indentation is correct Python
-5. find string EXACTLY matches the file content (whitespace-sensitive)
-"""
-
-
-def phase2_review(patches: list, fix: dict) -> dict:
-    """Ask Claude to review its own patches against the full current file content."""
-    file_contents = {}
-    for patch in patches:
-        path = patch.get("file", "")
-        if path and path not in file_contents:
-            file_contents[path] = get_file(path) or "[not found]"
-
-    patch_block = json.dumps(patches, indent=2)
-    files_block = "\n\n".join(
-        f"=== {p} (current content) ===\n{c}" for p, c in file_contents.items()
-    )
-
-    prompt = f"""These patches were proposed to fix: {fix.get('diagnosis','?')}
-
-PROPOSED PATCHES:
-{patch_block}
-
-CURRENT FILE CONTENT:
-{files_block}
-
-Review each patch. Check for undefined names, dangling code, and correctness.
-If all patches are correct, set approved=true.
-If there are issues, set approved=false, list them, and provide corrected_patches."""
-
-    resp = client.messages.create(
-        model=MODEL, max_tokens=2048, system=PHASE2_SYSTEM,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    text = resp.content[0].text if resp.content else ""
-    return _parse_claude_json(text, "phase2_review")
-
-
-# ── Apply patches ──────────────────────────────────────────────────────────────
-
-def apply_patches(patches: list, diagnosis: str) -> int:
     applied = 0
-    for patch in patches:
-        path    = patch.get("file", "")
-        find    = patch.get("find", "")
-        replace = patch.get("replace", "")
-        desc    = patch.get("description", "")[:60]
+    total = len(patches)
 
-        current = get_file(path)
-        if current is None or find not in current:
-            print(f"  ✗ Cannot apply patch to {path}: string not found")
+    for patch in patches:
+        file_path = patch.get("file", "")
+        find_str  = patch.get("find", "")
+        replace   = patch.get("replace", "")
+        desc      = patch.get("description", "patch")
+
+        if not file_path or not find_str:
+            print(f"  SKIP: patch missing file or find: {desc!r}")
+            total -= 1
             continue
 
-        new_content = current.replace(find, replace, 1)
-        upsert_file(
-            path, new_content,
-            f"fix(watchdog): {desc}\n\nAuto-patched by Watchdog Agent v2\n"
-            f"Diagnosis: {diagnosis[:120]}\nRun: {FAILED_RUN_ID}"
-        )
-        applied += 1
-    return applied
+        current = get_file(file_path, ref=branch)
+        if current is None:
+            print(f"  SKIP: file not found on branch: {file_path}")
+            continue
+
+        if find_str not in current:
+            print(f"  SKIP: find string not present in {file_path}: {find_str[:80]!r}")
+            continue
+
+        patched = current.replace(find_str, replace, 1)
+
+        # Validate before committing
+        ok_syn, syn_err = validate_syntax(file_path, patched)
+        if not ok_syn:
+            print(f"  REJECT {file_path}: syntax error: {syn_err}")
+            continue
+
+        ok_names, names_err = validate_names(file_path, patched)
+        if not ok_names:
+            print(f"  REJECT {file_path}: undefined names: {names_err}")
+            continue
+
+        try:
+            upsert_file(file_path, patched, f"watchdog: {desc}", branch)
+            print(f"  APPLIED {file_path}: {desc}")
+            applied += 1
+        except Exception as e:
+            print(f"  ERROR applying {file_path}: {e}")
+
+    return applied, total
 
 
-# ── Main ───────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Claude phases
+# ---------------------------------------------------------------------------
+
+_CONTEXT_FILES = [
+    "backend/agent_loop.py",
+    "backend/claude_wrapper.py",
+    "backend/tool_adapters.py",
+    "backend/db.py",
+    "backend/main.py",
+    "watchdog.py",
+]
+
+
+def _build_source_context() -> str:
+    """Fetch all relevant source files for diagnosis context."""
+    parts = []
+    for path in _CONTEXT_FILES:
+        content = get_file(path) or "(not found)"
+        parts.append(f"--- {path} ---\n{content}\n")
+    return "\n".join(parts)
+
+
+def phase1_diagnose(logs: str, source_context: str) -> Dict:
+    """
+    Ask Claude to diagnose the failure and produce patches.
+    Returns parsed JSON with keys: diagnosis, fix_type, patches, escalation_reason.
+    """
+    prompt = f"""You are a senior Python engineer diagnosing a GitHub Actions failure.
+
+## Failed workflow
+Run ID: {FAILED_RUN_ID}
+Workflow: {FAILED_WORKFLOW}
+Attempt: {WATCHDOG_ATTEMPT}/{MAX_FIX_ATTEMPTS}
+
+## Logs (last 20k chars)
+{logs[-15000:]}
+
+## Source files
+{source_context[-25000:]}
+
+## Task
+Analyse the logs and source files. Identify the root cause.
+Respond with ONLY a JSON object (no markdown, no commentary):
+
+{{
+  "diagnosis": "clear description of root cause",
+  "fix_type": "code_patch" | "config" | "transient" | "escalate",
+  "patches": [
+    {{
+      "file": "path/to/file.py",
+      "find": "exact string to replace (must be unique in file)",
+      "replace": "replacement string",
+      "description": "one-line description"
+    }}
+  ],
+  "escalation_reason": "only if fix_type=escalate"
+}}
+
+Rules:
+- fix_type=transient: flaky test / network hiccup, no patch needed
+- fix_type=escalate: cannot diagnose or fix is too risky
+- fix_type=code_patch: provide specific patches using exact strings from the source
+- Each patch.find must appear EXACTLY ONCE in the target file
+- Do not invent variable names or functions that don't exist
+"""
+    response = _client.messages.create(
+        model=MODEL,
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    raw = response.content[0].text
+    try:
+        return _parse_json(raw)
+    except json.JSONDecodeError as e:
+        print(f"Phase 1 JSON parse error: {e}\nRaw: {raw[:500]}", file=sys.stderr)
+        raise
+
+
+def phase2_review(patches: List[Dict], source_context: str, diagnosis: str) -> Dict:
+    """
+    Ask Claude to review its own patches against full file context.
+    Returns {"approved": bool, "corrected_patches": [...], "rejection_reason": "..."}
+    """
+    patches_json = json.dumps(patches, indent=2)
+    prompt = f"""You are a code reviewer checking patches proposed by another Claude instance.
+
+## Diagnosis
+{diagnosis[:1000]}
+
+## Proposed patches
+{patches_json}
+
+## Full source context
+{source_context[-25000:]}
+
+Review each patch carefully:
+1. Does the find string appear exactly once in the target file?
+2. Will the replacement compile (no syntax errors)?
+3. Does it introduce undefined variables or imports?
+4. Does it actually fix the diagnosed issue?
+
+Respond with ONLY a JSON object:
+{{
+  "approved": true | false,
+  "corrected_patches": [ ... ],
+  "rejection_reason": "only if approved=false"
+}}
+
+If approved=true, corrected_patches may be the same as the input or improved.
+If approved=false, corrected_patches should be empty and rejection_reason must be set.
+"""
+    response = _client.messages.create(
+        model=MODEL,
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    raw = response.content[0].text
+    try:
+        return _parse_json(raw)
+    except json.JSONDecodeError as e:
+        print(f"Phase 2 JSON parse error: {e}\nRaw: {raw[:500]}", file=sys.stderr)
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Main orchestrator
+# ---------------------------------------------------------------------------
 
 def main():
-    if not FAILED_RUN_ID:
-        print("ERROR: FAILED_RUN_ID not set"); sys.exit(1)
+    print(f"=== Watchdog v3 | run={FAILED_RUN_ID} | attempt={WATCHDOG_ATTEMPT}/{MAX_FIX_ATTEMPTS} ===")
 
-    print(f"\n{'='*60}")
-    print(f" WATCHDOG AGENT v2 — Run {FAILED_RUN_ID}")
-    print(f" Attempt {WATCHDOG_ATTEMPT}/{MAX_FIX_ATTEMPTS}")
-    print(f"{'='*60}\n")
-
-    run_meta = gh_api(f"/repos/{REPO_FULL}/actions/runs/{FAILED_RUN_ID}")
-    conclusion = run_meta.get("conclusion", "")
-    run_url    = run_meta.get("html_url", f"https://github.com/{REPO_FULL}/actions/runs/{FAILED_RUN_ID}")
-    workflow_file = FAILED_WORKFLOW or run_meta.get("path", "").split("/")[-1] or "claude-agent.yml"
-
-    print(f"Workflow:   {run_meta.get('name','?')}")
-    print(f"Conclusion: {conclusion}")
-    print(f"URL:        {run_url}\n")
-
-    # Skip cancelled runs — these are usually user-initiated cancels (or job
-    # timeouts) and have no meaningful logs to diagnose. Trying to "fix" them
-    # wastes Claude calls and used to crash Phase 1 on empty responses.
-    if conclusion == "cancelled":
-        print("Target run was cancelled (not a real failure) — nothing to diagnose. Exiting cleanly.")
-        sys.exit(0)
-
-    # Max attempts check
+    # Attempt cap
     if WATCHDOG_ATTEMPT > MAX_FIX_ATTEMPTS:
-        print(f"Max attempts exceeded — escalating")
-        logs = fetch_logs(FAILED_RUN_ID)
-        open_escalation_issue("Max watchdog retries exceeded", logs, run_url,
-                              "Exceeded max auto-fix attempts")
+        print(f"Max fix attempts ({MAX_FIX_ATTEMPTS}) reached. Opening escalation issue.")
+        _repo.create_issue(
+            title=f"[Watchdog] Escalation: exceeded {MAX_FIX_ATTEMPTS} fix attempts for run {FAILED_RUN_ID}",
+            body=f"Watchdog could not auto-fix the failure in run {FAILED_RUN_ID} after {MAX_FIX_ATTEMPTS} attempts. Manual intervention required.",
+            labels=["watchdog-escalation"],
+        )
         sys.exit(0)
 
     # Fetch logs
     print("Fetching logs...")
-    logs = fetch_logs(FAILED_RUN_ID)
-    print(f"  {len(logs)} chars\n")
+    logs = fetch_logs(FAILED_RUN_ID) if FAILED_RUN_ID else "[No run ID provided]"
+    print(f"Log length: {len(logs)} chars")
 
-    # ── Phase 1: Diagnose ──────────────────────────────────────────────────────
-    print("Phase 1: Diagnosing with Claude...")
+    # Fetch source context
+    print("Fetching source context...")
+    source_context = _build_source_context()
+
+    # Phase 1: diagnose
+    print("Phase 1: diagnosing...")
     try:
-        fix = phase1_diagnose(logs, run_meta)
+        result = phase1_diagnose(logs, source_context)
     except Exception as e:
-        # Don't crash the whole watchdog on a bad Claude response — escalate
-        # so a human can decide what to do, then exit successfully.
-        print(f"  ✗ Phase 1 failed: {e}")
-        open_escalation_issue(
-            "Watchdog Phase 1 diagnosis failed",
-            logs, run_url,
-            f"Could not parse Claude diagnosis response: {e}",
+        _tb.print_exc()
+        print(f"Phase 1 failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    fix_type = result.get("fix_type", "escalate")
+    diagnosis = result.get("diagnosis", "(no diagnosis)")
+    patches = result.get("patches", [])
+
+    print(f"Diagnosis: {diagnosis[:200]}")
+    print(f"Fix type: {fix_type} | Patches: {len(patches)}")
+
+    if fix_type == "transient":
+        print("Transient failure detected. No action needed.")
+        sys.exit(0)
+
+    if fix_type == "escalate" or not patches:
+        reason = result.get("escalation_reason", "No patches proposed")
+        print(f"Escalating: {reason}")
+        _repo.create_issue(
+            title=f"[Watchdog] Escalation: run {FAILED_RUN_ID}",
+            body=f"**Diagnosis:** {diagnosis}\n\n**Reason:** {reason}\n\nRun: https://github.com/{GITHUB_REPO}/actions/runs/{FAILED_RUN_ID}",
+            labels=["watchdog-escalation"],
         )
         sys.exit(0)
 
-    print(f"  Diagnosis:  {fix.get('diagnosis','?')}")
-    print(f"  Severity:   {fix.get('severity','?')}")
-    print(f"  Fix type:   {fix.get('fix_type','?')}")
-    print(f"  Patches:    {len(fix.get('patches',[]))}")
-    print(f"  Re-trigger: {fix.get('retrigger',False)}")
+    # Phase 2: review
+    print("Phase 2: reviewing patches...")
+    try:
+        review = phase2_review(patches, source_context, diagnosis)
+    except Exception as e:
+        _tb.print_exc()
+        print(f"Phase 2 failed: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    fix_type = fix.get("fix_type", "transient")
-    patches  = fix.get("patches", [])
-
-    if fix_type == "escalate":
-        print("\nClaude recommends escalation")
-        open_escalation_issue(fix.get("diagnosis","?"), logs, run_url, "Claude escalated")
+    if not review.get("approved", False):
+        reason = review.get("rejection_reason", "Phase 2 rejected patches")
+        print(f"Patches rejected: {reason}")
+        _repo.create_issue(
+            title=f"[Watchdog] Patches rejected for run {FAILED_RUN_ID}",
+            body=f"**Diagnosis:** {diagnosis}\n\n**Rejection:** {reason}\n\nPatches:\n{json.dumps(patches, indent=2)[:2000]}",
+            labels=["watchdog-escalation"],
+        )
         sys.exit(0)
 
-    # ── Phase 2: Review patches (even if empty — confirms intentional) ─────────
-    if patches:
-        print("\nPhase 2: Claude self-reviewing patches...")
-        try:
-            review = phase2_review(patches, fix)
-        except Exception as e:
-            print(f"  ✗ Phase 2 review failed: {e} — aborting patch application")
-            open_escalation_issue(
-                fix.get("diagnosis","?"), logs, run_url,
-                f"Phase 2 review could not be parsed: {e}",
-            )
-            sys.exit(0)
+    final_patches = review.get("corrected_patches") or patches
 
-        if not review.get("approved"):
-            issues = review.get("issues", [])
-            print(f"  ✗ Review REJECTED ({len(issues)} issues):")
-            for issue in issues: print(f"    - {issue}")
+    # Create a PR branch (NOT main) for the fix
+    print("Creating watchdog branch...")
+    try:
+        branch = create_watchdog_branch(FAILED_RUN_ID)
+    except Exception as e:
+        _tb.print_exc()
+        print(f"Failed to create branch: {e}", file=sys.stderr)
+        sys.exit(1)
 
-            corrected = review.get("corrected_patches")
-            if corrected:
-                print("  Reviewer provided corrected patches — using those instead")
-                patches = corrected
-            else:
-                print("  No corrected patches provided — escalating")
-                open_escalation_issue(
-                    fix.get("diagnosis","?"), logs, run_url,
-                    f"Patch review failed: {'; '.join(issues[:3])}"
-                )
-                sys.exit(0)
-        else:
-            print(f"  ✓ Review APPROVED")
+    # Apply patches to the branch
+    print(f"Applying {len(final_patches)} patches to branch {branch!r}...")
+    try:
+        applied, total = apply_patches(final_patches, branch)
+    except Exception as e:
+        _tb.print_exc()
+        print(f"Patch application error: {e}", file=sys.stderr)
+        sys.exit(1)
 
-        # ── Static validation (compile + name check) ───────────────────────────
-        print("\nStatic validation...")
-        problems = validate_patches(patches)
-        if problems:
-            print(f"  ✗ Static validation failed ({len(problems)} issues):")
-            for p in problems: print(f"    - {p}")
-            open_escalation_issue(
-                fix.get("diagnosis","?"), logs, run_url,
-                f"Static validation failed after review: {'; '.join(problems[:3])}"
-            )
-            sys.exit(1)
-        print(f"  ✓ All patches pass syntax + name checks")
+    print(f"Applied {applied}/{total} patches")
 
-        # ── Apply ──────────────────────────────────────────────────────────────
-        print(f"\nApplying {len(patches)} patch(es)...")
-        applied = apply_patches(patches, fix.get("diagnosis",""))
-        print(f"  {applied}/{len(patches)} applied")
+    if applied == 0:
+        print("No patches applied successfully. Escalating.")
+        _repo.create_issue(
+            title=f"[Watchdog] All patches failed for run {FAILED_RUN_ID}",
+            body=f"**Diagnosis:** {diagnosis}\n\nAll {total} patches failed validation. Review and apply manually.",
+            labels=["watchdog-escalation"],
+        )
+        sys.exit(1)
 
-        # ── Wait for CI ────────────────────────────────────────────────────────
-        if applied > 0:
-            # Get SHA of what we just pushed
-            time.sleep(5)
-            latest = gh_api(f"/repos/{REPO_FULL}/commits?per_page=1")
-            if isinstance(latest, list) and latest:
-                sha = latest[0]["sha"]
-                ci_result = wait_for_ci(sha)
-                if ci_result == "failure":
-                    print("  CI failed on patched code — escalating instead of re-triggering")
-                    open_escalation_issue(
-                        fix.get("diagnosis","?"), logs, run_url,
-                        f"CI failed after Watchdog patch was applied (commit {sha[:7]})"
-                    )
-                    sys.exit(1)
-                elif ci_result == "timeout":
-                    print("  CI did not finish — proceeding anyway")
+    if applied < total:
+        print(f"WARNING: only {applied}/{total} patches applied. PR will note partial application.")
+
+    # Open a PR for review (key change: humans/CI gate reviews before merge)
+    print("Opening PR...")
+    try:
+        pr_url = open_watchdog_pr(branch, diagnosis, final_patches, applied, total)
+        print(f"PR opened: {pr_url}")
+    except Exception as e:
+        _tb.print_exc()
+        print(f"Failed to open PR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Wait for CI on the PR branch to validate the fix
+    print("Waiting for CI on PR branch...")
+    try:
+        ci_result = wait_for_ci(branch, timeout_seconds=300)
+    except Exception as e:
+        _tb.print_exc()
+        print(f"CI polling error: {e}", file=sys.stderr)
+        ci_result = None
+
+    if ci_result == "success":
+        print(f"CI passed on branch {branch!r}. Fix validated — review and merge the PR: {pr_url}")
+    elif ci_result == "failure":
+        print(f"CI failed on branch {branch!r}. The patch may be incomplete. Check: {pr_url}")
+        # Don't exit 1 — the PR is open, CI failure on the branch doesn't trigger watchdog
+        # (watchdog.yml only fires on main CI or agent workflow failures, not branch CI)
     else:
-        print("\nNo patches (transient error) — skipping to re-trigger")
+        print(f"CI result unknown/timeout. PR is open for manual review: {pr_url}")
 
-    # ── Re-trigger ─────────────────────────────────────────────────────────────
-    if fix.get("retrigger", False):
-        print(f"\nRe-triggering {workflow_file}...")
-        original_inputs = run_meta.get("inputs") or {}
-        trigger_workflow(workflow_file, original_inputs)
-    else:
-        print("\nRe-trigger skipped per diagnosis")
-
-    print(f"\n✓ Watchdog v2 complete (attempt {WATCHDOG_ATTEMPT}/{MAX_FIX_ATTEMPTS})")
+    print("=== Watchdog v3 complete ===")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
