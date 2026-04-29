@@ -172,7 +172,7 @@ def open_escalation_issue(diagnosis: str, logs: str, run_url: str, reason: str) 
         print(f"  ✗ Could not create issue: {e}")
 
 
-# ── Patch validation ───────────────────────────────────────────────────────────
+# ── Claude response parsing ────────────────────────────────────────────────────
 
 def _parse_claude_json(text: str, phase: str) -> dict:
     """
@@ -201,9 +201,14 @@ def _parse_claude_json(text: str, phase: str) -> dict:
 
     # First try direct parse.
     try:
-        return json.loads(stripped)
+        parsed = json.loads(stripped)
     except json.JSONDecodeError:
         pass
+    else:
+        if isinstance(parsed, dict):
+            return parsed
+        # Valid JSON but not an object — fall through to scanning, in case the
+        # object is embedded inside a larger structure or surrounding prose.
 
     # Fall back to scanning for the first balanced JSON object. We honor string
     # literals so a stray '{' or '}' inside a quoted value doesn't throw off
@@ -234,13 +239,16 @@ def _parse_claude_json(text: str, phase: str) -> dict:
                 if depth == 0:
                     candidate = stripped[start : i + 1]
                     try:
-                        return json.loads(candidate)
+                        parsed = json.loads(candidate)
                     except json.JSONDecodeError:
                         break  # try next opening brace
+                    if isinstance(parsed, dict):
+                        return parsed
+                    break  # parsed but wrong type; try next opening brace
         # if we fall out without depth==0, try next start
 
     raise ValueError(
-        f"{phase}: response contains no parseable JSON object; "
+        f"{phase}: response contains no parseable JSON *object*; "
         f"raw preview: {stripped[:200]!r}"
     )
 
