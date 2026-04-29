@@ -159,25 +159,32 @@ def github_list_files(path: str = "", branch: str = "main", repo: str = None) ->
         return _err(f"GitHub error listing files: {e.data}")
 
 
-# -- Filesystem Tools (sandboxed to /tmp/agent_workspace) ---------------------
+# -- Filesystem Tools (per-task ephemeral sandbox) ---------------------------
+# F14: each task gets its own tmpdir under AGENT_WORKSPACE; concurrent tasks
+#      cannot clobber each other's files.
 
-_SAFE_ROOT = os.path.realpath(os.environ.get("AGENT_WORKSPACE", "/tmp/agent_workspace"))
+_WORKSPACE_BASE = os.path.realpath(os.environ.get("AGENT_WORKSPACE", "/tmp/agent_workspace"))
 
 
-def _sanitize_path(path: str) -> str:
-    """Resolve path and reject anything outside _SAFE_ROOT (including symlinks)."""
+def _task_root(task_id: str) -> str:
+    """Return (and create) a per-task sandbox directory."""
+    root = os.path.join(_WORKSPACE_BASE, task_id)
+    os.makedirs(root, exist_ok=True)
+    return root
+
+
+def _sanitize_path(path: str, task_id: str = "") -> str:
+    """Resolve path inside the task sandbox; reject traversal and symlinks."""
     if os.path.isabs(path):
         raise ValueError(f"Path traversal denied (absolute path): {path!r}")
-    candidate = os.path.normpath(os.path.join(_SAFE_ROOT, path))
-    # realpath only dereferences existing components; for new paths the
-    # non-existing tail is left as-is (no symlink to follow yet).
+    safe_root = _task_root(task_id) if task_id else _WORKSPACE_BASE
+    candidate = os.path.normpath(os.path.join(safe_root, path))
     safe = os.path.realpath(candidate)
-    root_with_sep = _SAFE_ROOT + os.sep
-    if safe != _SAFE_ROOT and not safe.startswith(root_with_sep):
+    root_with_sep = safe_root + os.sep
+    if safe != safe_root and not safe.startswith(root_with_sep):
         raise ValueError(f"Path traversal denied: {path!r}")
-    # Extra guard: reject any existing symlink anywhere in the resolved path
-    parts = safe[len(_SAFE_ROOT):].lstrip(os.sep).split(os.sep)
-    check = _SAFE_ROOT
+    parts = safe[len(safe_root):].lstrip(os.sep).split(os.sep)
+    check = safe_root
     for part in parts:
         check = os.path.join(check, part)
         if os.path.islink(check):
@@ -185,9 +192,9 @@ def _sanitize_path(path: str) -> str:
     return safe
 
 
-def filesystem_read(path: str) -> Dict:
+def filesystem_read(path: str, task_id: str = "") -> Dict:
     try:
-        safe_path = _sanitize_path(path)
+        safe_path = _sanitize_path(path, task_id)
         if not os.path.exists(safe_path):
             return _err(f"File not found: {path}")
         with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
@@ -198,9 +205,9 @@ def filesystem_read(path: str) -> Dict:
         return _err(f"OS error reading {path}: {e}")
 
 
-def filesystem_write(path: str, content: str) -> Dict:
+def filesystem_write(path: str, content: str, task_id: str = "") -> Dict:
     try:
-        safe_path = _sanitize_path(path)
+        safe_path = _sanitize_path(path, task_id)
         os.makedirs(os.path.dirname(safe_path), exist_ok=True)
         with open(safe_path, "w", encoding="utf-8") as f:
             f.write(content)
@@ -211,9 +218,9 @@ def filesystem_write(path: str, content: str) -> Dict:
         return _err(f"OS error writing {path}: {e}")
 
 
-def filesystem_list(path: str = "") -> Dict:
+def filesystem_list(path: str = "", task_id: str = "") -> Dict:
     try:
-        safe_path = _sanitize_path(path or ".")
+        safe_path = _sanitize_path(path or ".", task_id)
         if not os.path.isdir(safe_path):
             return _err(f"Not a directory: {path}")
         entries = []
@@ -279,10 +286,14 @@ _TOOL_MAP = {
 }
 
 
-def execute_tool(tool_name: str, tool_input: Dict) -> Dict:
+def execute_tool(tool_name: str, tool_input: Dict, task_id: str = "") -> Dict:
     if tool_name not in _ALLOWED_TOOLS:
         return _err(f"Unknown tool: {tool_name!r}. Allowed: {sorted(_ALLOWED_TOOLS)}")
     fn = _TOOL_MAP[tool_name]
+    # Inject task_id into filesystem tools for per-task sandbox isolation (F14)
+    _FS_TOOLS = {"filesystem_read", "filesystem_write", "filesystem_list"}
+    if tool_name in _FS_TOOLS and task_id:
+        tool_input = {**tool_input, "task_id": task_id}
     try:
         return fn(**tool_input)
     except TypeError as e:
