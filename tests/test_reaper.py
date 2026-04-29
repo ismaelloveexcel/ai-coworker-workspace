@@ -126,7 +126,7 @@ async def test_completed_task_not_reaped():
 async def test_touch_heartbeat_prevents_reaping():
     """After touch_heartbeat the task is no longer zombie-eligible."""
     task = await db.create_task("HeartbeatTask", "test prompt")
-    stale = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
     await db.update_task(task["id"], status="running")
     async with db._get_db() as conn:
         await conn.execute(

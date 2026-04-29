@@ -8,11 +8,13 @@ Keep this dict up-to-date when Anthropic changes pricing:
 
 from backend.config import settings
 
+from typing import Dict
+
 # ---------------------------------------------------------------------------
 # Price table — USD per 1 M tokens (input / output)
 # ---------------------------------------------------------------------------
 
-PRICES: dict = {
+PRICES: Dict[str, Dict[str, float]] = {
     # Claude Sonnet 4 family
     "claude-sonnet-4-5":              {"input": 3.00,  "output": 15.00},
     "claude-sonnet-4-5-20251101":     {"input": 3.00,  "output": 15.00},
