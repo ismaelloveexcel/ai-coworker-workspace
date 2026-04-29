@@ -30,7 +30,7 @@ class Settings:
     playwright_enabled: bool = field(default_factory=lambda: _optional("PLAYWRIGHT_ENABLED", "false").lower() == "true")
     whitelisted_domains: List[str] = field(default_factory=lambda: _optional("WHITELISTED_DOMAINS", "github.com").split(","))
 
-    model: str = "claude-sonnet-4-20250514"
+    model: str = "claude-sonnet-4-6"
     db_path: str = "data/agent.db"
 
 
