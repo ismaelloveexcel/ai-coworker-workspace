@@ -166,7 +166,9 @@ _SAFE_ROOT = os.path.realpath(os.environ.get("AGENT_WORKSPACE", "/tmp/agent_work
 
 def _sanitize_path(path: str) -> str:
     """Resolve path and reject anything outside _SAFE_ROOT (including symlinks)."""
-    candidate = os.path.normpath(os.path.join(_SAFE_ROOT, path.lstrip("/")))
+    if os.path.isabs(path):
+        raise ValueError(f"Path traversal denied (absolute path): {path!r}")
+    candidate = os.path.normpath(os.path.join(_SAFE_ROOT, path))
     # realpath only dereferences existing components; for new paths the
     # non-existing tail is left as-is (no symlink to follow yet).
     safe = os.path.realpath(candidate)
