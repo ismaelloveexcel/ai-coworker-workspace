@@ -1,40 +1,50 @@
-"""Central typed Settings — loads .env once, fails fast on missing keys."""
+"""
+Central settings — loaded once at import, fails fast on missing required keys.
+"""
 import os
 from dataclasses import dataclass, field
-from typing import List
-from dotenv import load_dotenv
 
-load_dotenv()
 
 def _require(key: str) -> str:
-    val = os.getenv(key)
+    val = os.environ.get(key, "").strip()
     if not val:
-        raise RuntimeError(f"Missing required environment variable: {key}")
+        raise RuntimeError(f"Required environment variable {key!r} is not set.")
     return val
 
+
 def _optional(key: str, default: str = "") -> str:
-    return os.getenv(key, default)
+    return os.environ.get(key, default).strip()
 
 
 @dataclass
 class Settings:
-    anthropic_api_key: str = field(default_factory=lambda: _require("ANTHROPIC_API_KEY"))
-    github_token: str = field(default_factory=lambda: _require("GITHUB_TOKEN"))
-    github_owner: str = field(default_factory=lambda: _require("GITHUB_OWNER"))
-    github_default_repo: str = field(default_factory=lambda: _require("GITHUB_DEFAULT_REPO"))
+    # Core
+    anthropic_api_key: str   = field(default_factory=lambda: _require("ANTHROPIC_API_KEY"))
+    github_token: str        = field(default_factory=lambda: _require("GH_PAT"))
+    github_default_repo: str = field(default_factory=lambda: _optional("GITHUB_DEFAULT_REPO", "ismaelloveexcel/ai-coworker-workspace"))
+    model: str               = field(default_factory=lambda: _optional("CLAUDE_MODEL", "claude-sonnet-4-5"))
 
-    max_steps_per_task: int = field(default_factory=lambda: int(_optional("MAX_STEPS_PER_TASK", "30")))
-    # Per-step timeout for a single Claude turn. Default is generous (5 min)
-    # because Claude Sonnet calls with large contexts can legitimately take
-    # 60-180s. Set lower in CI/workflow if you want faster fail-fast behavior.
+    # Database
+    db_path: str             = field(default_factory=lambda: _optional("DB_PATH", "data/agent.db"))
+
+    # API authentication (F3/E1)
+    # Set API_KEY env var to require Bearer token on all mutating endpoints.
+    # Leave empty only for localhost dev — NEVER empty in any networked deployment.
+    api_key: str             = field(default_factory=lambda: _optional("API_KEY", ""))
+
+    # Agent behaviour
+    max_steps: int           = field(default_factory=lambda: int(_optional("MAX_STEPS", "25")))
     step_timeout_seconds: int = field(default_factory=lambda: int(_optional("STEP_TIMEOUT_SECONDS", "300")))
 
-    allowed_tools: List[str] = field(default_factory=lambda: _optional("ALLOWED_TOOLS", "github,filesystem").split(","))
-    playwright_enabled: bool = field(default_factory=lambda: _optional("PLAYWRIGHT_ENABLED", "false").lower() == "true")
-    whitelisted_domains: List[str] = field(default_factory=lambda: _optional("WHITELISTED_DOMAINS", "github.com").split(","))
+    # Playwright
+    playwright_enabled: bool  = field(default_factory=lambda: _optional("PLAYWRIGHT_ENABLED", "false").lower() == "true")
+    whitelisted_domains: list = field(default_factory=lambda: [
+        d.strip() for d in _optional("WHITELISTED_DOMAINS", "github.com").split(",") if d.strip()
+    ])
 
-    model: str = field(default_factory=lambda: _optional("ANTHROPIC_MODEL", "claude-sonnet-4-5"))
-    db_path: str = "data/agent.db"
+    # Logging (F52)
+    log_level: str  = field(default_factory=lambda: _optional("LOG_LEVEL", "INFO"))
+    log_json: bool  = field(default_factory=lambda: _optional("LOG_JSON", "false").lower() == "true")
 
 
 settings = Settings()
