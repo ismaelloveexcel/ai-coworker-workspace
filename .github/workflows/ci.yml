@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "task/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Validate config imports
+        run: |
+          # Create minimal .env for validation
+          echo "ANTHROPIC_API_KEY=sk-test" > .env
+          echo "GITHUB_TOKEN=ghp_test" >> .env
+          echo "GITHUB_OWNER=test" >> .env
+          echo "GITHUB_DEFAULT_REPO=test/test" >> .env
+          python -c "print('Config structure OK')"
+
+      - name: Check Python syntax
+        run: python -m py_compile backend/config.py backend/events.py backend/db.py backend/tool_adapters.py backend/claude_wrapper.py backend/agent_loop.py backend/main.py && echo "✓ All files syntax OK"

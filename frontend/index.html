@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Coworker</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @keyframes pulse-ring { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .pulse { animation: pulse-ring 1.5s ease-in-out infinite; }
+  #log-box { font-family: 'Courier New', monospace; }
+  .log-info  { color: #86efac; }
+  .log-warn  { color: #fde047; }
+  .log-error { color: #f87171; }
+</style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen p-6">
+
+<div class="max-w-5xl mx-auto">
+  <!-- Header -->
+  <div class="mb-8">
+    <h1 class="text-3xl font-bold text-white">⚡ AI Coworker</h1>
+    <p class="text-gray-400 mt-1">Autonomous coding agent — real-time execution</p>
+  </div>
+
+  <!-- Submit task -->
+  <div class="bg-gray-900 rounded-xl p-6 mb-6 border border-gray-800">
+    <h2 class="text-lg font-semibold mb-4 text-gray-200">New Task</h2>
+    <input id="title" type="text" placeholder="Task title..."
+      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 mb-3 text-white focus:outline-none focus:border-blue-500" />
+    <textarea id="prompt" rows="4" placeholder="Describe what you want the agent to build..."
+      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 mb-3 text-white focus:outline-none focus:border-blue-500 resize-none"></textarea>
+    <button onclick="submitTask()"
+      class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-6 py-2 rounded-lg transition">
+      ▶ Run Task
+    </button>
+  </div>
+
+  <!-- Task list + live view -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+    <!-- Task list -->
+    <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-gray-200">Tasks</h2>
+        <button onclick="loadTasks()" class="text-gray-400 hover:text-white text-sm">↺ Refresh</button>
+      </div>
+      <div id="task-list" class="space-y-2 max-h-[60vh] overflow-y-auto">
+        <p class="text-gray-500 text-sm">No tasks yet.</p>
+      </div>
+    </div>
+
+    <!-- Live log -->
+    <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-gray-200">Live Log</h2>
+        <div id="stream-status" class="text-xs text-gray-500">idle</div>
+      </div>
+      <div id="log-box" class="bg-gray-950 rounded-lg p-3 h-[55vh] overflow-y-auto text-sm space-y-1">
+        <p class="text-gray-600">Select a task to view logs...</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:8000';
+let currentStream = null;
+let taskCache = {};
+
+// ── Submit task ────────────────────────────────────────────────────────────────
+async function submitTask() {
+  const title  = document.getElementById('title').value.trim();
+  const prompt = document.getElementById('prompt').value.trim();
+  if (!title || !prompt) { alert('Title and prompt required'); return; }
+
+  const res = await fetch(`${API}/tasks`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({title, prompt})
+  });
+  const task = await res.json();
+  document.getElementById('title').value = '';
+  document.getElementById('prompt').value = '';
+  await loadTasks();
+  openTask(task.id);
+}
+
+// ── Load task list ─────────────────────────────────────────────────────────────
+async function loadTasks() {
+  const tasks = await fetch(`${API}/tasks`).then(r=>r.json()).catch(()=>[]);
+  taskCache = {};
+  tasks.forEach(t => taskCache[t.id] = t);
+  renderTaskList(tasks);
+}
+
+function renderTaskList(tasks) {
+  const el = document.getElementById('task-list');
+  if (!tasks.length) { el.innerHTML = '<p class="text-gray-500 text-sm">No tasks yet.</p>'; return; }
+
+  const statusColor = {
+    pending:   'bg-gray-700 text-gray-300',
+    running:   'bg-blue-900 text-blue-300',
+    done:      'bg-green-900 text-green-300',
+    failed:    'bg-red-900 text-red-300',
+    cancelled: 'bg-yellow-900 text-yellow-300',
+  };
+
+  el.innerHTML = tasks.map(t => `
+    <div onclick="openTask('${t.id}')"
+      class="cursor-pointer bg-gray-800 hover:bg-gray-750 rounded-lg p-3 border border-gray-700 transition">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[t.status]||'bg-gray-700'}">
+          ${t.status === 'running' ? '⚙ ' : ''}${t.status}
+        </span>
+        ${t.pr_url ? `<a href="${t.pr_url}" target="_blank" class="text-blue-400 text-xs hover:underline" onclick="event.stopPropagation()">PR ↗</a>` : ''}
+      </div>
+      <p class="font-medium text-sm text-white truncate">${t.title}</p>
+      <p class="text-gray-500 text-xs mt-0.5">${t.id.slice(0,8)}… · ${t.created_at.slice(0,16)}</p>
+    </div>
+  `).join('');
+}
+
+// ── Open task + stream ─────────────────────────────────────────────────────────
+async function openTask(taskId) {
+  // Load existing logs
+  const task = await fetch(`${API}/tasks/${taskId}`).then(r=>r.json()).catch(()=>null);
+  if (!task) return;
+
+  const logBox = document.getElementById('log-box');
+  logBox.innerHTML = '';
+
+  task.logs.forEach(l => appendLog(l.level, l.message));
+  task.steps.forEach(s => {
+    if (s.tool_name) appendLog('info', `[Step ${s.step_num}] ${s.tool_name} → ${s.status}`);
+  });
+
+  // Kill previous stream
+  if (currentStream) currentStream.close();
+
+  // Only stream if still running/pending
+  if (['running','pending'].includes(task.status)) {
+    streamTask(taskId);
+  } else {
+    document.getElementById('stream-status').textContent = task.status;
+  }
+}
+
+function streamTask(taskId) {
+  const es = new EventSource(`${API}/tasks/${taskId}/stream`);
+  currentStream = es;
+  document.getElementById('stream-status').textContent = '● live';
+  document.getElementById('stream-status').className = 'text-xs text-green-400 pulse';
+
+  es.onmessage = (e) => {
+    const event = JSON.parse(e.data);
+    if (event.type === 'done') { es.close(); return; }
+
+    if (event.type === 'log') {
+      appendLog(event.data.level, event.data.message);
+    } else if (event.type === 'step') {
+      appendLog('info', `[Step ${event.data.step}] ${event.data.tool} → ${event.data.status}`);
+    } else if (event.type === 'status') {
+      document.getElementById('stream-status').textContent = event.data.status;
+      document.getElementById('stream-status').className = 'text-xs text-gray-400';
+      if (event.data.pr_url) {
+        appendLog('info', `✓ PR created: ${event.data.pr_url}`);
+      }
+      loadTasks(); // Refresh list
+      if (['done','failed','cancelled'].includes(event.data.status)) {
+        es.close();
+      }
+    }
+  };
+
+  es.onerror = () => {
+    document.getElementById('stream-status').textContent = 'reconnecting...';
+    document.getElementById('stream-status').className = 'text-xs text-yellow-400';
+  };
+}
+
+function appendLog(level, message) {
+  const logBox = document.getElementById('log-box');
+  const cls = { info: 'log-info', warn: 'log-warn', error: 'log-error' }[level] || 'text-gray-400';
+  const ts = new Date().toLocaleTimeString();
+  logBox.innerHTML += `<div><span class="text-gray-600">[${ts}]</span> <span class="${cls}">${escapeHtml(message)}</span></div>`;
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Auto-load on start ─────────────────────────────────────────────────────────
+loadTasks();
+setInterval(loadTasks, 10000);
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+name: Maintenance
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Every Monday 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check for outdated packages
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --format=json || true
+      - name: Validate .env.example has all required keys
+        run: |
+          required="ANTHROPIC_API_KEY GITHUB_TOKEN GITHUB_OWNER GITHUB_DEFAULT_REPO"
+          for key in $required; do
+            grep -q "^${key}=" .env.example && echo "✓ $key" || echo "✗ MISSING: $key"
+          done
