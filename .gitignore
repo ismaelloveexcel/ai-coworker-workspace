@@ -9,3 +9,16 @@ data/
 .pytest_cache/
 .DS_Store
 node_modules/
+
+.env.*
+!.env.example
+*.py[cod]
+*.pyd
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+Thumbs.db

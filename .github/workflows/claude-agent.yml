@@ -64,7 +64,7 @@ jobs:
         run: |
           cat > .env << EOF
           ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-          GITHUB_TOKEN=${{ secrets.GH_PAT }}
+          GH_PAT=${{ secrets.GH_PAT }}
           GITHUB_OWNER=${{ github.repository_owner }}
           GITHUB_DEFAULT_REPO=${{ inputs.target_repo || github.repository }}
           MAX_STEPS_PER_TASK=25
@@ -153,3 +153,4 @@ jobs:
               repo: context.repo.repo,
               body: `${status} Agent task **${{ job.status }}**.\n\nCheck the [workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for full logs.`
             });
+
