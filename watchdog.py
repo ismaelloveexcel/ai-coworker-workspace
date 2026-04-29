@@ -49,9 +49,12 @@ if not GITHUB_TOKEN:
 
 WATCHDOG_ATTEMPT  = int(os.environ.get("WATCHDOG_ATTEMPT", "1"))
 MAX_FIX_ATTEMPTS  = int(os.environ.get("WATCHDOG_MAX_RETRIES", "3"))
+WATCHDOG_DAILY_MAX = int(os.environ.get("WATCHDOG_DAILY_MAX", "10"))
 MODEL             = os.environ.get("WATCHDOG_MODEL", "claude-sonnet-4-5")
 FAILED_RUN_ID     = os.environ.get("FAILED_RUN_ID", "")
 FAILED_WORKFLOW   = os.environ.get("FAILED_WORKFLOW", "")
+
+STATE_PATH = ".watchdog/state.json"
 
 _client = None  # lazy-loaded via _get_client()
 
@@ -70,6 +73,85 @@ def _get_repo():
     if _repo is None:
         _repo = _gh.get_repo(GITHUB_REPO)
     return _repo
+
+# ---------------------------------------------------------------------------
+# Persistent daily-invocation state (.watchdog/state.json on main branch)
+# ---------------------------------------------------------------------------
+
+def _today() -> str:
+    """Return today's UTC date as YYYY-MM-DD."""
+    import datetime
+    return datetime.datetime.utcnow().strftime("%Y-%m-%d")
+
+
+def _load_state() -> Dict:
+    """
+    Load .watchdog/state.json from the main branch.
+    Returns a fresh state dict for today if the file is missing or stale.
+    """
+    today = _today()
+    raw = get_file(STATE_PATH, ref="main")
+    if raw:
+        try:
+            state = json.loads(raw)
+            if state.get("date") == today:
+                return state
+        except (json.JSONDecodeError, AttributeError):
+            pass
+    return {"date": today, "invocations": 0}
+
+
+def _save_state(state: Dict) -> None:
+    """
+    Persist state dict as .watchdog/state.json on the main branch.
+    Creates or updates the file directly on main (operational metadata only).
+    """
+    content = json.dumps(state, indent=2) + "\n"
+    try:
+        existing = _get_repo().get_contents(STATE_PATH, ref="main")
+        _get_repo().update_file(
+            STATE_PATH,
+            f"watchdog: update daily state ({state.get('date', '?')}, "
+            f"invocations={state.get('invocations', '?')})",
+            content,
+            existing.sha,
+            branch="main",
+        )
+    except GithubException as e:
+        if e.status == 404:
+            _get_repo().create_file(
+                STATE_PATH,
+                f"watchdog: create daily state ({state.get('date', '?')})",
+                content,
+                branch="main",
+            )
+        else:
+            raise
+
+
+def _check_and_increment_daily() -> bool:
+    """
+    Load today's state, check against WATCHDOG_DAILY_MAX, and if under the
+    ceiling atomically increment and persist.  Returns True when the run is
+    allowed, False when the ceiling has been reached.
+    """
+    state = _load_state()
+    if state["invocations"] >= WATCHDOG_DAILY_MAX:
+        print(
+            f"Daily invocation ceiling reached "
+            f"({state['invocations']}/{WATCHDOG_DAILY_MAX}) for {state['date']}. "
+            "Skipping this run.",
+            file=sys.stderr,
+        )
+        return False
+    state["invocations"] += 1
+    _save_state(state)
+    print(
+        f"Watchdog invocation {state['invocations']}/{WATCHDOG_DAILY_MAX} "
+        f"for {state['date']}."
+    )
+    return True
+
 
 # ---------------------------------------------------------------------------
 # JSON extraction helper (robust: handles fences, leading prose, nesting)
@@ -526,6 +608,10 @@ If approved=false, corrected_patches should be empty and rejection_reason must b
 
 def main():
     print(f"=== Watchdog v3 | run={FAILED_RUN_ID} | attempt={WATCHDOG_ATTEMPT}/{MAX_FIX_ATTEMPTS} ===")
+
+    # Daily invocation ceiling — bail out early if we've exceeded today's quota
+    if not _check_and_increment_daily():
+        sys.exit(0)
 
     # Attempt cap
     if WATCHDOG_ATTEMPT > MAX_FIX_ATTEMPTS:
