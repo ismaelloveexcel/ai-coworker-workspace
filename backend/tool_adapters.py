@@ -1,28 +1,34 @@
 """
-Tool adapters — replaces MCP entirely.
+Tool adapters - replaces MCP entirely.
 All GitHub ops via PyGithub. All outputs JSON-safe. Failures structured.
+
+v2: Fixed @retry decorators (F4/E3).
+    Previously all GithubException were caught inside the decorated function,
+    so tenacity never saw a failure and never retried. Now the inner _gh_*
+    helpers raise on failure; only the outer public function converts to _err().
+    Unbounded _repo_cache replaced with bounded LRU (F11).
 """
 import json
 import os
 import re
 from base64 import b64decode, b64encode
+from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 from github import Github, GithubException
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
 from backend.config import settings
 from backend.events import emit_log
 
 _gh = Github(settings.github_token)
-_repo_cache: Dict[str, Any] = {}
 
 
+@lru_cache(maxsize=64)
 def _get_repo(repo_full_name: str = None):
+    """Bounded cache: max 64 distinct repos; LRU evicts stale entries (F11)."""
     name = repo_full_name or settings.github_default_repo
-    if name not in _repo_cache:
-        _repo_cache[name] = _gh.get_repo(name)
-    return _repo_cache[name]
+    return _gh.get_repo(name)
 
 
 def _ok(data: Any) -> Dict:
@@ -33,115 +39,156 @@ def _err(msg: str) -> Dict:
     return {"success": False, "error": msg}
 
 
-# ── GitHub Tools ───────────────────────────────────────────────────────────────
+# -- Retry helpers (raise on failure so tenacity can retry) -------------------
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+def _gh_create_ref(repo, ref: str, sha: str) -> None:
+    repo.create_git_ref(ref=ref, sha=sha)
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+def _gh_get_ref(repo, ref: str):
+    return repo.get_git_ref(ref)
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+def _gh_create_file(repo, path: str, message: str, content: str, branch: str):
+    repo.create_file(path, message, content, branch=branch)
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+def _gh_update_file(repo, path: str, message: str, content: str, sha: str, branch: str):
+    repo.update_file(path, message, content, sha, branch=branch)
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+def _gh_create_pr(repo, title: str, body: str, head: str, base: str):
+    return repo.create_pull(title=title, body=body, head=head, base=base)
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+def _gh_get_contents(repo, path: str, ref: str = None):
+    kwargs = {"ref": ref} if ref else {}
+    return repo.get_contents(path, **kwargs)
+
+
+# -- GitHub Tools --------------------------------------------------------------
+
 def github_create_branch(task_id: str, repo: str = None) -> Dict:
-    """Idempotent branch creation: task/{task_id}"""
-    branch_name = f"task/{task_id}"
     try:
         r = _get_repo(repo)
-        main_ref = r.get_git_ref("heads/main")
-        sha = main_ref.object.sha
-
-        # Check if branch already exists
+        sha = _gh_get_ref(r, "heads/main").object.sha
+        branch_name = f"task/{task_id}"
+        # Idempotent: don't fail if branch already exists
         try:
-            r.get_git_ref(f"heads/{branch_name}")
-            return _ok({"branch": branch_name, "created": False, "note": "already exists"})
+            _gh_get_ref(r, f"heads/{branch_name}")
         except GithubException:
-            pass  # Doesn't exist — create it
-
-        r.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
-        return _ok({"branch": branch_name, "created": True, "sha": sha})
+            _gh_create_ref(r, f"refs/heads/{branch_name}", sha)
+        return _ok({"branch": branch_name, "base_sha": sha})
+    except RetryError as e:
+        return _err(f"GitHub error creating branch after retries: {e}")
     except GithubException as e:
         return _err(f"GitHub error creating branch: {e.data}")
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
-def github_commit_files(branch_name: str, files: List[Dict], message: str, repo: str = None) -> Dict:
-    """
-    Upsert files to branch. files: [{path, content}]
-    Idempotent: creates or updates each file.
-    """
+def github_commit_files(branch: str, files: List[Dict], message: str, repo: str = None) -> Dict:
+    """Commit multiple files. Each dict must have 'path' and 'content' keys."""
     try:
         r = _get_repo(repo)
         committed = []
-        for f in files:
-            path = f["path"]
-            content = f["content"]
-            encoded = b64encode(content.encode()).decode() if isinstance(content, str) else b64encode(content).decode()
-
+        for file_info in files:
+            path = file_info["path"]
+            content = file_info["content"]
             try:
-                existing = r.get_contents(path, ref=branch_name)
-                r.update_file(path, message, content, existing.sha, branch=branch_name)
-                committed.append({"path": path, "action": "updated"})
+                existing = _gh_get_contents(r, path, ref=branch)
+                _gh_update_file(r, path, message, content, existing.sha, branch)
             except GithubException:
-                r.create_file(path, message, content, branch=branch_name)
-                committed.append({"path": path, "action": "created"})
-
-        return _ok({"committed": committed, "branch": branch_name})
+                _gh_create_file(r, path, message, content, branch)
+            committed.append(path)
+        return _ok({"committed": committed, "branch": branch})
+    except RetryError as e:
+        return _err(f"GitHub error committing files after retries: {e}")
     except GithubException as e:
         return _err(f"GitHub error committing files: {e.data}")
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
-def github_create_pr(branch_name: str, title: str, body: str = "", repo: str = None) -> Dict:
-    """Create PR — idempotent (returns existing PR if duplicate)."""
+def github_create_pr(branch: str, title: str, body: str = "", repo: str = None) -> Dict:
     try:
         r = _get_repo(repo)
-
-        # Check for existing PR
-        existing_prs = r.get_pulls(state="open", head=f"{settings.github_owner}:{branch_name}")
-        for pr in existing_prs:
-            return _ok({"pr_url": pr.html_url, "pr_number": pr.number, "created": False})
-
-        pr = r.create_pull(title=title, body=body, head=branch_name, base="main")
-        return _ok({"pr_url": pr.html_url, "pr_number": pr.number, "created": True})
+        # Idempotent: return existing PR if one already exists for this branch
+        existing = r.get_pulls(state="open", head=f"{r.owner.login}:{branch}")
+        for pr in existing:
+            return _ok({"pr_url": pr.html_url, "pr_number": pr.number, "existing": True})
+        pr = _gh_create_pr(r, title=title, body=body, head=branch, base="main")
+        return _ok({"pr_url": pr.html_url, "pr_number": pr.number})
+    except RetryError as e:
+        return _err(f"GitHub error creating PR after retries: {e}")
     except GithubException as e:
         return _err(f"GitHub error creating PR: {e.data}")
 
 
-@retry(stop=stop_after_attempt(2), wait=wait_exponential(min=1, max=2))
 def github_read_file(path: str, branch: str = "main", repo: str = None) -> Dict:
     try:
         r = _get_repo(repo)
-        content = r.get_contents(path, ref=branch)
-        return _ok({"path": path, "content": b64decode(content.content).decode()})
+        contents = _gh_get_contents(r, path, ref=branch)
+        raw = b64decode(contents.content).decode("utf-8", errors="replace")
+        return _ok({"path": path, "content": raw, "sha": contents.sha})
+    except RetryError as e:
+        return _err(f"GitHub error reading file after retries: {e}")
     except GithubException as e:
-        return _err(f"File not found: {path} on {branch}: {e}")
+        return _err(f"GitHub error reading file: {e.data}")
 
 
-@retry(stop=stop_after_attempt(2), wait=wait_exponential(min=1, max=2))
 def github_list_files(path: str = "", branch: str = "main", repo: str = None) -> Dict:
     try:
         r = _get_repo(repo)
-        contents = r.get_contents(path or "", ref=branch)
-        files = [{"path": c.path, "type": c.type, "size": c.size} for c in contents]
-        return _ok({"files": files, "path": path})
+        contents = _gh_get_contents(r, path or ".", ref=branch)
+        if isinstance(contents, list):
+            items = [{"name": c.name, "path": c.path, "type": c.type, "size": c.size} for c in contents]
+        else:
+            items = [{"name": contents.name, "path": contents.path, "type": contents.type, "size": contents.size}]
+        return _ok({"files": items, "path": path})
+    except RetryError as e:
+        return _err(f"GitHub error listing files after retries: {e}")
     except GithubException as e:
-        return _err(f"Error listing files: {e}")
+        return _err(f"GitHub error listing files: {e.data}")
 
 
-# ── Filesystem Tools ───────────────────────────────────────────────────────────
+# -- Filesystem Tools (sandboxed to /tmp/agent_workspace) ---------------------
 
-_SAFE_ROOT = os.path.realpath("/tmp/agent_workspace")
-os.makedirs(_SAFE_ROOT, exist_ok=True)
+_SAFE_ROOT = os.path.realpath(os.environ.get("AGENT_WORKSPACE", "/tmp/agent_workspace"))
+
 
 def _sanitize_path(path: str) -> str:
-    """Prevent path traversal, including via symlinks.
-
-    Resolves the candidate path with ``os.path.realpath`` and verifies the
-    resolved location is contained within ``_SAFE_ROOT`` (also realpath-resolved).
-    Using ``startswith`` on the joined path alone is insufficient because a
-    symlink inside ``_SAFE_ROOT`` could point outside of it.
-    """
+    """Resolve path and reject anything outside _SAFE_ROOT (including symlinks)."""
     candidate = os.path.normpath(os.path.join(_SAFE_ROOT, path.lstrip("/")))
+    # realpath only dereferences existing components; for new paths the
+    # non-existing tail is left as-is (no symlink to follow yet).
     safe = os.path.realpath(candidate)
-    # Compare with a trailing separator so /tmp/agent_workspace_evil is rejected.
-    root_with_sep = _SAFE_ROOT.rstrip(os.sep) + os.sep
+    root_with_sep = _SAFE_ROOT + os.sep
     if safe != _SAFE_ROOT and not safe.startswith(root_with_sep):
-        raise ValueError(f"Path traversal denied: {path}")
+        raise ValueError(f"Path traversal denied: {path!r}")
+    # Extra guard: reject any existing symlink anywhere in the resolved path
+    parts = safe[len(_SAFE_ROOT):].lstrip(os.sep).split(os.sep)
+    check = _SAFE_ROOT
+    for part in parts:
+        check = os.path.join(check, part)
+        if os.path.islink(check):
+            raise ValueError(f"Symlink in path denied: {path!r}")
     return safe
+
+
+def filesystem_read(path: str) -> Dict:
+    try:
+        safe_path = _sanitize_path(path)
+        if not os.path.exists(safe_path):
+            return _err(f"File not found: {path}")
+        with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
+            return _ok({"path": path, "content": f.read()})
+    except ValueError as e:
+        return _err(str(e))
+    except OSError as e:
+        return _err(f"OS error reading {path}: {e}")
 
 
 def filesystem_write(path: str, content: str) -> Dict:
@@ -150,74 +197,88 @@ def filesystem_write(path: str, content: str) -> Dict:
         os.makedirs(os.path.dirname(safe_path), exist_ok=True)
         with open(safe_path, "w", encoding="utf-8") as f:
             f.write(content)
-        return _ok({"path": path, "bytes": len(content)})
-    except Exception as e:
-        return _err(f"Filesystem write error: {e}")
+        return _ok({"path": path, "bytes_written": len(content)})
+    except ValueError as e:
+        return _err(str(e))
+    except OSError as e:
+        return _err(f"OS error writing {path}: {e}")
 
 
-def filesystem_read(path: str) -> Dict:
+def filesystem_list(path: str = "") -> Dict:
     try:
-        safe_path = _sanitize_path(path)
-        with open(safe_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        return _ok({"path": path, "content": content})
-    except FileNotFoundError:
-        return _err(f"File not found: {path}")
-    except Exception as e:
-        return _err(f"Filesystem read error: {e}")
+        safe_path = _sanitize_path(path or ".")
+        if not os.path.isdir(safe_path):
+            return _err(f"Not a directory: {path}")
+        entries = []
+        for entry in os.scandir(safe_path):
+            entries.append({"name": entry.name, "is_dir": entry.is_dir(), "size": entry.stat().st_size if entry.is_file() else 0})
+        return _ok({"path": path, "entries": entries})
+    except ValueError as e:
+        return _err(str(e))
+    except OSError as e:
+        return _err(f"OS error listing {path}: {e}")
 
 
-# ── Playwright (disabled by default) ──────────────────────────────────────────
+# -- Playwright (disabled by default) -----------------------------------------
 
 def playwright_browse(url: str) -> Dict:
     if not settings.playwright_enabled:
-        return _err("Playwright is disabled (PLAYWRIGHT_ENABLED=false)")
-
-    from urllib.parse import urlparse
-    domain = urlparse(url).hostname or ""
-    if not any(domain.endswith(d) for d in settings.whitelisted_domains):
-        return _err(f"Domain not whitelisted: {domain}")
-
+        return _err("Playwright is disabled. Set PLAYWRIGHT_ENABLED=true to enable.")
     try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        # Scheme check
+        if parsed.scheme not in ("http", "https"):
+            return _err(f"Scheme not allowed: {parsed.scheme!r}")
+        # Domain whitelist: match on exact domain or .subdomain (F20 fix)
+        domain = parsed.hostname or ""
+        allowed = any(
+            domain == d or domain.endswith("." + d)
+            for d in settings.whitelisted_domains
+        )
+        if not allowed:
+            return _err(f"Domain not whitelisted: {domain!r}")
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(url, timeout=15000)
+            page.goto(url, timeout=30000)
             text = page.inner_text("body")
             browser.close()
-            return _ok({"url": url, "text": text[:5000]})
+        return _ok({"url": url, "content": text[:5000]})
     except Exception as e:
         return _err(f"Playwright error: {e}")
 
 
-# ── Dispatcher ─────────────────────────────────────────────────────────────────
+# -- Dispatcher ----------------------------------------------------------------
 
-TOOL_MAP = {
-    "github_create_branch": lambda inp, task_id: github_create_branch(task_id, inp.get("repo")),
-    "github_commit_files":  lambda inp, _: github_commit_files(
-        inp["branch_name"], inp["files"], inp.get("message", "agent: commit"), inp.get("repo")
-    ),
-    "github_create_pr":     lambda inp, _: github_create_pr(
-        inp["branch_name"], inp["title"], inp.get("body", ""), inp.get("repo")
-    ),
-    "github_read_file":     lambda inp, _: github_read_file(
-        inp["path"], inp.get("branch", "main"), inp.get("repo")
-    ),
-    "github_list_files":    lambda inp, _: github_list_files(
-        inp.get("path", ""), inp.get("branch", "main"), inp.get("repo")
-    ),
-    "filesystem_write":     lambda inp, _: filesystem_write(inp["path"], inp["content"]),
-    "filesystem_read":      lambda inp, _: filesystem_read(inp["path"]),
-    "playwright_browse":    lambda inp, _: playwright_browse(inp["url"]),
+_ALLOWED_TOOLS = {
+    "github_create_branch", "github_commit_files", "github_create_pr",
+    "github_read_file", "github_list_files",
+    "filesystem_read", "filesystem_write", "filesystem_list",
+    "playwright_browse",
+}
+
+_TOOL_MAP = {
+    "github_create_branch": github_create_branch,
+    "github_commit_files": github_commit_files,
+    "github_create_pr": github_create_pr,
+    "github_read_file": github_read_file,
+    "github_list_files": github_list_files,
+    "filesystem_read": filesystem_read,
+    "filesystem_write": filesystem_write,
+    "filesystem_list": filesystem_list,
+    "playwright_browse": playwright_browse,
 }
 
 
-def execute_tool(tool_name: str, tool_input: Dict, task_id: str) -> Dict:
-    fn = TOOL_MAP.get(tool_name)
-    if not fn:
-        return _err(f"Unknown tool: {tool_name}")
+def execute_tool(tool_name: str, tool_input: Dict) -> Dict:
+    if tool_name not in _ALLOWED_TOOLS:
+        return _err(f"Unknown tool: {tool_name!r}. Allowed: {sorted(_ALLOWED_TOOLS)}")
+    fn = _TOOL_MAP[tool_name]
     try:
-        return fn(tool_input, task_id)
+        return fn(**tool_input)
+    except TypeError as e:
+        return _err(f"Tool {tool_name!r} called with wrong arguments: {e}")
     except Exception as e:
-        return _err(f"Tool execution exception: {e}")
+        return _err(f"Unexpected error in {tool_name!r}: {e}")

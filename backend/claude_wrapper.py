@@ -1,13 +1,15 @@
 """
-Claude wrapper — strict schema parsing, retry on malformed output.
-System prompt cached at module load.
+Claude wrapper - strict schema parsing, single correction attempt.
+
+v2: removed @retry from run_agent_turn to prevent nested retry storms (F5).
+    Fixed INPUT regex to handle deeply-nested JSON objects (F15).
+    One correction attempt per turn; caller decides what to do on failure.
 """
 import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import anthropic
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from backend.config import settings
 
@@ -20,7 +22,7 @@ MAX_HISTORY_STEPS = 10
 MAX_TOKENS = 4096
 
 
-# ── Context builder ────────────────────────────────────────────────────────────
+# -- Context builder -----------------------------------------------------------
 
 def build_task_context(task: Dict, steps: List[Dict]) -> str:
     recent = steps[-MAX_HISTORY_STEPS:]
@@ -29,26 +31,63 @@ def build_task_context(task: Dict, steps: List[Dict]) -> str:
         history.append(
             f"[Step {s['step_num']}] Tool={s.get('tool_name','?')} "
             f"Status={s['status']}\n"
-            f"  Input: {s.get('tool_input','')}\n"
-            f"  Output: {s.get('tool_output','')}"
+            f"  Input: {s.get('tool_input','')[:200]}\n"
+            f"  Output: {s.get('tool_output','')[:500]}"
         )
-    return (
-        f"TASK ID: {task['id']}\n"
-        f"TITLE: {task['title']}\n"
-        f"PROMPT: {task['prompt']}\n"
-        f"REPO: {task.get('repo_url','')}\n"
-        f"BRANCH: {task.get('branch_name','')}\n"
-        f"STATUS: {task['status']}\n\n"
-        f"STEP HISTORY (last {len(recent)}):\n" + "\n".join(history)
-    )
+    return f"""Task ID: {task['id']}
+Title: {task['title']}
+Repo: {task.get('repo_url', settings.github_default_repo)}
+Status: {task['status']}
+
+=== Step History ===
+{chr(10).join(history) if history else 'No steps yet.'}
+
+=== Objective ===
+{task['prompt']}
+
+What should the agent do next?"""
 
 
-# ── Parser ─────────────────────────────────────────────────────────────────────
+# -- JSON extraction -----------------------------------------------------------
+
+def _extract_json_object(text: str) -> Optional[str]:
+    """
+    Find the first balanced { ... } block in text, handling arbitrary nesting.
+    Returns the raw JSON string, or None if not found.
+    This replaces the naive r'{.*?}' regex which truncated at the first }.
+    """
+    start = text.find('{')
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    escape = False
+    for i, ch in enumerate(text[start:], start):
+        if escape:
+            escape = False
+            continue
+        if ch == '\\' and in_str:
+            escape = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                return text[start:i+1]
+    return None
+
+
+# -- Schema parser -------------------------------------------------------------
 
 def parse_action(text: str) -> Dict[str, Any]:
     """
-    Parse strict format:
-      PLAN:\n- ...\nACTION: ...\nTOOL: ...\nINPUT: {...}\nREASONING: ...
+    Parse the strict PLAN/ACTION/TOOL/INPUT/REASONING format.
     Raises ValueError on malformed output.
     """
     result: Dict[str, Any] = {}
@@ -69,31 +108,44 @@ def parse_action(text: str) -> Dict[str, Any]:
     tool_match = re.search(r"TOOL:\s*(\S+)", text)
     result["tool"] = tool_match.group(1).strip() if tool_match else None
 
-    # INPUT
-    input_match = re.search(r"INPUT:\s*(\{.*?\})", text, re.DOTALL)
-    if input_match:
-        try:
-            result["input"] = json.loads(input_match.group(1))
-        except json.JSONDecodeError:
-            raise ValueError(f"INPUT is not valid JSON: {input_match.group(1)[:200]}")
+    # INPUT - use brace-balanced extractor instead of naive regex (fixes F15)
+    input_section = re.search(r"INPUT:\s*", text)
+    if input_section:
+        candidate = _extract_json_object(text[input_section.end():])
+        if candidate:
+            try:
+                result["input"] = json.loads(candidate)
+            except json.JSONDecodeError:
+                raise ValueError(f"INPUT is not valid JSON: {candidate[:200]}")
+        else:
+            result["input"] = {}
     else:
         result["input"] = {}
 
     # REASONING
-    reasoning_match = re.search(r"REASONING:\s*(.+?)(?:\n[A-Z]+:|$)", text, re.DOTALL)
+    reasoning_match = re.search(r"REASONING:\s*(.+?)(?=\nPLAN:|\nACTION:|\nTOOL:|\nINPUT:|$)", text, re.DOTALL)
     result["reasoning"] = reasoning_match.group(1).strip() if reasoning_match else ""
 
     return result
 
 
-# ── Main agent turn ────────────────────────────────────────────────────────────
+# -- Agent turn ----------------------------------------------------------------
+# NOTE: No @retry here. Tenacity wraps retries at the API-error level only.
+# Correction logic is a single pass: if Claude's output is malformed, send one
+# correction request. If that also fails, raise MalformedOutputError so the
+# caller (agent_loop) can mark the step failed cleanly. This prevents the
+# 18x Claude-call storm from nested @retry + correction loops (F5/F6).
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+class MalformedOutputError(ValueError):
+    """Raised when Claude's output is malformed after one correction attempt."""
+
+
 def run_agent_turn(messages: List[Dict]) -> Tuple[str, Dict]:
     """
-    Call Claude, parse response.
+    Call Claude, parse response. One correction attempt on malformed output.
     Returns (raw_text, parsed_action).
-    Retries up to 3x on API errors.
+    Raises MalformedOutputError if still malformed after correction.
+    Raises anthropic.APIError on API-level failures (let caller retry if needed).
     """
     response = _client.messages.create(
         model=settings.model,
@@ -103,32 +155,33 @@ def run_agent_turn(messages: List[Dict]) -> Tuple[str, Dict]:
     )
     raw = response.content[0].text
 
-    # Try parse — retry with correction if malformed (up to 2 attempts)
-    for attempt in range(2):
+    try:
+        parsed = parse_action(raw)
+        return raw, parsed
+    except ValueError as first_err:
+        # One correction attempt
+        correction_messages = messages + [
+            {"role": "assistant", "content": raw},
+            {
+                "role": "user",
+                "content": (
+                    f"Your response was not in the required format. Error: {first_err}\n\n"
+                    "Please reformat your response strictly following the PLAN/ACTION/TOOL/INPUT/REASONING schema."
+                ),
+            },
+        ]
+        correction = _client.messages.create(
+            model=settings.model,
+            max_tokens=MAX_TOKENS,
+            system=_SYSTEM_PROMPT,
+            messages=correction_messages,
+        )
+        raw = correction.content[0].text
         try:
             parsed = parse_action(raw)
             return raw, parsed
-        except ValueError as e:
-            if attempt == 0:
-                # Send correction message
-                correction_messages = messages + [
-                    {"role": "assistant", "content": raw},
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Your response was not in the required format. Error: {e}\n"
-                            "Please respond EXACTLY in the required format with PLAN, ACTION, TOOL, INPUT, REASONING."
-                        ),
-                    },
-                ]
-                correction = _client.messages.create(
-                    model=settings.model,
-                    max_tokens=MAX_TOKENS,
-                    system=_SYSTEM_PROMPT,
-                    messages=correction_messages,
-                )
-                raw = correction.content[0].text
-            else:
-                raise ValueError(f"Agent produced malformed output after correction: {e}")
-
-    raise ValueError("Failed to get valid output")
+        except ValueError as second_err:
+            raise MalformedOutputError(
+                f"Agent produced malformed output after correction attempt. "
+                f"Original error: {first_err}. Correction error: {second_err}"
+            ) from second_err
