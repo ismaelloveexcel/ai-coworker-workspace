@@ -24,7 +24,10 @@ class Settings:
     github_default_repo: str = field(default_factory=lambda: _require("GITHUB_DEFAULT_REPO"))
 
     max_steps_per_task: int = field(default_factory=lambda: int(_optional("MAX_STEPS_PER_TASK", "30")))
-    step_timeout_seconds: int = field(default_factory=lambda: int(_optional("STEP_TIMEOUT_SECONDS", "60")))
+    # Per-step timeout for a single Claude turn. Default is generous (5 min)
+    # because Claude Sonnet calls with large contexts can legitimately take
+    # 60-180s. Set lower in CI/workflow if you want faster fail-fast behavior.
+    step_timeout_seconds: int = field(default_factory=lambda: int(_optional("STEP_TIMEOUT_SECONDS", "300")))
 
     allowed_tools: List[str] = field(default_factory=lambda: _optional("ALLOWED_TOOLS", "github,filesystem").split(","))
     playwright_enabled: bool = field(default_factory=lambda: _optional("PLAYWRIGHT_ENABLED", "false").lower() == "true")

@@ -1,7 +1,9 @@
 name: Watchdog Agent
 
 on:
-  # Fires automatically whenever ANY workflow run completes with failure/cancellation
+  # Fires automatically whenever a watched workflow run completes with failure.
+  # We deliberately exclude 'cancelled' — those are usually user-initiated
+  # cancels (or job timeouts) and have no diagnosable failure to fix.
   workflow_run:
     workflows:
       - "Claude Autonomous Agent"
@@ -30,12 +32,14 @@ on:
 jobs:
   inspect:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
-    # Only act on failures/cancellations (not success)
+    # Only act on real failures (not cancellations or successes). The watchdog
+    # also has a defensive 'cancelled' short-circuit in main(), but filtering
+    # here avoids spinning up the job at all.
     if: |
       (github.event_name == 'workflow_run' &&
-       (github.event.workflow_run.conclusion == 'failure' ||
-        github.event.workflow_run.conclusion == 'cancelled')) ||
+       github.event.workflow_run.conclusion == 'failure') ||
       github.event_name == 'workflow_dispatch'
 
     permissions:
