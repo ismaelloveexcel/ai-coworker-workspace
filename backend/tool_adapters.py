@@ -16,12 +16,17 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 from github import Github, GithubException
-from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
+from tenacity import RetryError, retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from backend.config import settings
 from backend.events import emit_log
 
 _gh = Github(settings.github_token)
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Only retry on transient GitHub server errors (5xx), not 4xx client errors."""
+    return isinstance(exc, GithubException) and exc.status >= 500
 
 
 @lru_cache(maxsize=64)
@@ -41,32 +46,32 @@ def _err(msg: str) -> Dict:
 
 # -- Retry helpers (raise on failure so tenacity can retry) -------------------
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
 def _gh_create_ref(repo, ref: str, sha: str) -> None:
     repo.create_git_ref(ref=ref, sha=sha)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
 def _gh_get_ref(repo, ref: str):
     return repo.get_git_ref(ref)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
 def _gh_create_file(repo, path: str, message: str, content: str, branch: str):
     repo.create_file(path, message, content, branch=branch)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
 def _gh_update_file(repo, path: str, message: str, content: str, sha: str, branch: str):
     repo.update_file(path, message, content, sha, branch=branch)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
 def _gh_create_pr(repo, title: str, body: str, head: str, base: str):
     return repo.create_pull(title=title, body=body, head=head, base=base)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
 def _gh_get_contents(repo, path: str, ref: str = None):
     kwargs = {"ref": ref} if ref else {}
     return repo.get_contents(path, **kwargs)
