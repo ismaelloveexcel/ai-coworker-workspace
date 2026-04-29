@@ -2,7 +2,7 @@
 import asyncio
 import pytest
 
-os.environ = __import__("os").environ
+import os
 from backend.events import emit, get_bus, destroy_bus, MAX_QUEUE
 
 
