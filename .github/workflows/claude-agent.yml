@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     # Hard ceiling so a slow / runaway agent fails fast instead of being
     # manually cancelled hours later. 25 steps × ~60s/step + overhead fits
-    # comfortably in 45 minutes; bump if MAX_STEPS_PER_TASK is increased.
+    # comfortably in 45 minutes; bump if MAX_STEPS is increased.
     timeout-minutes: 45
     # F30: one run per repo at a time; don't cancel in-progress so we don't orphan branches
     concurrency:
@@ -69,19 +69,7 @@ jobs:
           echo "task_body=$(cat /tmp/issue_body)"   >> $GITHUB_OUTPUT
 
       - name: Set up environment
-        run: |
-          cat > .env << EOF
-          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-          GH_PAT=${{ secrets.GH_PAT }}
-          GITHUB_OWNER=${{ github.repository_owner }}
-          GITHUB_DEFAULT_REPO=${{ inputs.target_repo || github.repository }}
-          MAX_STEPS_PER_TASK=25
-          STEP_TIMEOUT_SECONDS=90  # 25 steps × 90s = 37.5min fits within timeout-minutes: 45
-          ALLOWED_TOOLS=github,filesystem
-          PLAYWRIGHT_ENABLED=false
-          WHITELISTED_DOMAINS=github.com
-          EOF
-          mkdir -p data
+        run: mkdir -p data
 
       - name: Run autonomous agent
         env:
@@ -89,6 +77,12 @@ jobs:
           TASK_PROMPT: ${{ inputs.task_prompt || steps.issue-task.outputs.task_body }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_PAT: ${{ secrets.GH_PAT }}
+          GITHUB_DEFAULT_REPO: ${{ inputs.target_repo || github.repository }}
+          CLAUDE_MODEL: "claude-sonnet-4-5-20251022"
+          MAX_STEPS: "25"
+          STEP_TIMEOUT_SECONDS: "90"
+          PLAYWRIGHT_ENABLED: "false"
+          WHITELISTED_DOMAINS: "github.com"
         run: |
           python - << 'PYEOF'
           import asyncio
