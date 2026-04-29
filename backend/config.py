@@ -42,6 +42,9 @@ class Settings:
         d.strip() for d in _optional("WHITELISTED_DOMAINS", "github.com").split(",") if d.strip()
     ])
 
+    # Cost cap — raise BudgetExceeded when a task exceeds this USD amount
+    max_task_usd: float = field(default_factory=lambda: float(_optional("MAX_TASK_USD", "5.00")))
+
     # Logging (F52)
     log_level: str  = field(default_factory=lambda: _optional("LOG_LEVEL", "INFO"))
     log_json: bool  = field(default_factory=lambda: _optional("LOG_JSON", "false").lower() == "true")

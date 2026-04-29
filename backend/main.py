@@ -27,6 +27,7 @@ from backend import db
 from backend.agent_loop import _running, run_task
 from backend.config import settings
 from backend.events import destroy_bus, emit, get_bus
+from backend.notifier import notify_task_failure
 
 
 # ---------------------------------------------------------------------------
@@ -67,8 +68,24 @@ log = structlog.get_logger(__name__)
 async def lifespan(app: FastAPI):
     log.info("startup", db_path=settings.db_path)
     await db.init_db()
+    await _reap_zombie_tasks()
     yield
     log.info("shutdown")
+
+
+async def _reap_zombie_tasks() -> None:
+    """Mark stale running tasks as failed and open a GitHub issue for each."""
+    zombies = await db.get_zombie_tasks()
+    for task in zombies:
+        task_id = task["id"]
+        repo = task.get("repo_url") or settings.github_default_repo
+        reason = "zombie task reaped on restart"
+        await db.update_task(task_id, status="failed", error=reason)
+        log.warning("zombie_reaped", task_id=task_id, repo=repo)
+        try:
+            await notify_task_failure(task_id, repo, reason)
+        except Exception as exc:
+            log.warning("zombie_notify_failed", task_id=task_id, error=str(exc))
 
 
 # ---------------------------------------------------------------------------

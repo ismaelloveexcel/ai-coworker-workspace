@@ -4,11 +4,12 @@ Database layer — SQLite WAL mode via aiosqlite.
 v2: F18/E10 schema versioning + migrations, F19 column allowlist,
     F17 proper async context manager, F29 paginated list_tasks,
     F35 correct Optional typing, F45 health_check().
+v3: Added usd_spent / heartbeat_at columns (operator survival kit).
 """
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import aiosqlite
@@ -64,11 +65,17 @@ _MIGRATIONS: List[str] = [_SCHEMA_V1]
 # Append future migrations here, e.g.:
 # _MIGRATIONS.append("ALTER TABLE tasks ADD COLUMN cost_usd_cents INTEGER DEFAULT 0;")
 
+_SCHEMA_V2 = """
+ALTER TABLE tasks ADD COLUMN usd_spent REAL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN heartbeat_at TEXT NULL;
+"""
+_MIGRATIONS.append(_SCHEMA_V2)
+
 # ---------------------------------------------------------------------------
 # Column allowlists (F19)
 # ---------------------------------------------------------------------------
 
-_TASK_UPDATABLE = frozenset({"status", "pr_url", "error", "updated_at"})
+_TASK_UPDATABLE = frozenset({"status", "pr_url", "error", "updated_at", "heartbeat_at", "usd_spent"})
 _STEP_UPDATABLE = frozenset({"status", "tool_name", "tool_input", "tool_output", "reasoning", "updated_at"})
 
 
@@ -220,6 +227,48 @@ async def get_logs(task_id: str, limit: int = 200) -> List[Dict]:
     async with _get_db() as db:
         rows = await (await db.execute(
             "SELECT * FROM logs WHERE task_id=? ORDER BY created_at ASC LIMIT ?", (task_id, limit)
+        )).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def touch_heartbeat(task_id: str) -> None:
+    """Update heartbeat_at to now; called once per agent step."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    async with _get_db() as db:
+        await db.execute(
+            "UPDATE tasks SET heartbeat_at=? WHERE id=?",
+            (now, task_id),
+        )
+
+
+async def add_usd_spent(task_id: str, amount: float) -> float:
+    """Atomically increment usd_spent and return the new cumulative total."""
+    async with _get_db() as db:
+        await db.execute(
+            "UPDATE tasks SET usd_spent = usd_spent + ? WHERE id=?",
+            (amount, task_id),
+        )
+        row = await (await db.execute(
+            "SELECT usd_spent FROM tasks WHERE id=?", (task_id,)
+        )).fetchone()
+    return row["usd_spent"] if row else amount
+
+
+async def get_zombie_tasks(stale_minutes: int = 10) -> List[Dict]:
+    """Return running tasks whose heartbeat (or created_at) is older than stale_minutes.
+
+    Uses YYYY-MM-DD HH:MM:SS format for the cutoff so it compares correctly
+    against both SQLite's datetime('now') default (same format) and Python
+    strftime-stored heartbeat_at values.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)).strftime("%Y-%m-%d %H:%M:%S")
+    async with _get_db() as db:
+        rows = await (await db.execute(
+            """SELECT * FROM tasks
+               WHERE status='running'
+               AND created_at < ?
+               AND (heartbeat_at IS NULL OR heartbeat_at < ?)""",
+            (cutoff, cutoff),
         )).fetchall()
     return [dict(r) for r in rows]
 
