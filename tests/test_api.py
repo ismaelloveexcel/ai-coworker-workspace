@@ -1,30 +1,26 @@
 """
 Tests for backend.main — API auth, task creation, health endpoint.
-Uses httpx AsyncClient with FastAPI testclient pattern.
+DB isolation handled by autouse isolated_db fixture in conftest.py.
 """
 import pytest
-import os
-
-os.environ["DB_PATH"] = ":memory:"
-os.environ["ANTHROPIC_API_KEY"] = "sk-dummy"
-os.environ["GH_PAT"] = "ghp-dummy"
-
 from httpx import AsyncClient, ASGITransport
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, AsyncMock
 
 
 @pytest.fixture
 async def client():
+    """Async test client that bypasses lifespan (DB already init'd by isolated_db)."""
     from backend.main import app
-    from backend import db
-    await db.init_db()
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as ac:
         yield ac
 
 
 @pytest.mark.asyncio
 async def test_health_ok(client):
-    with patch("backend.db.health_check", return_value=True):
+    with patch("backend.db.health_check", new=AsyncMock(return_value=True)):
         r = await client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
@@ -32,7 +28,7 @@ async def test_health_ok(client):
 
 @pytest.mark.asyncio
 async def test_health_degraded(client):
-    with patch("backend.db.health_check", return_value=False):
+    with patch("backend.db.health_check", new=AsyncMock(return_value=False)):
         r = await client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "degraded"
@@ -40,9 +36,8 @@ async def test_health_degraded(client):
 
 @pytest.mark.asyncio
 async def test_create_task_no_auth(client):
-    """When API_KEY is empty, no auth required."""
-    with patch("backend.agent_loop.run_task", new_callable=AsyncMock), \
-         patch("backend.agent_loop._running", {}):
+    """When API_KEY is empty (default in CI), no auth required."""
+    with patch("backend.agent_loop.run_task", new=AsyncMock()):
         r = await client.post("/tasks", json={"title": "t", "prompt": "p"})
     assert r.status_code == 201
     assert r.json()["title"] == "t"
@@ -50,9 +45,10 @@ async def test_create_task_no_auth(client):
 
 @pytest.mark.asyncio
 async def test_create_task_with_auth_required(client):
-    """When API_KEY is set, requests without token are rejected."""
-    with patch("backend.config.settings") as mock_settings:
-        mock_settings.api_key = "secret-token"
+    """When API_KEY is set, requests without token get 401."""
+    with patch("backend.main.settings") as ms:
+        ms.api_key = "secret-token"
+        ms.max_concurrent_tasks = 10
         r = await client.post("/tasks", json={"title": "t", "prompt": "p"})
     assert r.status_code == 401
 
@@ -65,8 +61,7 @@ async def test_create_task_invalid_repo_url(client):
 
 @pytest.mark.asyncio
 async def test_create_task_valid_repo_url(client):
-    with patch("backend.agent_loop.run_task", new_callable=AsyncMock), \
-         patch("backend.agent_loop._running", {}):
+    with patch("backend.agent_loop.run_task", new=AsyncMock()):
         r = await client.post("/tasks", json={"title": "t", "prompt": "p", "repo_url": "owner/repo"})
     assert r.status_code == 201
 
@@ -90,4 +85,3 @@ async def test_get_task_not_found(client):
 async def test_prompt_too_long(client):
     r = await client.post("/tasks", json={"title": "t", "prompt": "x" * 8001})
     assert r.status_code == 422
-
