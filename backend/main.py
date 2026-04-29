@@ -145,9 +145,9 @@ def _looks_like_secret(s: str) -> bool:
     has_upper  = any(c.isupper() for c in s)
     has_lower  = any(c.islower() for c in s)
     has_symbol = any(c in "-_" for c in s)
-    diversity  = sum([has_digit, has_upper, has_lower, has_symbol])
+    num_char_classes = sum([has_digit, has_upper, has_lower, has_symbol])
     # Plain lowercase/uppercase words are not secrets
-    if diversity < 3:
+    if num_char_classes < 3:
         return False
     return True
 

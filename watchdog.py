@@ -81,7 +81,7 @@ def _get_repo():
 def _today() -> str:
     """Return today's UTC date as YYYY-MM-DD."""
     import datetime
-    return datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
 
 
 def _load_state() -> Dict:
