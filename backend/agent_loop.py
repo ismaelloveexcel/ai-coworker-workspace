@@ -1,6 +1,13 @@
 """
 Agent loop — core engine.
 Fully event-driven. DB is single source of truth.
+
+v2 fixes:
+- Removed asyncio.wait_for wrapping run_in_executor (caused infinite retry loop
+  when Claude API was slow: timeout fires, step_count decrements, retries forever)
+- Let Anthropic client handle its own timeout (default 600s)
+- Cleaned up message flow (context rebuilt from DB each step — no stale appends)
+- Stricter correction attempt tracking per step, not globally
 """
 import asyncio
 import json
@@ -13,7 +20,7 @@ from backend import db
 from backend.claude_wrapper import build_task_context, run_agent_turn
 from backend.config import settings
 from backend.events import emit_log, emit_status, emit_step
-from backend.tool_adapters import execute_tool
+from backend.tool_adapters import execute_tool, github_create_branch
 
 log = structlog.get_logger()
 
@@ -28,15 +35,15 @@ async def run_task(task_id: str) -> None:
     await emit_status(task_id, "running")
     await emit_log(task_id, "info", f"Task started: {task['title']}")
 
-    messages: List[Dict] = []
     step_count = 0
-    correction_attempts = 0
+    messages: List[Dict] = []
 
     try:
-        # Step 0: Create branch
+        # ── Step 0: Create branch ──────────────────────────────────────────────
         await emit_log(task_id, "info", "Creating branch...")
-        from backend.tool_adapters import github_create_branch
-        branch_result = github_create_branch(task_id)
+        loop = asyncio.get_event_loop()
+        branch_result = await loop.run_in_executor(None, github_create_branch, task_id)
+
         if not branch_result["success"]:
             raise RuntimeError(f"Branch creation failed: {branch_result['error']}")
 
@@ -45,65 +52,59 @@ async def run_task(task_id: str) -> None:
         task = await db.get_task(task_id)
         await emit_log(task_id, "info", f"Branch ready: {branch_name}")
 
-        # Initial user message
-        context = build_task_context(task, [])
-        messages = [{"role": "user", "content": context}]
-
+        # ── Agent loop ─────────────────────────────────────────────────────────
         while step_count < settings.max_steps_per_task:
             step_count += 1
-            await emit_log(task_id, "info", f"=== Step {step_count} ===")
 
-            # Refresh task from DB
+            # Check for cancellation
             task = await db.get_task(task_id)
             if task["status"] == "cancelled":
                 await emit_log(task_id, "warn", "Task cancelled")
                 return
 
-            # Rebuild context
-            steps = await db.get_steps(task_id)
+            await emit_log(task_id, "info", f"=== Step {step_count}/{settings.max_steps_per_task} ===")
+
+            # Rebuild context from DB (source of truth)
+            steps   = await db.get_steps(task_id)
             context = build_task_context(task, steps)
-            if step_count > 1:
-                messages = [{"role": "user", "content": context}]
+            messages = [{"role": "user", "content": context}]
 
-            # Create step record
             step_id = await db.create_step(task_id, step_count)
+            correction_attempts = 0  # reset per step
 
-            try:
-                # Call Claude (sync, run in executor to not block event loop)
-                loop = asyncio.get_event_loop()
-                raw_text, parsed = await asyncio.wait_for(
-                    loop.run_in_executor(None, run_agent_turn, messages),
-                    timeout=settings.step_timeout_seconds,
-                )
-                correction_attempts = 0
-            except asyncio.TimeoutError:
-                await emit_log(task_id, "error", f"Step {step_count} timed out")
-                await db.update_step(step_id, status="failed", tool_output='{"error":"timeout"}')
-                await db.add_log(task_id, "error", f"Step {step_count} timed out")
-                step_count -= 1  # Don't count timeout as progress
-                continue
-            except ValueError as e:
-                # Malformed output
-                correction_attempts += 1
-                await emit_log(task_id, "warn", f"Malformed output (attempt {correction_attempts}): {e}")
-                if correction_attempts >= 3:
-                    raise RuntimeError(f"Repeated malformed output: {e}")
-                await db.update_step(step_id, status="failed", tool_output=json.dumps({"error": str(e)}))
-                continue
+            # ── Call Claude (allow up to 2 corrections per step) ──────────────
+            raw_text, parsed = None, None
+            while correction_attempts <= 2:
+                try:
+                    raw_text, parsed = await loop.run_in_executor(
+                        None, run_agent_turn, messages
+                    )
+                    break  # success
+                except ValueError as e:
+                    correction_attempts += 1
+                    await emit_log(task_id, "warn",
+                                   f"Malformed output (correction {correction_attempts}/2): {e}")
+                    if correction_attempts > 2:
+                        raise RuntimeError(f"Agent failed to produce valid output after corrections: {e}")
+                    # Feed correction back
+                    messages = messages + [
+                        {"role": "assistant", "content": raw_text or ""},
+                        {"role": "user", "content": (
+                            f"Your output was not in the required format. Error: {e}\n"
+                            "Respond EXACTLY using PLAN / ACTION / TOOL / INPUT / REASONING format."
+                        )},
+                    ]
+                except Exception as e:
+                    raise RuntimeError(f"Claude API error: {e}") from e
 
-            action = parsed.get("action", "error")
+            action    = parsed.get("action", "error")
             tool_name = parsed.get("tool")
             tool_input = parsed.get("input", {})
-            plan = parsed.get("plan", "")
+            plan      = parsed.get("plan", "")
             reasoning = parsed.get("reasoning", "")
 
-            await db.update_step(
-                step_id,
-                plan=plan,
-                tool_name=tool_name,
-                tool_input=json.dumps(tool_input),
-                reasoning=reasoning,
-            )
+            await db.update_step(step_id, plan=plan, tool_name=tool_name,
+                                  tool_input=json.dumps(tool_input), reasoning=reasoning)
             await emit_step(task_id, step_count, tool_name or action, "running",
                             plan=plan, reasoning=reasoning)
             await emit_log(task_id, "info", f"Action={action} Tool={tool_name}")
@@ -118,54 +119,53 @@ async def run_task(task_id: str) -> None:
                 await emit_log(task_id, "info", f"✓ Done. PR: {pr_url}")
                 return
 
-            # ── Error from Claude ──────────────────────────────────────────────
+            # ── Agent error ────────────────────────────────────────────────────
             if action == "error":
-                await emit_log(task_id, "error", f"Agent reported error: {reasoning}")
                 await db.update_step(step_id, status="failed",
                                      tool_output=json.dumps({"error": reasoning}))
-                raise RuntimeError(f"Agent error: {reasoning}")
+                raise RuntimeError(f"Agent reported error: {reasoning}")
 
             # ── Execute tool ───────────────────────────────────────────────────
             if not tool_name:
-                await emit_log(task_id, "warn", "No tool name in action — skipping")
+                await emit_log(task_id, "warn", "No tool name — skipping step")
+                await db.update_step(step_id, status="failed",
+                                     tool_output='{"error":"no tool name"}')
                 continue
 
             await emit_log(task_id, "info", f"Executing: {tool_name}")
-            tool_result = await asyncio.get_event_loop().run_in_executor(
+            tool_result = await loop.run_in_executor(
                 None, execute_tool, tool_name, tool_input, task_id
             )
             tool_output_str = json.dumps(tool_result)
 
-            await db.update_step(
-                step_id,
-                status="done" if tool_result.get("success") else "failed",
-                tool_output=tool_output_str,
-            )
+            step_ok = tool_result.get("success", False)
+            await db.update_step(step_id,
+                                  status="done" if step_ok else "failed",
+                                  tool_output=tool_output_str)
             await emit_step(task_id, step_count, tool_name,
-                            "done" if tool_result.get("success") else "failed",
-                            output=tool_result)
-            await db.add_log(task_id, "info",
-                             f"Tool {tool_name}: {'ok' if tool_result.get('success') else 'failed'}",
+                            "done" if step_ok else "failed", output=tool_result)
+            await db.add_log(task_id, "info" if step_ok else "warn",
+                             f"Tool {tool_name}: {'ok' if step_ok else 'FAILED'}",
                              meta=tool_output_str[:500])
 
-            # Append result to messages for next turn
-            messages.append({"role": "assistant", "content": raw_text})
-            messages.append({
-                "role": "user",
-                "content": f"Tool result for {tool_name}:\n{tool_output_str}\n\nContinue."
-            })
+            if not step_ok:
+                await emit_log(task_id, "warn",
+                               f"Tool {tool_name} failed: {tool_result.get('error','?')}")
 
-            # Check if PR created
-            if tool_name == "github_create_pr" and tool_result.get("success"):
+            # Update PR url if just created
+            if tool_name == "github_create_pr" and step_ok:
                 pr_url = tool_result["data"].get("pr_url", "")
-                await db.update_task(task_id, pr_url=pr_url)
+                if pr_url:
+                    await db.update_task(task_id, pr_url=pr_url)
 
-        # Max steps reached
-        raise RuntimeError(f"Max steps ({settings.max_steps_per_task}) reached without completion")
+        # Max steps hit
+        raise RuntimeError(
+            f"Max steps ({settings.max_steps_per_task}) reached without completion"
+        )
 
     except Exception as e:
         err_msg = str(e)
-        tb = traceback.format_exc()
+        tb      = traceback.format_exc()
         await db.update_task(task_id, status="failed")
         await emit_status(task_id, "failed", error=err_msg)
         await emit_log(task_id, "error", f"Task failed: {err_msg}")
