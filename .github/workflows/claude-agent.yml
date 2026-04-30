@@ -36,9 +36,16 @@ jobs:
       # here previously caused a workflow startup failure on non-dispatch events.
       group: agent-${{ github.repository }}-${{ github.event.inputs.target_repo || github.repository }}
       cancel-in-progress: false
-    # Only run on labeled issues if label is "agent-task"
+    # Explicit allow-list guard: this workflow must only run for the two
+    # event types it actually supports. Any other event_name (e.g. push or
+    # synthetic dispatches from the Copilot agent on copilot/* branches)
+    # must cause the job to be SKIPPED, not failed — otherwise we burn an
+    # Actions minute and trigger watchdog noise. The `if:` evaluating to
+    # false produces a clean skip at the job level.
+    # For 'issues', additionally require the label to be exactly
+    # 'agent-task' so unrelated label changes don't start an agent run.
     if: |
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch') ||
       (github.event_name == 'issues' && github.event.label.name == 'agent-task')
 
     permissions:
