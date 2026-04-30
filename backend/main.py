@@ -27,6 +27,7 @@ from backend import db
 from backend.agent_loop import _running, run_task
 from backend.config import settings
 from backend.events import destroy_bus, emit, get_bus
+from backend.notifier import notify_task_failure
 
 
 # ---------------------------------------------------------------------------
@@ -67,8 +68,24 @@ log = structlog.get_logger(__name__)
 async def lifespan(app: FastAPI):
     log.info("startup", db_path=settings.db_path)
     await db.init_db()
+    await _reap_zombie_tasks()
     yield
     log.info("shutdown")
+
+
+async def _reap_zombie_tasks() -> None:
+    """Mark stale running tasks as failed and open a GitHub issue for each."""
+    zombies = await db.get_zombie_tasks()
+    for task in zombies:
+        task_id = task["id"]
+        repo = task.get("repo_url") or settings.github_default_repo
+        reason = "zombie task reaped on restart"
+        await db.update_task(task_id, status="failed", error=reason)
+        log.warning("zombie_reaped", task_id=task_id, repo=repo)
+        try:
+            await notify_task_failure(task_id, repo, reason)
+        except Exception as exc:
+            log.warning("zombie_notify_failed", task_id=task_id, error=str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -110,11 +127,57 @@ async def require_auth(request: Request) -> None:
 
 _REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
 
+# Patterns that look like secrets/tokens — redact them from PR titles.
+# Matches 20+ consecutive base64url/hex chars that resemble API keys or tokens.
+_SECRET_RE = re.compile(r"[A-Za-z0-9_\-]{20,}")
+_PR_TITLE_MAX = 72  # GitHub renders ~72 chars before truncating in the UI
+
+
+def _sanitize_title(title: str) -> str:
+    """
+    Sanitize a user-supplied task title for safe use as a PR title:
+      1. Strip leading/trailing whitespace and control characters.
+      2. Redact sequences that look like secrets or API tokens.
+      3. Truncate to _PR_TITLE_MAX characters.
+    """
+    # Remove ASCII control characters (keep printable + space)
+    title = re.sub(r"[\x00-\x1f\x7f]", " ", title).strip()
+    # Redact token-like strings (20+ word-chars with no spaces)
+    title = _SECRET_RE.sub(lambda m: "[REDACTED]" if _looks_like_secret(m.group()) else m.group(), title)
+    # Truncate
+    if len(title) > _PR_TITLE_MAX:
+        title = title[:_PR_TITLE_MAX - 1] + "…"
+    return title or "(untitled)"
+
+
+def _looks_like_secret(s: str) -> bool:
+    """
+    Heuristic: a string looks like a secret if it is long (>=20 chars) and
+    has high character-class diversity (letters + digits + symbols mixed
+    together), making it unlikely to be ordinary prose.
+    """
+    if len(s) < 20:
+        return False
+    has_digit  = any(c.isdigit() for c in s)
+    has_upper  = any(c.isupper() for c in s)
+    has_lower  = any(c.islower() for c in s)
+    has_symbol = any(c in "-_" for c in s)
+    num_char_classes = sum([has_digit, has_upper, has_lower, has_symbol])
+    # Plain lowercase/uppercase words are not secrets
+    if num_char_classes < 3:
+        return False
+    return True
+
 
 class CreateTaskRequest(BaseModel):
     title: str
     prompt: str
     repo_url: Optional[str] = None
+
+    @field_validator("title")
+    @classmethod
+    def sanitize_title(cls, v: str) -> str:
+        return _sanitize_title(v)
 
     @field_validator("repo_url")
     @classmethod

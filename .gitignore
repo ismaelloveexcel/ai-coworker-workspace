@@ -9,6 +9,7 @@ data/
 .pytest_cache/
 .DS_Store
 node_modules/
+.next/
 
 .env.*
 !.env.example
@@ -22,3 +23,6 @@ dist/
 build/
 *.egg-info/
 Thumbs.db
+test-results/
+playwright-report/
+

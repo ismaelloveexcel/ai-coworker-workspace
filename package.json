@@ -1,0 +1,41 @@
+{
+  "name": "ai-coworker-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "analyze": "ANALYZE=true next build",
+    "measure-cwv": "node scripts/measure-cwv.js"
+  },
+  "dependencies": {
+    "next": "15.5.15",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@next/bundle-analyzer": "^15.5.15",
+    "@playwright/test": "^1.44.0",
+    "@types/node": "^25.6.0",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "chrome-launcher": "^1.1.2",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^15.5.15",
+    "lighthouse": "^12.2.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.59.1"
+  },
+  "overrides": {
+    "postcss": "^8.5.10"
+  }
+}
