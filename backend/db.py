@@ -7,6 +7,7 @@ v2: F18/E10 schema versioning + migrations, F19 column allowlist,
     Added usd_spent / heartbeat_at columns (operator survival kit).
 """
 import os
+import sqlite3
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -126,7 +127,16 @@ async def init_db() -> None:
         current = row[0]
         for idx, sql in enumerate(_MIGRATIONS, 1):
             if idx > current:
-                await db.executescript(sql)
+                stmts = [s.strip() for s in sql.split(";") if s.strip()]
+                for stmt in stmts:
+                    if stmt.upper().startswith("ALTER TABLE"):
+                        try:
+                            await db.execute(stmt)
+                        except sqlite3.OperationalError as exc:
+                            if "duplicate column" not in str(exc).lower():
+                                raise
+                    else:
+                        await db.execute(stmt)
                 await db.execute("INSERT INTO schema_version (version) VALUES (?)", (idx,))
         await db.commit()
 

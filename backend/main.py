@@ -48,7 +48,7 @@ def _configure_logging() -> None:
 
     structlog.configure(
         processors=shared_processors + [
-            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+            renderer,
         ],
         wrapper_class=structlog.stdlib.BoundLogger,
         context_class=dict,

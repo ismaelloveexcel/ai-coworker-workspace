@@ -8,6 +8,9 @@ import asyncio
 from typing import List, Optional
 
 import structlog
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+
+from backend.tool_adapters import _is_transient
 
 log = structlog.get_logger(__name__)
 
@@ -91,7 +94,12 @@ def _create_issue(
 
     try:
         r = _get_repo(repo)
-        r.create_issue(title=title, body=body, labels=["bug"])
+        _gh_create_issue(r, title=title, body=body, labels=["bug"])
         log.info("notify_issue_created", task_id=task_id, repo=repo)
     except Exception as exc:
         log.warning("notify_create_issue_failed", task_id=task_id, repo=repo, error=str(exc))
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
+def _gh_create_issue(repo, title: str, body: str, labels: list) -> None:
+    repo.create_issue(title=title, body=body, labels=labels)
