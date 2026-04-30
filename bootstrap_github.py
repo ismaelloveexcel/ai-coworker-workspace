@@ -6,6 +6,8 @@ import os
 import sys
 from dotenv import load_dotenv
 
+from github import Github, GithubException
+
 load_dotenv()
 
 GH_PAT            = os.environ.get("GH_PAT", "")
@@ -23,8 +25,6 @@ if not REPO_NAME:
     if not REPO_NAME or "/" not in REPO_NAME:
         print("ERROR: invalid repo name", file=sys.stderr)
         sys.exit(1)
-
-from github import Github, GithubException
 
 g    = Github(GH_PAT)
 repo = g.get_repo(REPO_NAME)
