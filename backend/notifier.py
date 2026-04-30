@@ -8,11 +8,29 @@ import asyncio
 from typing import List, Optional
 
 import structlog
+from github import GithubException
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
-from backend.tool_adapters import _is_transient
-
 log = structlog.get_logger(__name__)
+
+
+def _is_transient_or_rate_limited(exc: Exception) -> bool:
+    """Retry on transient GitHub server errors (5xx) *and* rate-limit responses (403/429).
+
+    GitHub returns 403 for secondary rate limits and 429 for primary rate
+    limits.  Both are safe to retry with backoff.
+    """
+    if not isinstance(exc, GithubException):
+        return False
+    if exc.status >= 500:
+        return True
+    if exc.status in (403, 429):
+        # Distinguish rate-limit 403s from genuine permission errors by
+        # inspecting the response message/data that PyGithub exposes.
+        data = exc.data or {}
+        message = (data.get("message") or "").lower()
+        return "rate limit" in message or "secondary rate" in message or exc.status == 429
+    return False
 
 MAX_LOG_LINES = 50
 
@@ -100,6 +118,6 @@ def _create_issue(
         log.warning("notify_create_issue_failed", task_id=task_id, repo=repo, error=str(exc))
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient_or_rate_limited))
 def _gh_create_issue(repo, title: str, body: str, labels: list) -> None:
     repo.create_issue(title=title, body=body, labels=labels)
