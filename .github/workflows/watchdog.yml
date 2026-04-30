@@ -4,6 +4,7 @@ on:
   workflow_run:
     workflows: ["Claude Autonomous Agent", "CI"]
     types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
