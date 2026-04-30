@@ -45,6 +45,7 @@ async def run_task(task_id: str) -> None:
     log_ctx = log.bind(task_id=task_id)
 
     await db.update_task(task_id, status="running")
+    await db.touch_heartbeat(task_id)   # prevent false-positive zombie reap during branch creation
     await emit_log(task_id, "info", "Agent starting")
 
     try:

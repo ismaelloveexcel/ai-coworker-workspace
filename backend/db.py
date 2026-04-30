@@ -4,7 +4,7 @@ Database layer — SQLite WAL mode via aiosqlite.
 v2: F18/E10 schema versioning + migrations, F19 column allowlist,
     F17 proper async context manager, F29 paginated list_tasks,
     F35 correct Optional typing, F45 health_check().
-v3: Added usd_spent / heartbeat_at columns (operator survival kit).
+    Added usd_spent / heartbeat_at columns (operator survival kit).
 """
 import os
 import uuid
@@ -242,16 +242,19 @@ async def touch_heartbeat(task_id: str) -> None:
 
 
 async def add_usd_spent(task_id: str, amount: float) -> float:
-    """Atomically increment usd_spent and return the new cumulative total."""
+    """Atomically increment usd_spent and return the new cumulative total.
+
+    Raises ValueError if no task row is found, which prevents silently
+    misreporting spend when a bad task_id is passed.
+    """
     async with _get_db() as db:
-        await db.execute(
-            "UPDATE tasks SET usd_spent = usd_spent + ? WHERE id=?",
-            (amount, task_id),
-        )
         row = await (await db.execute(
-            "SELECT usd_spent FROM tasks WHERE id=?", (task_id,)
+            "UPDATE tasks SET usd_spent = usd_spent + ? WHERE id=? RETURNING usd_spent",
+            (amount, task_id),
         )).fetchone()
-    return row["usd_spent"] if row else amount
+    if row is None:
+        raise ValueError(f"Task not found for usd_spent update: {task_id}")
+    return row["usd_spent"]
 
 
 async def get_zombie_tasks(stale_minutes: int = 10) -> List[Dict]:

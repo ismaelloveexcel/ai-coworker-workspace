@@ -31,7 +31,9 @@ async def notify_task_failure(
     from backend import db
 
     try:
-        logs = await db.get_logs(task_id, limit=MAX_LOG_LINES)
+        # Fetch all logs then take the tail so we always get the *most recent* lines
+        all_logs = await db.get_logs(task_id, limit=500)
+        logs = all_logs[-MAX_LOG_LINES:]
     except Exception:
         logs = []
 
@@ -58,7 +60,9 @@ def _create_issue(
     """Create a GitHub issue synchronously (called from a thread executor)."""
     from backend.tool_adapters import _get_repo  # reuse existing client
 
-    short_error = (error or "unknown error")[:120]
+    import re as _re
+    # Normalize whitespace/newlines so the title stays on a single line
+    short_error = _re.sub(r"\s+", " ", (error or "unknown error").strip())[:120]
     title = f"[ai-coworker] Task {task_id[:8]} failed: {short_error}"
 
     log_lines = [
