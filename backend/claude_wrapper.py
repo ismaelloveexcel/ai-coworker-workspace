@@ -140,10 +140,11 @@ class MalformedOutputError(ValueError):
     """Raised when Claude's output is malformed after one correction attempt."""
 
 
-def run_agent_turn(messages: List[Dict]) -> Tuple[str, Dict]:
+def run_agent_turn(messages: List[Dict]) -> Tuple[str, Dict, Dict]:
     """
     Call Claude, parse response. One correction attempt on malformed output.
-    Returns (raw_text, parsed_action).
+    Returns (raw_text, parsed_action, usage) where usage has input_tokens /
+    output_tokens (summed across both calls when a correction is made).
     Raises MalformedOutputError if still malformed after correction.
     Raises anthropic.APIError on API-level failures (let caller retry if needed).
     """
@@ -153,11 +154,15 @@ def run_agent_turn(messages: List[Dict]) -> Tuple[str, Dict]:
         system=_SYSTEM_PROMPT,
         messages=messages,
     )
+    usage = {
+        "input_tokens": response.usage.input_tokens,
+        "output_tokens": response.usage.output_tokens,
+    }
     raw = response.content[0].text
 
     try:
         parsed = parse_action(raw)
-        return raw, parsed
+        return raw, parsed, usage
     except ValueError as first_err:
         # One correction attempt
         correction_messages = messages + [
@@ -176,10 +181,13 @@ def run_agent_turn(messages: List[Dict]) -> Tuple[str, Dict]:
             system=_SYSTEM_PROMPT,
             messages=correction_messages,
         )
+        # Accumulate token usage from the correction call
+        usage["input_tokens"] += correction.usage.input_tokens
+        usage["output_tokens"] += correction.usage.output_tokens
         raw = correction.content[0].text
         try:
             parsed = parse_action(raw)
-            return raw, parsed
+            return raw, parsed, usage
         except ValueError as second_err:
             raise MalformedOutputError(
                 f"Agent produced malformed output after correction attempt. "

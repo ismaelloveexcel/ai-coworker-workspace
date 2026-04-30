@@ -98,8 +98,8 @@ async function main() {
     console.log(`[measure-cwv] Server ready — running Lighthouse against ${baseUrl}`);
 
     // Dynamic requires so the script fails gracefully if devDeps are absent
-    const chromeLauncher = require('chrome-launcher'); // eslint-disable-line global-require
-    const lighthouse = require('lighthouse'); // eslint-disable-line global-require
+    const chromeLauncher = require('chrome-launcher');
+    const lighthouse = require('lighthouse');
 
     const chrome = await chromeLauncher.launch({
       chromeFlags: ['--headless', '--no-sandbox', '--disable-gpu'],

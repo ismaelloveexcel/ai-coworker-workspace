@@ -23,3 +23,6 @@ dist/
 build/
 *.egg-info/
 Thumbs.db
+test-results/
+playwright-report/
+
