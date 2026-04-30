@@ -6,7 +6,7 @@ import os
 import sys
 from dotenv import load_dotenv
 
-from github import Github, GithubException
+from github import Auth, Github, GithubException
 
 load_dotenv()
 
@@ -26,7 +26,7 @@ if not REPO_NAME:
         print("ERROR: invalid repo name", file=sys.stderr)
         sys.exit(1)
 
-g    = Github(GH_PAT)
+g    = Github(auth=Auth.Token(GH_PAT))
 repo = g.get_repo(REPO_NAME)
 
 # Set secrets

@@ -14,12 +14,14 @@ from base64 import b64decode
 from functools import lru_cache
 from typing import Any, Dict, List
 
-from github import Github, GithubException
+from github import Auth, Github, GithubException
 from tenacity import RetryError, retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from backend.config import settings
 
-_gh = Github(settings.github_token)
+# PyGithub deprecated the positional-token constructor in 2.x and removes it
+# in 3.x. Use the explicit Auth.Token form so we don't break on upgrade.
+_gh = Github(auth=Auth.Token(settings.github_token))
 
 
 def _is_transient(exc: Exception) -> bool:

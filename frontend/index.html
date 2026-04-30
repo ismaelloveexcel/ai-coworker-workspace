@@ -4,9 +4,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Coworker</title>
-  <!-- Tailwind via CDN — SRI hash ensures supply-chain safety (F40/E15) -->
+  <!--
+    Tailwind via the Play CDN.
+
+    NOTE on SRI: cdn.tailwindcss.com generates the JS bundle dynamically per
+    request (it inspects the page and emits only the utility classes in use),
+    so the response bytes are not stable and a Subresource Integrity hash
+    cannot be pinned. A static `integrity` attribute on this URL would fail
+    verification and the browser would refuse to execute the script — which
+    is exactly what was breaking the app on first load.
+
+    The script is loaded over HTTPS and pinned to the 3.4.1 path; for a
+    stronger supply-chain guarantee, switch to a precompiled, content-stable
+    Tailwind build (e.g. tailwindcss.css from cdnjs/jsdelivr at a fixed
+    version) and reintroduce SRI there.
+  -->
   <script src="https://cdn.tailwindcss.com/3.4.1"
-          integrity="sha384-PLACEHOLDER-UPDATE-WITH-REAL-SRI"
           crossorigin="anonymous"></script>
   <style>
     body { background: #0f172a; color: #e2e8f0; }
