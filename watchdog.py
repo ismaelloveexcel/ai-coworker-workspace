@@ -29,11 +29,10 @@ import sys
 import traceback as _tb
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import anthropic
 from github import Github, GithubException
-from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
 # ---------------------------------------------------------------------------
 # Config
@@ -257,7 +256,8 @@ def fetch_logs(run_id: str) -> str:
             raw = resp.read()
         # Logs come as a zip; extract text naively
         if raw[:2] == b'PK':
-            import io, zipfile
+            import io
+            import zipfile
             with zipfile.ZipFile(io.BytesIO(raw)) as z:
                 parts = []
                 for name in sorted(z.namelist()):
@@ -388,7 +388,8 @@ def wait_for_ci(branch: str, timeout_seconds: int = 300) -> Optional[str]:
 
 def validate_syntax(path: str, content: str) -> Tuple[bool, str]:
     """py_compile check on the patched content."""
-    import py_compile, tempfile
+    import py_compile
+    import tempfile
     with tempfile.NamedTemporaryFile(suffix='.py', mode='w', delete=False) as f:
         f.write(content)
         tmp = f.name
@@ -417,7 +418,7 @@ def validate_names(path: str, content: str) -> Tuple[bool, str]:
         if warnings > 0:
             msg = out.getvalue().strip()
             # Filter out known false positives for module-level patterns
-            lines = [l for l in msg.splitlines() if 'imported but unused' not in l]
+            lines = [line for line in msg.splitlines() if 'imported but unused' not in line]
             if lines:
                 return False, "\n".join(lines[:5])
         return True, ""

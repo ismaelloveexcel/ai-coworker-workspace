@@ -1,7 +1,5 @@
 """Shared fixtures for the AI Coworker test suite."""
 import os
-import asyncio
-import tempfile
 import pytest
 
 # Set dummy credentials BEFORE any backend imports

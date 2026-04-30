@@ -4,7 +4,7 @@ Tests for watchdog daily-invocation ceiling and persistent state helpers.
 import json
 import os
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 # Provide dummy env vars so watchdog can be imported without real credentials
 os.environ.setdefault("ANTHROPIC_API_KEY", "sk-dummy")
@@ -206,7 +206,6 @@ def test_check_blocks_above_ceiling():
 
 def test_parse_daily_max_valid():
     """Valid positive integer parses correctly."""
-    import importlib
     with patch.dict(os.environ, {"WATCHDOG_DAILY_MAX": "5"}):
         import watchdog as wd
         # Re-invoke the helper directly
