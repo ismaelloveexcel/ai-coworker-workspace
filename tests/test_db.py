@@ -68,3 +68,12 @@ async def test_migration_idempotent():
     # Running init_db twice should not raise
     await db.init_db()
     await db.init_db()
+
+
+@pytest.mark.asyncio
+async def test_busy_timeout_set_after_init_db():
+    """B5: every connection must have busy_timeout=5000 after init_db()."""
+    await db.init_db()
+    async with db._get_db() as conn:
+        row = await (await conn.execute("PRAGMA busy_timeout")).fetchone()
+    assert row[0] == 5000
