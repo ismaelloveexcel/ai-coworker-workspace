@@ -7,8 +7,7 @@ v2 fixes:
 - Queues are created lazily per-task and removed by destroy_bus
 """
 import asyncio
-import json
-from typing import Dict, Optional
+from typing import Dict
 
 _buses: Dict[str, asyncio.Queue] = {}
 

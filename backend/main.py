@@ -11,6 +11,7 @@ v2 fixes:
 - F52:    structlog configured once at startup
 """
 import asyncio
+import os as _os
 import re
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -26,7 +27,7 @@ from pydantic import BaseModel, field_validator
 from backend import db
 from backend.agent_loop import _running, run_task
 from backend.config import settings
-from backend.events import destroy_bus, emit, get_bus
+from backend.events import get_bus
 from backend.notifier import notify_task_failure
 
 
@@ -41,10 +42,6 @@ def _configure_logging() -> None:
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.contextvars.merge_contextvars,
     ]
-    if settings.log_json:
-        renderer = structlog.processors.JSONRenderer()
-    else:
-        renderer = structlog.dev.ConsoleRenderer()
 
     structlog.configure(
         processors=shared_processors + [
@@ -94,7 +91,6 @@ async def _reap_zombie_tasks() -> None:
 
 # F3/F28: restrict CORS to explicit origins via API_CORS_ORIGINS env var.
 # Defaults to localhost only. Set to "*" explicitly only for fully-public APIs.
-import os as _os
 _cors_origins = [o.strip() for o in _os.environ.get("API_CORS_ORIGINS", "http://localhost,http://localhost:8000").split(",") if o.strip()]
 
 app = FastAPI(title="AI Coworker", version="2.0.0", lifespan=lifespan)
@@ -209,7 +205,7 @@ async def health():
 async def create_task(req: CreateTaskRequest, request: Request):
     task = await db.create_task(req.title, req.prompt, req.repo_url)
     task_id = task["id"]
-    bus = get_bus(task_id)
+    get_bus(task_id)
     # Launch agent as a tracked asyncio Task (enables real cancellation)
     t = asyncio.create_task(run_task(task_id))
     _running[task_id] = t

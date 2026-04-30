@@ -15,7 +15,7 @@ import asyncio
 import concurrent.futures
 import json
 import traceback
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 import structlog
 import structlog.stdlib
@@ -24,7 +24,7 @@ from backend import db
 from backend.claude_wrapper import MalformedOutputError, build_task_context, run_agent_turn
 from backend.config import settings
 from backend.cost_tracker import BudgetExceeded, record_and_check
-from backend.events import destroy_bus, emit, emit_log, get_bus
+from backend.events import destroy_bus, emit, emit_log
 from backend.notifier import notify_task_failure
 from backend.tool_adapters import execute_tool, github_create_branch, github_create_pr
 
@@ -117,7 +117,6 @@ async def run_task(task_id: str) -> None:
                 await notify_task_failure(task_id, repo, str(e))
                 return
             except Exception as e:
-                tb = traceback.format_exc()
                 await db.update_step(step_id, status="failed",
                                      tool_output=json.dumps({"error": str(e)}))
                 await db.update_task(task_id, status="failed", error=str(e))

@@ -8,18 +8,15 @@ v2: Fixed @retry decorators (F4/E3).
     helpers raise on failure; only the outer public function converts to _err().
     Unbounded _repo_cache replaced with bounded LRU (F11).
 """
-import json
 import os
-import re
-from base64 import b64decode, b64encode
+from base64 import b64decode
 from functools import lru_cache
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from github import Github, GithubException
 from tenacity import RetryError, retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from backend.config import settings
-from backend.events import emit_log
 
 _gh = Github(settings.github_token)
 
