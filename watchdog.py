@@ -32,7 +32,7 @@ import urllib.request
 from typing import Dict, List, Optional, Tuple
 
 import anthropic
-from github import Github, GithubException
+from github import Auth, Github, GithubException
 
 # ---------------------------------------------------------------------------
 # Config
@@ -83,7 +83,7 @@ def _get_client():
     if _client is None:
         _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     return _client
-_gh     = Github(GITHUB_TOKEN)
+_gh     = Github(auth=Auth.Token(GITHUB_TOKEN))
 _repo   = None  # lazy-loaded; use _get_repo() instead of _repo directly
 
 def _get_repo():

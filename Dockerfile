@@ -16,15 +16,16 @@ RUN if [ "$PLAYWRIGHT_ENABLED" = "true" ]; then \
       /install/bin/playwright install chromium --with-deps; \
     fi
 
-# Stage 2: lean runtime image
-FROM python:3.12-slim AS runtime
+# Stage 2: lean runtime image — pinned to the same digest as the builder for
+# reproducibility and supply-chain consistency (F12/E8).
+FROM python:3.12-slim@sha256:46cb7cc2877e60fbd5e21a9ae6115c30ace7a077b9f8772da879e4590c18c2e3 AS runtime
 WORKDIR /app
 
 # Non-root user (F12/E8)
 RUN groupadd -r app && useradd -r -g app -d /app -s /sbin/nologin app
 
-# Install curl for HEALTHCHECK
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+# Apply security updates and install curl for HEALTHCHECK
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local

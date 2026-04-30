@@ -19,7 +19,11 @@ jobs:
       - name: Security audit
         run: |
           pip install pip-audit
-          pip-audit -r requirements.txt --format=json --fail-on-vuln
+          # pip-audit exits non-zero by default when vulnerabilities are
+          # found; --strict additionally fails the run on dependency-collection
+          # errors. The previous --fail-on-vuln flag does not exist in
+          # pip-audit and caused this job to error out on every run.
+          pip-audit -r requirements.txt --format=json --strict
       - name: Validate .env.example completeness
         run: |
           python - <<'EOF'
