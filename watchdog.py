@@ -25,7 +25,10 @@ import builtins
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import traceback as _tb
 import urllib.error
 import urllib.request
@@ -69,13 +72,44 @@ def _parse_daily_max() -> int:
         return 10
 
 WATCHDOG_DAILY_MAX = _parse_daily_max()
-MODEL             = os.environ.get("WATCHDOG_MODEL", "claude-sonnet-4-5")
+MODEL             = os.environ.get("WATCHDOG_MODEL") or os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5")
+WATCHDOG_MAX_USD  = float(os.environ.get("WATCHDOG_MAX_USD", "2.00"))
 FAILED_RUN_ID     = os.environ.get("FAILED_RUN_ID", "")
 FAILED_WORKFLOW   = os.environ.get("FAILED_WORKFLOW", "")
 
 STATE_PATH = ".watchdog/state.json"
 
 _client = None  # lazy-loaded via _get_client()
+_watchdog_spent_usd = 0.0
+
+_PRICES = {
+    "claude-sonnet-4-5": {"input": 3.00, "output": 15.00},
+    "claude-sonnet-4-5-20251101": {"input": 3.00, "output": 15.00},
+    "claude-sonnet-4-5-20251022": {"input": 3.00, "output": 15.00},
+    "_default": {"input": 3.00, "output": 15.00},
+}
+
+
+class WatchdogBudgetExceeded(RuntimeError):
+    """Raised when watchdog model spend exceeds WATCHDOG_MAX_USD."""
+
+
+def _record_watchdog_usage(response) -> None:
+    """Track Anthropic usage and stop before the watchdog becomes a spend loop."""
+    global _watchdog_spent_usd
+    usage = getattr(response, "usage", None)
+    if not usage:
+        return
+    pricing = _PRICES.get(MODEL, _PRICES["_default"])
+    input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+    output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+    cost = (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
+    _watchdog_spent_usd += cost
+    print(f"Watchdog spend: ${_watchdog_spent_usd:.4f}/${WATCHDOG_MAX_USD:.2f}")
+    if _watchdog_spent_usd > WATCHDOG_MAX_USD:
+        raise WatchdogBudgetExceeded(
+            f"Watchdog exceeded budget: ${_watchdog_spent_usd:.4f} > ${WATCHDOG_MAX_USD:.2f}"
+        )
 
 def _get_client():
     """Lazily initialize Anthropic client (avoids import-time failure in tests)."""
@@ -463,6 +497,49 @@ def validate_names(path: str, content: str) -> Tuple[bool, str]:
     return True, ""
 
 
+def validate_content(path: str, content: str) -> Tuple[bool, str]:
+    """Dispatch static validation by file type instead of treating every patch as Python."""
+    lower = path.lower()
+    if lower.endswith(".py"):
+        ok_syn, syn_err = validate_syntax(path, content)
+        if not ok_syn:
+            return False, syn_err
+        return validate_names(path, content)
+    if lower.endswith(".json"):
+        try:
+            json.loads(content)
+            return True, ""
+        except json.JSONDecodeError as exc:
+            return False, f"JSON parse error: {exc}"
+    if lower.endswith((".yml", ".yaml")):
+        actionlint = shutil.which("actionlint") or ("./actionlint" if os.path.exists("./actionlint") else "")
+        if actionlint and path.startswith(".github/workflows/"):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                workflow_dir = os.path.join(tmpdir, ".github", "workflows")
+                os.makedirs(workflow_dir, exist_ok=True)
+                tmp_path = os.path.join(workflow_dir, os.path.basename(path))
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                result = subprocess.run([actionlint, tmp_path], capture_output=True, text=True, timeout=30)
+                if result.returncode != 0:
+                    return False, (result.stdout + result.stderr).strip()[:1000]
+        return True, ""
+    if lower.endswith(".js"):
+        node = shutil.which("node")
+        if node:
+            with tempfile.NamedTemporaryFile(suffix=".js", mode="w", delete=False, encoding="utf-8") as f:
+                f.write(content)
+                tmp = f.name
+            try:
+                result = subprocess.run([node, "--check", tmp], capture_output=True, text=True, timeout=30)
+                if result.returncode != 0:
+                    return False, (result.stdout + result.stderr).strip()[:1000]
+            finally:
+                os.unlink(tmp)
+        return True, ""
+    return True, ""
+
+
 # ---------------------------------------------------------------------------
 # Patch application
 # ---------------------------------------------------------------------------
@@ -499,15 +576,9 @@ def apply_patches(patches: List[Dict], branch: str) -> Tuple[int, int]:
 
         patched = current.replace(find_str, replace, 1)
 
-        # Validate before committing
-        ok_syn, syn_err = validate_syntax(file_path, patched)
-        if not ok_syn:
-            print(f"  REJECT {file_path}: syntax error: {syn_err}")
-            continue
-
-        ok_names, names_err = validate_names(file_path, patched)
-        if not ok_names:
-            print(f"  REJECT {file_path}: undefined names: {names_err}")
+        ok_valid, validation_err = validate_content(file_path, patched)
+        if not ok_valid:
+            print(f"  REJECT {file_path}: validation error: {validation_err}")
             continue
 
         try:
@@ -531,16 +602,35 @@ _CONTEXT_FILES = [
     "backend/db.py",
     "backend/main.py",
     "watchdog.py",
+    "requirements.txt",
+    "package.json",
+    ".github/workflows/ci.yml",
+    ".github/workflows/claude-agent.yml",
+    ".github/workflows/watchdog.yml",
 ]
 
 
-def _build_source_context() -> str:
+def _build_source_context(logs: str = "") -> str:
     """Fetch all relevant source files for diagnosis context."""
     parts = []
-    for path in _CONTEXT_FILES:
+    paths = list(dict.fromkeys(_CONTEXT_FILES + _paths_from_failure_context(logs)))
+    for path in paths:
         content = get_file(path) or "(not found)"
         parts.append(f"--- {path} ---\n{content}\n")
     return "\n".join(parts)
+
+
+def _paths_from_failure_context(logs: str = "") -> List[str]:
+    candidates = set()
+    for match in re.finditer(r"(?:^|\s)([\w./-]+\.(?:py|js|ts|tsx|json|ya?ml|md))(?::\d+)?", logs):
+        path = match.group(1).lstrip("./")
+        if not path.startswith((".git/", "node_modules/")):
+            candidates.add(path)
+    if FAILED_WORKFLOW:
+        slug = FAILED_WORKFLOW.lower().replace(" ", "-")
+        for path in [f".github/workflows/{slug}.yml", f".github/workflows/{slug}.yaml"]:
+            candidates.add(path)
+    return sorted(candidates)
 
 
 def phase1_diagnose(logs: str, source_context: str) -> Dict:
@@ -591,6 +681,7 @@ Rules:
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
+    _record_watchdog_usage(response)
     raw = response.content[0].text
     try:
         return _parse_json(raw)
@@ -637,6 +728,7 @@ If approved=false, corrected_patches should be empty and rejection_reason must b
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
+    _record_watchdog_usage(response)
     raw = response.content[0].text
     try:
         return _parse_json(raw)
@@ -673,12 +765,20 @@ def main():
 
     # Fetch source context
     print("Fetching source context...")
-    source_context = _build_source_context()
+    source_context = _build_source_context(logs)
 
     # Phase 1: diagnose
     print("Phase 1: diagnosing...")
     try:
         result = phase1_diagnose(logs, source_context)
+    except WatchdogBudgetExceeded as e:
+        print(str(e), file=sys.stderr)
+        _get_repo().create_issue(
+            title=f"[Watchdog] Escalation: budget exceeded for run {FAILED_RUN_ID}",
+            body=f"Watchdog stopped before applying patches because it exceeded WATCHDOG_MAX_USD.\n\n{e}",
+            labels=["watchdog-escalation"],
+        )
+        sys.exit(0)
     except Exception as e:
         _tb.print_exc()
         print(f"Phase 1 failed: {e}", file=sys.stderr)
@@ -709,6 +809,14 @@ def main():
     print("Phase 2: reviewing patches...")
     try:
         review = phase2_review(patches, source_context, diagnosis)
+    except WatchdogBudgetExceeded as e:
+        print(str(e), file=sys.stderr)
+        _get_repo().create_issue(
+            title=f"[Watchdog] Escalation: budget exceeded for run {FAILED_RUN_ID}",
+            body=f"Watchdog stopped during patch review because it exceeded WATCHDOG_MAX_USD.\n\n{e}",
+            labels=["watchdog-escalation"],
+        )
+        sys.exit(0)
     except Exception as e:
         _tb.print_exc()
         print(f"Phase 2 failed: {e}", file=sys.stderr)

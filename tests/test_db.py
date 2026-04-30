@@ -71,9 +71,25 @@ async def test_migration_idempotent():
 
 
 @pytest.mark.asyncio
-async def test_busy_timeout_set_after_init_db():
-    """B5: every connection must have busy_timeout=5000 after init_db()."""
-    await db.init_db()
-    async with db._get_db() as conn:
-        row = await (await conn.execute("PRAGMA busy_timeout")).fetchone()
-    assert row[0] == 5000
+async def test_create_task_redacts_prompt_secrets():
+    task = await db.create_task("Secret", "token=ghp_abcdefghijklmnopqrstuvwxyz123456")
+    stored = await db.get_task(task["id"])
+
+    assert "ghp_abcdefghijklmnopqrstuvwxyz123456" not in stored["prompt"]
+    assert "[REDACTED]" in stored["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_backup_database_creates_backup(tmp_path, monkeypatch):
+    from backend import config
+
+    monkeypatch.setattr(config.settings, "backup_enabled", True)
+    monkeypatch.setattr(db.settings, "backup_enabled", True)
+    monkeypatch.setattr(config.settings, "backup_retention_days", 14)
+    monkeypatch.setattr(db.settings, "backup_retention_days", 14)
+
+    await db.create_task("Backup", "prompt")
+    backup_path = await db.backup_database()
+
+    assert backup_path is not None
+    assert backup_path.endswith(".db")

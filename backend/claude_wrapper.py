@@ -6,20 +6,89 @@ v2: removed @retry from run_agent_turn to prevent nested retry storms (F5).
     One correction attempt per turn; caller decides what to do on failure.
 """
 import json
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import anthropic
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from backend.config import settings
 
-_client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+_client = anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=60.0)
 
-with open("CLAUDE.md", "r") as f:
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+with open(os.path.join(_ROOT, "CLAUDE.md"), "r", encoding="utf-8") as f:
     _SYSTEM_PROMPT = f.read()
 
 MAX_HISTORY_STEPS = 10
 MAX_TOKENS = 4096
+
+
+def _is_retryable_anthropic(exc: Exception) -> bool:
+    if isinstance(exc, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
+        return True
+    status = getattr(exc, "status_code", None)
+    return status in {429, 500, 502, 503, 504, 529}
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(min=1, max=8),
+    retry=retry_if_exception(_is_retryable_anthropic),
+    reraise=True,
+)
+def _create_message(messages: List[Dict]):
+    return _client.messages.create(
+        model=settings.model,
+        max_tokens=MAX_TOKENS,
+        system=_SYSTEM_PROMPT,
+        messages=messages,
+    )
+
+
+def _read_context_file(path: str, limit: int = 2500) -> str:
+    full_path = os.path.join(_ROOT, path)
+    try:
+        with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read(limit + 1)
+    except OSError:
+        return ""
+    if len(content) > limit:
+        return content[:limit] + "\n...[truncated]"
+    return content
+
+
+def _build_repo_prelude() -> str:
+    files = ["README.md", "CLAUDE.md", "requirements.txt", "package.json"]
+    parts = []
+    for path in files:
+        content = _read_context_file(path)
+        if content:
+            parts.append(f"--- {path} ---\n{content}")
+    try:
+        tree = []
+        for root, dirs, filenames in os.walk(_ROOT):
+            rel_root = os.path.relpath(root, _ROOT)
+            if rel_root == ".":
+                rel_root = ""
+            dirs[:] = [d for d in dirs if d not in {".git", ".venv", "node_modules", ".next", "__pycache__"}]
+            depth = 0 if not rel_root else rel_root.count(os.sep) + 1
+            if depth > 2:
+                dirs[:] = []
+                continue
+            for name in filenames:
+                rel = os.path.join(rel_root, name).replace(os.sep, "/") if rel_root else name
+                tree.append(rel)
+                if len(tree) >= 160:
+                    break
+            if len(tree) >= 160:
+                break
+        parts.append("--- file tree ---\n" + "\n".join(tree))
+    except OSError:
+        pass
+    return "\n\n".join(parts)
 
 
 # -- Context builder -----------------------------------------------------------
@@ -34,10 +103,20 @@ def build_task_context(task: Dict, steps: List[Dict]) -> str:
             f"  Input: {s.get('tool_input','')[:200]}\n"
             f"  Output: {s.get('tool_output','')[:500]}"
         )
+    repo_context = ""
+    if not steps:
+        prelude = _build_repo_prelude()
+        if prelude:
+            repo_context = f"""
+=== Repo Snapshot ===
+{prelude}
+"""
+
     return f"""Task ID: {task['id']}
 Title: {task['title']}
 Repo: {task.get('repo_url', settings.github_default_repo)}
 Status: {task['status']}
+{repo_context}
 
 === Step History ===
 {chr(10).join(history) if history else 'No steps yet.'}
@@ -148,12 +227,7 @@ def run_agent_turn(messages: List[Dict]) -> Tuple[str, Dict, Dict]:
     Raises MalformedOutputError if still malformed after correction.
     Raises anthropic.APIError on API-level failures (let caller retry if needed).
     """
-    response = _client.messages.create(
-        model=settings.model,
-        max_tokens=MAX_TOKENS,
-        system=_SYSTEM_PROMPT,
-        messages=messages,
-    )
+    response = _create_message(messages)
     usage = {
         "input_tokens": response.usage.input_tokens,
         "output_tokens": response.usage.output_tokens,
@@ -175,12 +249,7 @@ def run_agent_turn(messages: List[Dict]) -> Tuple[str, Dict, Dict]:
                 ),
             },
         ]
-        correction = _client.messages.create(
-            model=settings.model,
-            max_tokens=MAX_TOKENS,
-            system=_SYSTEM_PROMPT,
-            messages=correction_messages,
-        )
+        correction = _create_message(correction_messages)
         # Accumulate token usage from the correction call
         usage["input_tokens"] += correction.usage.input_tokens
         usage["output_tokens"] += correction.usage.output_tokens

@@ -17,6 +17,13 @@ import aiosqlite
 
 from backend.config import settings
 
+
+def _redact_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    from backend.tool_adapters import _redact
+    return _redact(value)
+
 # ---------------------------------------------------------------------------
 # Schema + migrations
 # ---------------------------------------------------------------------------
@@ -95,12 +102,12 @@ def _safe_cols(allowed: frozenset, kwargs: dict) -> dict:
 async def _get_db():
     """Single-use WAL connection; commits on clean exit, rolls back on error."""
     os.makedirs(os.path.dirname(os.path.abspath(settings.db_path)), exist_ok=True)
-    async with aiosqlite.connect(settings.db_path) as db:
+    async with aiosqlite.connect(settings.db_path, timeout=30) as db:
         db.row_factory = aiosqlite.Row
         await db.execute("PRAGMA journal_mode=WAL")
         await db.execute("PRAGMA synchronous=NORMAL")
         await db.execute("PRAGMA foreign_keys=ON")
-        await db.execute("PRAGMA busy_timeout=5000")
+        await db.execute("PRAGMA busy_timeout=30000")
         try:
             yield db
             await db.commit()
@@ -115,12 +122,12 @@ async def _get_db():
 
 async def init_db() -> None:
     os.makedirs(os.path.dirname(os.path.abspath(settings.db_path)), exist_ok=True)
-    async with aiosqlite.connect(settings.db_path) as db:
+    async with aiosqlite.connect(settings.db_path, timeout=30) as db:
         db.row_factory = aiosqlite.Row
         await db.execute("PRAGMA journal_mode=WAL")
         await db.execute("PRAGMA synchronous=NORMAL")
         await db.execute("PRAGMA foreign_keys=ON")
-        await db.execute("PRAGMA busy_timeout=5000")
+        await db.execute("PRAGMA busy_timeout=30000")
         await db.execute(
             "CREATE TABLE IF NOT EXISTS schema_version "
             "(version INTEGER PRIMARY KEY, applied_at TEXT DEFAULT (datetime('now')))"
@@ -153,12 +160,14 @@ def _now() -> str:
 
 async def create_task(title: str, prompt: str, repo_url: Optional[str] = None) -> Dict:
     task_id = str(uuid.uuid4())
+    safe_title = _redact_text(title) or title
+    safe_prompt = _redact_text(prompt) or prompt
     async with _get_db() as db:
         await db.execute(
             "INSERT INTO tasks (id, title, prompt, repo_url, status) VALUES (?,?,?,?,'pending')",
-            (task_id, title, prompt, repo_url),
+            (task_id, safe_title, safe_prompt, repo_url),
         )
-    return {"id": task_id, "title": title, "prompt": prompt, "repo_url": repo_url, "status": "pending", "created_at": _now()}
+    return {"id": task_id, "title": safe_title, "prompt": safe_prompt, "repo_url": repo_url, "status": "pending", "created_at": _now()}
 
 
 async def get_task(task_id: str) -> Optional[Dict]:
@@ -178,6 +187,8 @@ async def list_tasks(limit: int = 50, offset: int = 0) -> List[Dict]:
 
 async def update_task(task_id: str, **kwargs) -> None:
     kwargs = _safe_cols(_TASK_UPDATABLE, kwargs)
+    if "error" in kwargs:
+        kwargs["error"] = _redact_text(kwargs["error"])
     kwargs["updated_at"] = _now()
     cols = ", ".join(f"{k}=?" for k in kwargs)
     async with _get_db() as db:
@@ -207,6 +218,9 @@ async def create_step(task_id: str, step_num: int,
 
 async def update_step(step_id: str, **kwargs) -> None:
     kwargs = _safe_cols(_STEP_UPDATABLE, kwargs)
+    for key in ("tool_input", "tool_output", "reasoning"):
+        if key in kwargs:
+            kwargs[key] = _redact_text(kwargs[key])
     kwargs["updated_at"] = _now()
     cols = ", ".join(f"{k}=?" for k in kwargs)
     async with _get_db() as db:
@@ -228,6 +242,8 @@ async def get_steps(task_id: str) -> List[Dict]:
 async def add_log(task_id: str, level: str, message: str,
                   meta: Optional[str] = None) -> None:
     log_id = str(uuid.uuid4())
+    message = _redact_text(message) or ""
+    meta = _redact_text(meta)
     async with _get_db() as db:
         await db.execute(
             "INSERT INTO logs (id,task_id,level,message,meta) VALUES (?,?,?,?,?)",
@@ -299,3 +315,52 @@ async def health_check() -> bool:
         return True
     except Exception:
         return False
+
+
+async def health_detail() -> Dict:
+    """Return DB health with enough detail for operators to spot missing/corrupt DBs."""
+    db_path = os.path.abspath(settings.db_path)
+    exists = os.path.exists(db_path)
+    detail = {"ok": False, "path": db_path, "exists": exists, "error": ""}
+    try:
+        async with _get_db() as db:
+            row = await (await db.execute("PRAGMA integrity_check")).fetchone()
+        integrity = row[0] if row else "unknown"
+        detail.update({"ok": integrity == "ok", "integrity": integrity})
+    except Exception as exc:
+        detail["error"] = str(exc)
+    return detail
+
+
+async def backup_database(retention_days: Optional[int] = None) -> Optional[str]:
+    """Create a SQLite backup and prune old backups. Returns backup path or None."""
+    if not settings.backup_enabled:
+        return None
+    db_path = os.path.abspath(settings.db_path)
+    if not os.path.exists(db_path):
+        return None
+    retention_days = settings.backup_retention_days if retention_days is None else retention_days
+    backup_dir = os.path.join(os.path.dirname(db_path), "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    backup_path = os.path.join(backup_dir, f"agent-{stamp}.db")
+
+    def _copy() -> None:
+        with sqlite3.connect(db_path) as src, sqlite3.connect(backup_path) as dst:
+            src.backup(dst)
+
+    import asyncio
+    await asyncio.to_thread(_copy)
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    for name in os.listdir(backup_dir):
+        if not name.startswith("agent-") or not name.endswith(".db"):
+            continue
+        path = os.path.join(backup_dir, name)
+        mtime = datetime.fromtimestamp(os.path.getmtime(path), timezone.utc)
+        if mtime < cutoff:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    return backup_path

@@ -24,11 +24,17 @@ REASONING: Why this action, what you expect to happen.
 - github_commit_files
 - github_read_file
 - github_list_files
+- github_compare_branch
 - github_create_pr
 - filesystem_read
 - filesystem_write
 - filesystem_list
 - playwright_browse
+- repo_snapshot
+- run_tests
+- secret_scan
+- humanize_error
+- cost_status
 
 ## ACTIONS
 
@@ -46,9 +52,23 @@ REASONING: Why this action, what you expect to happen.
 ## TOOL USAGE RULES
 
 - `github_commit_files`: files must be an array — `[{"path": "a.py", "content": "..."}]`
+- `github_commit_files`: protected paths (`.env*`, `.github/workflows/**`, `Dockerfile`, `docker-compose.yml`, `nginx.conf`) require `allow_infra_edits=true` and a clear task reason
 - `github_read_file`: always read before editing
+- `repo_snapshot`: use at the start of a task to understand README, instructions, dependencies, workflows, and file tree
+- `secret_scan`: scan prompts or candidate file contents before committing anything that may contain tokens, credentials, customer data, or private business context
+- `run_tests`: allowlisted validation only; use `suite="quick"` after backend/Python changes, `suite="frontend"` after frontend changes, and `suite="all"` before final_answer when practical
+- `github_compare_branch`: use before final_answer to verify the task branch has commits/changes compared with `main`
+- `cost_status`: use if a task is long-running or expensive to check remaining task budget
+- `humanize_error`: use after raw tool/API errors to translate them into plain English for the operator
 - `filesystem_write`: sandbox only — use `github_commit_files` to persist to the repo
 - `playwright_browse`: disabled by default
+
+## QUALITY GATE RULES
+
+- Do not give `final_answer` until you have either run relevant tests or clearly reported why tests could not run.
+- Do not give `final_answer` until `github_compare_branch` confirms the task branch has changes, unless the task truly required no code changes.
+- If tests fail, diagnose and fix the failure before opening the PR whenever possible.
+- If a tool returns `success: false`, call `humanize_error` when the raw error would be confusing to a non-technical operator.
 
 ## BEHAVIOUR RULES
 

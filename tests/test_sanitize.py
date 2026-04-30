@@ -7,7 +7,7 @@ import os
 
 os.environ.setdefault("AGENT_WORKSPACE", "/tmp/test_agent_workspace")
 
-from backend.tool_adapters import _sanitize_path, playwright_browse
+from backend.tool_adapters import _SAFE_ROOT, _sanitize_path, playwright_browse
 
 
 # ---------------------------------------------------------------------------
@@ -16,8 +16,8 @@ from backend.tool_adapters import _sanitize_path, playwright_browse
 
 def test_sanitize_normal_path():
     result = _sanitize_path("subdir/file.py")
-    assert "subdir/file.py" in result
-    assert result.startswith("/tmp/test_agent_workspace")
+    assert os.path.join("subdir", "file.py") in result
+    assert result.startswith(os.path.realpath(_SAFE_ROOT))
 
 
 def test_sanitize_rejects_dotdot():

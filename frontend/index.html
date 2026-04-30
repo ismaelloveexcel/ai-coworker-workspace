@@ -93,6 +93,7 @@ function safePrUrl(url) {
 const API = '/api';   // proxied through nginx — no direct port exposure
 let tasks = [];
 let activeStreams = {};
+let budgetCap = null;
 
 // ---------------------------------------------------------------------------
 // Task creation
@@ -160,6 +161,13 @@ async function createTask() {
 
 function renderTask(t) {
   const prUrl = safePrUrl(t.pr_url);
+  const spent = Number(t.usd_spent || 0);
+  const budgetText = budgetCap == null
+    ? '$' + spent.toFixed(4)
+    : '$' + spent.toFixed(4) + ' / $' + Number(budgetCap).toFixed(2);
+  const errorLine = t.error
+    ? '<p class="text-xs text-red-300 mt-1">' + escHtml(t.error) + '</p>'
+    : '';
   const prLink = prUrl
     ? '<a href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer" ' +
       'class="text-blue-400 hover:underline text-xs">View PR</a>'
@@ -170,12 +178,17 @@ function renderTask(t) {
       '<div>' +
         '<p class="font-medium text-white">' + escHtml(t.title) + '</p>' +
         '<p class="text-xs text-slate-400 mt-0.5">' + escHtml(t.id) + '</p>' +
+        '<p class="text-xs text-slate-500 mt-0.5">Spend: ' + escHtml(budgetText) + '</p>' +
+        errorLine +
       '</div>' +
       '<div class="flex items-center gap-3 shrink-0">' +
         prLink +
         '<span class="status-' + escHtml(t.status) + ' text-sm font-medium">' + escHtml(t.status) + '</span>' +
         (t.status === 'running' || t.status === 'pending'
-          ? '<button onclick="cancelTask('' + escHtml(t.id) + '')" class="text-xs text-slate-400 hover:text-red-400">Cancel</button>'
+          ? '<button onclick="cancelTask(\'' + escHtml(t.id) + '\')" class="text-xs text-slate-400 hover:text-red-400">Cancel</button>'
+          : '') +
+        (t.status === 'failed' || t.status === 'cancelled'
+          ? '<button onclick="retryTask(\'' + escHtml(t.id) + '\')" class="text-xs text-slate-400 hover:text-blue-400">Retry</button>'
           : '') +
       '</div>' +
     '</div>' +
@@ -241,7 +254,7 @@ function subscribeSSE(taskId) {
         appendLog(taskId, 'Task complete. PR: ' + (data.pr_url || '—'), 'info');
         es.close(); delete activeStreams[taskId];
       } else if (evType === 'task_failed') {
-        updateTaskEl(taskId, { status: 'failed' });
+        updateTaskEl(taskId, { status: 'failed', error: data.error, pr_url: data.pr_url });
         appendLog(taskId, 'Failed: ' + (data.error || 'unknown'), 'error');
         es.close(); delete activeStreams[taskId];
       } else if (evType === 'task_cancelled') {
@@ -269,6 +282,20 @@ async function cancelTask(taskId) {
   if (activeStreams[taskId]) { activeStreams[taskId].close(); delete activeStreams[taskId]; }
 }
 
+async function retryTask(taskId) {
+  const headers = {};
+  const apiKey = localStorage.getItem('api_key');
+  if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+  const r = await fetch(API + '/tasks/' + encodeURIComponent(taskId) + '/retry', { method: 'POST', headers });
+  if (!r.ok) {
+    appendLog(taskId, 'Retry failed: ' + r.statusText, 'error');
+    return;
+  }
+  const task = await r.json();
+  prependTask(task);
+  subscribeSSE(task.id);
+}
+
 // ---------------------------------------------------------------------------
 // Load existing tasks on page load
 // ---------------------------------------------------------------------------
@@ -278,6 +305,7 @@ async function loadTasks(offset = 0) {
     const r = await fetch(API + '/tasks?limit=50&offset=' + offset);
     if (!r.ok) return;
     const data = await r.json();
+    budgetCap = data.max_task_usd == null ? budgetCap : data.max_task_usd;
     const list = document.getElementById('task-list');
     if (offset === 0) { list.innerHTML = ''; tasks = []; }
     for (const t of (data.tasks || [])) {

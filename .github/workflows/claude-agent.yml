@@ -21,6 +21,9 @@ on:
   issues:
     types: [labeled]
 
+env:
+  CLAUDE_MODEL: claude-sonnet-4-5
+
 jobs:
   run-agent:
     runs-on: ubuntu-latest
@@ -89,8 +92,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_PAT: ${{ secrets.GH_PAT }}
           GITHUB_DEFAULT_REPO: ${{ github.event.inputs.target_repo || github.repository }}
-          CLAUDE_MODEL: "claude-sonnet-4-5-20251022"
+          CLAUDE_MODEL: ${{ env.CLAUDE_MODEL }}
           MAX_STEPS: "25"
+          MAX_CONCURRENT_TASKS: "1"
           STEP_TIMEOUT_SECONDS: "90"
           PLAYWRIGHT_ENABLED: "false"
           WHITELISTED_DOMAINS: "github.com"
@@ -113,9 +117,13 @@ jobs:
               task_prompt = os.environ["TASK_PROMPT"]
               repo        = os.getenv("GITHUB_DEFAULT_REPO", "")
 
+              if not task_title.strip() or not task_prompt.strip():
+                  print("ERROR: task_title and task_prompt are required and cannot be blank")
+                  sys.exit(2)
+
               print(f"=== Starting agent task ===")
               print(f"Title:  {task_title}")
-              print(f"Prompt: {task_prompt[:200]}...")
+              print(f"Prompt length: {len(task_prompt)} characters")
               print(f"Repo:   {repo}")
 
               task = await db.create_task(task_title, task_prompt, repo)

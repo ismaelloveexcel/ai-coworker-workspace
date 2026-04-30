@@ -2,8 +2,7 @@
 FastAPI application — AI Coworker backend.
 
 v2 fixes:
-- F3/E1:  Optional Bearer token auth on all endpoints (mutating + read/SSE);
-          /health is intentionally left unauthenticated for Docker healthchecks
+- F3/E1:  Optional Bearer token auth on all mutating endpoints
 - F30/E4: SSE generator detects client disconnect (request.is_disconnected)
 - F45:    /health pings the DB, not just returns OK
 - F29:    GET /tasks supports ?limit=&offset= pagination
@@ -55,6 +54,8 @@ def _configure_logging() -> None:
 
 _configure_logging()
 log = structlog.get_logger(__name__)
+_reaper_task: Optional[asyncio.Task] = None
+_backup_task: Optional[asyncio.Task] = None
 
 
 # ---------------------------------------------------------------------------
@@ -63,18 +64,45 @@ log = structlog.get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _reaper_task, _backup_task
     log.info("startup", db_path=settings.db_path)
+    if settings.environment == "production" and not settings.api_key:
+        raise RuntimeError("API_KEY is required when ENV=production or APP_ENV=production")
     if not settings.api_key:
         log.warning(
             "api_key_not_set",
-            message="API_KEY is empty — all task endpoints (create, list, read, "
-                    "cancel, SSE stream) are unauthenticated. Only /health stays "
-                    "open by design. Set API_KEY in any networked deployment.",
+            message="API_KEY is empty — all mutating endpoints are unauthenticated. "
+                    "Set API_KEY in any networked deployment.",
         )
     await db.init_db()
     await _reap_zombie_tasks()
-    yield
-    log.info("shutdown")
+    _reaper_task = asyncio.create_task(_periodic_zombie_reaper())
+    _backup_task = asyncio.create_task(_periodic_db_backup())
+    try:
+        yield
+    finally:
+        for task in (_reaper_task, _backup_task):
+            if task:
+                task.cancel()
+        log.info("shutdown")
+
+
+async def _periodic_zombie_reaper() -> None:
+    while True:
+        await asyncio.sleep(max(30, settings.zombie_reaper_interval_seconds))
+        try:
+            await _reap_zombie_tasks()
+        except Exception as exc:
+            log.warning("periodic_reaper_failed", error=str(exc))
+
+
+async def _periodic_db_backup() -> None:
+    while True:
+        try:
+            await db.backup_database()
+        except Exception as exc:
+            log.warning("db_backup_failed", error=str(exc))
+        await asyncio.sleep(max(3600, settings.backup_interval_seconds))
 
 
 async def _reap_zombie_tasks() -> None:
@@ -204,12 +232,28 @@ class CreateTaskRequest(BaseModel):
 @app.get("/health")
 async def health():
     """Pings DB — returns degraded status if DB unreachable (F45)."""
-    db_ok = await db.health_check()
-    return {"status": "ok" if db_ok else "degraded", "db": db_ok}
+    db_detail = await db.health_detail()
+    return {
+        "status": "ok" if db_detail.get("ok") else "degraded",
+        "db": bool(db_detail.get("ok")),
+        "db_detail": db_detail,
+        "max_task_usd": settings.max_task_usd,
+        "max_concurrent_tasks": settings.max_concurrent_tasks,
+        "model": settings.model,
+        "watchdog_model": settings.watchdog_model,
+    }
 
 
 @app.post("/tasks", status_code=201, dependencies=[Depends(require_auth)])
 async def create_task(req: CreateTaskRequest, request: Request):
+    active = {tid: task for tid, task in _running.items() if not task.done()}
+    _running.clear()
+    _running.update(active)
+    if len(active) >= settings.max_concurrent_tasks:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Too many active tasks ({len(active)}/{settings.max_concurrent_tasks}). Retry when one finishes.",
+        )
     task = await db.create_task(req.title, req.prompt, req.repo_url)
     task_id = task["id"]
     # Launch agent as a tracked asyncio Task (enables real cancellation)
@@ -219,17 +263,17 @@ async def create_task(req: CreateTaskRequest, request: Request):
     return task
 
 
-@app.get("/tasks", dependencies=[Depends(require_auth)])
+@app.get("/tasks")
 async def list_tasks(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
     """Paginated task list (F29)."""
     tasks = await db.list_tasks(limit=limit, offset=offset)
-    return {"tasks": tasks, "limit": limit, "offset": offset, "count": len(tasks)}
+    return {"tasks": tasks, "limit": limit, "offset": offset, "count": len(tasks), "max_task_usd": settings.max_task_usd}
 
 
-@app.get("/tasks/{task_id}", dependencies=[Depends(require_auth)])
+@app.get("/tasks/{task_id}")
 async def get_task(task_id: str):
     task = await db.get_task(task_id)
     if not task:
@@ -249,7 +293,31 @@ async def cancel_task(task_id: str):
     return {"status": "cancelled"}
 
 
-@app.get("/tasks/{task_id}/stream", dependencies=[Depends(require_auth)])
+@app.post("/tasks/{task_id}/retry", status_code=201, dependencies=[Depends(require_auth)])
+async def retry_task(task_id: str):
+    original = await db.get_task(task_id)
+    if not original:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if original["status"] not in {"failed", "cancelled"}:
+        raise HTTPException(status_code=409, detail="Only failed or cancelled tasks can be retried")
+    req = CreateTaskRequest(
+        title=f"Retry: {original['title']}",
+        prompt=original["prompt"],
+        repo_url=original.get("repo_url"),
+    )
+    active = {tid: task for tid, task in _running.items() if not task.done()}
+    _running.clear()
+    _running.update(active)
+    if len(active) >= settings.max_concurrent_tasks:
+        raise HTTPException(status_code=409, detail="Too many active tasks. Retry when one finishes.")
+    task = await db.create_task(req.title, req.prompt, req.repo_url)
+    t = asyncio.create_task(run_task(task["id"]))
+    _running[task["id"]] = t
+    log.info("task_retried", original_task_id=task_id, task_id=task["id"])
+    return task
+
+
+@app.get("/tasks/{task_id}/stream")
 async def stream_task(task_id: str, request: Request):
     """SSE stream with client-disconnect detection (F30)."""
     task = await db.get_task(task_id)

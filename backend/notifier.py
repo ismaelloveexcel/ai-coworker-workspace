@@ -79,15 +79,16 @@ def _create_issue(
     logs: List[dict],
 ) -> None:
     """Create a GitHub issue synchronously (called from a thread executor)."""
-    from backend.tool_adapters import _get_repo  # reuse existing client
+    from backend.tool_adapters import _get_repo, _redact  # reuse existing client
 
     import re as _re
     # Normalize whitespace/newlines so the title stays on a single line
-    short_error = _re.sub(r"\s+", " ", (error or "unknown error").strip())[:120]
+    safe_error = _redact(error or "unknown")
+    short_error = _re.sub(r"\s+", " ", safe_error.strip())[:120]
     title = f"[ai-coworker] Task {task_id[:8]} failed: {short_error}"
 
     log_lines = [
-        f"[{entry.get('level', 'info').upper()}] {entry.get('message', '')}"
+        _redact(f"[{entry.get('level', 'info').upper()}] {entry.get('message', '')}")
         for entry in logs[-MAX_LOG_LINES:]
     ]
     log_tail = "\n".join(log_lines) or "(no logs available)"
@@ -97,7 +98,7 @@ def _create_issue(
         "",
         f"**Task ID:** `{task_id}`",
         f"**Repo:** `{repo}`",
-        f"**Error:** {error or 'unknown'}",
+        f"**Error:** {safe_error}",
     ]
     if logs_url:
         body_parts.append(f"**Logs:** {logs_url}")

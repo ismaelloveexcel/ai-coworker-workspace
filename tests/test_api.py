@@ -3,6 +3,7 @@ Tests for backend.main — API auth, task creation, health endpoint.
 DB isolation handled by autouse isolated_db fixture in conftest.py.
 """
 import pytest
+import asyncio
 from httpx import AsyncClient, ASGITransport
 from unittest.mock import patch, AsyncMock
 
@@ -10,17 +11,21 @@ from unittest.mock import patch, AsyncMock
 @pytest.fixture
 async def client():
     """Async test client that bypasses lifespan (DB already init'd by isolated_db)."""
-    from backend.main import app
+    from backend.main import _running, app
+    _running.clear()
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test"
     ) as ac:
         yield ac
+    for task in _running.values():
+        task.cancel()
+    _running.clear()
 
 
 @pytest.mark.asyncio
 async def test_health_ok(client):
-    with patch("backend.db.health_check", new=AsyncMock(return_value=True)):
+    with patch("backend.db.health_detail", new=AsyncMock(return_value={"ok": True})):
         r = await client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
@@ -28,7 +33,7 @@ async def test_health_ok(client):
 
 @pytest.mark.asyncio
 async def test_health_degraded(client):
-    with patch("backend.db.health_check", new=AsyncMock(return_value=False)):
+    with patch("backend.db.health_detail", new=AsyncMock(return_value={"ok": False})):
         r = await client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "degraded"
@@ -37,7 +42,7 @@ async def test_health_degraded(client):
 @pytest.mark.asyncio
 async def test_create_task_no_auth(client):
     """When API_KEY is empty (default in CI), no auth required."""
-    with patch("backend.agent_loop.run_task", new=AsyncMock()):
+    with patch("backend.main.run_task", new=AsyncMock()):
         r = await client.post("/tasks", json={"title": "t", "prompt": "p"})
     assert r.status_code == 201
     assert r.json()["title"] == "t"
@@ -61,9 +66,41 @@ async def test_create_task_invalid_repo_url(client):
 
 @pytest.mark.asyncio
 async def test_create_task_valid_repo_url(client):
-    with patch("backend.agent_loop.run_task", new=AsyncMock()):
+    with patch("backend.main.run_task", new=AsyncMock()):
         r = await client.post("/tasks", json={"title": "t", "prompt": "p", "repo_url": "owner/repo"})
     assert r.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_create_task_rejects_when_concurrency_limit_reached(client, monkeypatch):
+    started = asyncio.Event()
+
+    async def long_running(_task_id):
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("backend.main.settings.max_concurrent_tasks", 1)
+    with patch("backend.main.run_task", side_effect=long_running):
+        first = await client.post("/tasks", json={"title": "one", "prompt": "p"})
+        await started.wait()
+        second = await client.post("/tasks", json={"title": "two", "prompt": "p"})
+
+    assert first.status_code == 201
+    assert second.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_retry_failed_task_creates_new_task(client):
+    from backend import db
+
+    task = await db.create_task("failed", "prompt")
+    await db.update_task(task["id"], status="failed", error="boom")
+
+    with patch("backend.main.run_task", new=AsyncMock()):
+        r = await client.post(f"/tasks/{task['id']}/retry")
+
+    assert r.status_code == 201
+    assert r.json()["title"].startswith("Retry:")
 
 
 @pytest.mark.asyncio

@@ -10,7 +10,7 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "sk-dummy")
 os.environ.setdefault("GH_PAT", "ghp-dummy")
 os.environ.setdefault("GITHUB_REPO", "owner/repo")
 
-from watchdog import _parse_json
+from watchdog import WatchdogBudgetExceeded, _parse_json, _record_watchdog_usage, validate_content
 
 
 def test_parse_plain_json():
@@ -43,3 +43,32 @@ def test_parse_json_braces_in_string():
     text = '{"content": "if x: { pass }"}'
     result = _parse_json(text)
     assert result["content"] == "if x: { pass }"
+
+
+def test_validate_content_accepts_json():
+    ok, err = validate_content("package.json", '{"scripts": {"test": "echo ok"}}')
+
+    assert ok is True
+    assert err == ""
+
+
+def test_validate_content_rejects_bad_json():
+    ok, err = validate_content("package.json", '{bad')
+
+    assert ok is False
+    assert "JSON parse error" in err
+
+
+def test_watchdog_usage_raises_over_budget(monkeypatch):
+    class Usage:
+        input_tokens = 1_000_000
+        output_tokens = 1_000_000
+
+    class Response:
+        usage = Usage()
+
+    monkeypatch.setattr("watchdog._watchdog_spent_usd", 0.0)
+    monkeypatch.setattr("watchdog.WATCHDOG_MAX_USD", 0.01)
+
+    with pytest.raises(WatchdogBudgetExceeded):
+        _record_watchdog_usage(Response())

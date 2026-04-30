@@ -9,6 +9,15 @@ on:
 permissions:
   contents: read
 
+env:
+  CLAUDE_MODEL: claude-sonnet-4-5
+  WATCHDOG_MODEL: claude-sonnet-4-5
+  WATCHDOG_MAX_USD: "2.00"
+
+concurrency:
+  group: watchdog-${{ github.event.workflow_run.id || github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   watchdog:
     if: >
@@ -51,4 +60,7 @@ jobs:
           FAILED_WORKFLOW: ${{ steps.meta.outputs.workflow }}
           WATCHDOG_ATTEMPT: ${{ steps.meta.outputs.attempt }}
           WATCHDOG_MAX_RETRIES: "3"
+          CLAUDE_MODEL: ${{ env.CLAUDE_MODEL }}
+          WATCHDOG_MODEL: ${{ env.WATCHDOG_MODEL }}
+          WATCHDOG_MAX_USD: ${{ env.WATCHDOG_MAX_USD }}
         run: python watchdog.py

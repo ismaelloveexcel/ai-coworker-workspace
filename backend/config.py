@@ -23,6 +23,8 @@ class Settings:
     github_token: str        = field(default_factory=lambda: _require("GH_PAT"))
     github_default_repo: str = field(default_factory=lambda: _optional("GITHUB_DEFAULT_REPO", "ismaelloveexcel/ai-coworker-workspace"))
     model: str               = field(default_factory=lambda: _optional("CLAUDE_MODEL", "claude-sonnet-4-5"))
+    watchdog_model: str      = field(default_factory=lambda: _optional("WATCHDOG_MODEL", _optional("CLAUDE_MODEL", "claude-sonnet-4-5")))
+    environment: str         = field(default_factory=lambda: _optional("ENV", _optional("APP_ENV", "development")).lower())
 
     # Database
     db_path: str             = field(default_factory=lambda: _optional("DB_PATH", "data/agent.db"))
@@ -35,6 +37,8 @@ class Settings:
     # Agent behaviour
     max_steps: int           = field(default_factory=lambda: int(_optional("MAX_STEPS", "25")))
     step_timeout_seconds: int = field(default_factory=lambda: int(_optional("STEP_TIMEOUT_SECONDS", "300")))
+    max_concurrent_tasks: int = field(default_factory=lambda: int(_optional("MAX_CONCURRENT_TASKS", "1")))
+    zombie_reaper_interval_seconds: int = field(default_factory=lambda: int(_optional("ZOMBIE_REAPER_INTERVAL_SECONDS", "60")))
 
     # Playwright
     playwright_enabled: bool  = field(default_factory=lambda: _optional("PLAYWRIGHT_ENABLED", "false").lower() == "true")
@@ -44,10 +48,22 @@ class Settings:
 
     # Cost cap — raise BudgetExceeded when a task exceeds this USD amount
     max_task_usd: float = field(default_factory=lambda: float(_optional("MAX_TASK_USD", "5.00")))
+    watchdog_max_usd: float = field(default_factory=lambda: float(_optional("WATCHDOG_MAX_USD", "2.00")))
+
+    # SQLite backup rotation
+    backup_enabled: bool = field(default_factory=lambda: _optional("DB_BACKUP_ENABLED", "true").lower() == "true")
+    backup_interval_seconds: int = field(default_factory=lambda: int(_optional("DB_BACKUP_INTERVAL_SECONDS", "86400")))
+    backup_retention_days: int = field(default_factory=lambda: int(_optional("DB_BACKUP_RETENTION_DAYS", "14")))
 
     # Logging (F52)
     log_level: str  = field(default_factory=lambda: _optional("LOG_LEVEL", "INFO"))
     log_json: bool  = field(default_factory=lambda: _optional("LOG_JSON", "false").lower() == "true")
+
+    def __post_init__(self) -> None:
+        for field_name in ("model", "watchdog_model"):
+            value = getattr(self, field_name)
+            if not value or not value.startswith("claude-"):
+                raise RuntimeError(f"{field_name} must be a Claude model name, got {value!r}")
 
 
 settings = Settings()
