@@ -164,7 +164,7 @@ async def run_task(task_id: str) -> None:
 
             await emit(task_id, "tool_start", {"tool": tool_name, "input": tool_input})
             tool_result = await loop.run_in_executor(
-                _tool_executor, execute_tool, tool_name, tool_input
+                _tool_executor, execute_tool, tool_name, tool_input, task_id
             )
             tool_output_str = json.dumps(tool_result)[:MAX_TOOL_OUTPUT]   # F16
 
