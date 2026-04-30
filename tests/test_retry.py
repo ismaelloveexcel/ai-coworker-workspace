@@ -3,8 +3,7 @@ Tests for backend.tool_adapters — retry decorators actually retry on GithubExc
 This is the regression test for F4: before the fix, @retry was a no-op because
 GithubException was caught inside the decorated function.
 """
-import pytest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 from github import GithubException
 
 

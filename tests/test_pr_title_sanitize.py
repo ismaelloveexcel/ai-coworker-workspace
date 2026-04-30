@@ -2,7 +2,6 @@
 Tests for backend.main._sanitize_title — PR-title redaction.
 """
 import os
-import pytest
 
 os.environ.setdefault("AGENT_WORKSPACE", "/tmp/test_agent_workspace")
 
