@@ -9,6 +9,7 @@ v2: Fixed @retry decorators (F4/E3).
     Unbounded _repo_cache replaced with bounded LRU (F11).
 """
 import os
+import stat as _stat
 from base64 import b64decode
 from functools import lru_cache
 from typing import Any, Dict, List
@@ -163,8 +164,6 @@ def github_list_files(path: str = "", branch: str = "main", repo: str = None) ->
 #           directory that is NOT world-writable (e.g. owned by the service
 #           user with mode 0700), so other OS users cannot read or inject
 #           files into the agent sandbox.
-
-import stat as _stat
 
 _WORKSPACE_BASE = os.path.realpath(os.environ.get("AGENT_WORKSPACE", "/tmp/agent_workspace"))
 _SAFE_ROOT = _WORKSPACE_BASE  # backward-compat alias used by tests
