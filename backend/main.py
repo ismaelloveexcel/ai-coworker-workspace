@@ -18,7 +18,6 @@ from typing import Optional
 
 import structlog
 import structlog.stdlib
-import structlog.dev
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -42,14 +41,10 @@ def _configure_logging() -> None:
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.contextvars.merge_contextvars,
     ]
-    if settings.log_json:
-        renderer = structlog.processors.JSONRenderer()
-    else:
-        renderer = structlog.dev.ConsoleRenderer()
 
     structlog.configure(
         processors=shared_processors + [
-            renderer,
+            structlog.processors.JSONRenderer() if settings.log_json else structlog.dev.ConsoleRenderer(),
         ],
         wrapper_class=structlog.stdlib.BoundLogger,
         context_class=dict,
