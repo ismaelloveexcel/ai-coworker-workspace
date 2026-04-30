@@ -23,7 +23,9 @@ import structlog.stdlib
 from backend import db
 from backend.claude_wrapper import MalformedOutputError, build_task_context, run_agent_turn
 from backend.config import settings
+from backend.cost_tracker import BudgetExceeded, record_and_check
 from backend.events import destroy_bus, emit, emit_log, get_bus
+from backend.notifier import notify_task_failure
 from backend.tool_adapters import execute_tool, github_create_branch, github_create_pr
 
 log = structlog.get_logger(__name__)
@@ -43,6 +45,7 @@ async def run_task(task_id: str) -> None:
     log_ctx = log.bind(task_id=task_id)
 
     await db.update_task(task_id, status="running")
+    await db.touch_heartbeat(task_id)   # prevent false-positive zombie reap during branch creation
     await emit_log(task_id, "info", "Agent starting")
 
     try:
@@ -63,6 +66,7 @@ async def run_task(task_id: str) -> None:
             await db.update_task(task_id, status="failed", error=f"Branch creation failed: {err}")
             await emit_log(task_id, "error", f"Branch creation failed: {err}")
             await emit(task_id, "task_failed", {"error": err})
+            await notify_task_failure(task_id, repo, f"Branch creation failed: {err}")
             return
 
         branch = branch_result["data"]["branch"]
@@ -74,6 +78,7 @@ async def run_task(task_id: str) -> None:
         while step_count < settings.max_steps:
             step_count += 1
             await emit_log(task_id, "info", f"Step {step_count}/{settings.max_steps}")
+            await db.touch_heartbeat(task_id)
 
             # Build context
             task = await db.get_task(task_id)
@@ -87,7 +92,7 @@ async def run_task(task_id: str) -> None:
             parsed: Optional[Dict] = None
 
             try:
-                raw_text, parsed = await asyncio.wait_for(
+                raw_text, parsed, usage = await asyncio.wait_for(
                     loop.run_in_executor(_claude_executor, run_agent_turn, messages),
                     timeout=float(settings.step_timeout_seconds),
                 )
@@ -97,10 +102,11 @@ async def run_task(task_id: str) -> None:
             except asyncio.TimeoutError:
                 await db.update_step(step_id, status="failed",
                                      tool_output=json.dumps({"error": "Claude call timed out"}))
-                await db.update_task(task_id, status="failed",
-                                     error=f"Step {step_count} timed out after {settings.step_timeout_seconds}s")
+                err = f"Step {step_count} timed out after {settings.step_timeout_seconds}s"
+                await db.update_task(task_id, status="failed", error=err)
                 await emit_log(task_id, "error", f"Step {step_count} timed out")
                 await emit(task_id, "task_failed", {"error": "timeout"})
+                await notify_task_failure(task_id, repo, err)
                 return
             except MalformedOutputError as e:
                 await db.update_step(step_id, status="failed",
@@ -108,6 +114,7 @@ async def run_task(task_id: str) -> None:
                 await db.update_task(task_id, status="failed", error=str(e))
                 await emit_log(task_id, "error", f"Malformed output: {e}")
                 await emit(task_id, "task_failed", {"error": str(e)})
+                await notify_task_failure(task_id, repo, str(e))
                 return
             except Exception as e:
                 tb = traceback.format_exc()
@@ -117,6 +124,22 @@ async def run_task(task_id: str) -> None:
                 await emit_log(task_id, "error", f"Agent error: {e}")
                 log_ctx.error("agent_error", exc_info=True)
                 await emit(task_id, "task_failed", {"error": str(e)})
+                await notify_task_failure(task_id, repo, str(e))
+                return
+
+            # Track cost and enforce budget cap
+            try:
+                await record_and_check(
+                    task_id, settings.model,
+                    usage["input_tokens"], usage["output_tokens"],
+                )
+            except BudgetExceeded as e:
+                await db.update_step(step_id, status="failed",
+                                     tool_output=json.dumps({"error": str(e)}))
+                await db.update_task(task_id, status="failed", error=str(e))
+                await emit_log(task_id, "error", str(e))
+                await emit(task_id, "task_failed", {"error": "budget_exceeded"})
+                await notify_task_failure(task_id, repo, str(e))
                 return
 
             action    = parsed.get("action", "error")
@@ -153,6 +176,7 @@ async def run_task(task_id: str) -> None:
                 await db.update_task(task_id, status="failed", error=reasoning)
                 await emit_log(task_id, "error", f"Agent reported error: {reasoning}")
                 await emit(task_id, "task_failed", {"error": reasoning})
+                await notify_task_failure(task_id, repo, reasoning)
                 return
 
             # --- tool_call ---------------------------------------------------
@@ -174,9 +198,11 @@ async def run_task(task_id: str) -> None:
                            success=tool_result.get("success"))
 
         # Max steps reached
-        await db.update_task(task_id, status="failed", error=f"Max steps ({settings.max_steps}) reached")
+        err = f"Max steps ({settings.max_steps}) reached"
+        await db.update_task(task_id, status="failed", error=err)
         await emit_log(task_id, "warning", f"Max steps reached ({settings.max_steps})")
         await emit(task_id, "task_failed", {"error": "max_steps"})
+        await notify_task_failure(task_id, repo, err)
 
     except asyncio.CancelledError:
         await db.update_task(task_id, status="cancelled")
@@ -185,9 +211,18 @@ async def run_task(task_id: str) -> None:
         raise
     except Exception as e:
         traceback.print_exc()
-        await db.update_task(task_id, status="failed", error=str(e))
+        err = str(e)
+        await db.update_task(task_id, status="failed", error=err)
         await emit_log(task_id, "error", f"Unexpected error: {e}")
-        await emit(task_id, "task_failed", {"error": str(e)})
+        await emit(task_id, "task_failed", {"error": err})
+        _repo = settings.github_default_repo
+        try:
+            _task = await db.get_task(task_id)
+            if _task:
+                _repo = _task.get("repo_url") or _repo
+        except Exception:
+            pass
+        await notify_task_failure(task_id, _repo, err)
     finally:
         _running.pop(task_id, None)
         await asyncio.sleep(5)   # brief grace period for SSE consumers to drain
