@@ -162,6 +162,10 @@ def github_list_files(path: str = "", branch: str = "main", repo: str = None) ->
 # -- Filesystem Tools (per-task ephemeral sandbox) ---------------------------
 # F14: each task gets its own tmpdir under AGENT_WORKSPACE; concurrent tasks
 #      cannot clobber each other's files.
+# SECURITY: In production deployments set AGENT_WORKSPACE to a dedicated
+#           directory that is NOT world-writable (e.g. owned by the service
+#           user with mode 0700), so other OS users cannot read or inject
+#           files into the agent sandbox.
 
 _WORKSPACE_BASE = os.path.realpath(os.environ.get("AGENT_WORKSPACE", "/tmp/agent_workspace"))
 _SAFE_ROOT = _WORKSPACE_BASE  # backward-compat alias used by tests

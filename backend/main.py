@@ -67,6 +67,12 @@ log = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("startup", db_path=settings.db_path)
+    if not settings.api_key:
+        log.warning(
+            "api_key_not_set",
+            message="API_KEY is empty — all mutating endpoints are unauthenticated. "
+                    "Set API_KEY in any networked deployment.",
+        )
     await db.init_db()
     await _reap_zombie_tasks()
     yield

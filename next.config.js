@@ -10,6 +10,24 @@ const nextConfig = {
   async headers() {
     return [
       {
+        // Content-Security-Policy for all routes
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: blob:",
+              "font-src 'self'",
+              "connect-src 'self'",
+              "frame-ancestors 'none'",
+            ].join('; '),
+          },
+        ],
+      },
+      {
         // Immutable long-term cache for hashed Next.js static assets
         source: '/_next/static/:path*',
         headers: [
