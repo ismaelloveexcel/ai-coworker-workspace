@@ -82,6 +82,7 @@ See `.env.example` for the full list. Key variables:
 | `GITHUB_DEFAULT_REPO` | — | Default repo for agent tasks |
 | `CLAUDE_MODEL` | — | Model name (default: `claude-sonnet-4-5`) |
 | `MAX_STEPS` | — | Max agent steps per task (default: 25) |
+| `WATCHDOG_DAILY_MAX` | — | Max watchdog invocations per UTC day (default: `10`) |
 
 ## Model
 
@@ -91,7 +92,8 @@ Default model: **`claude-sonnet-4-5`** (set via `CLAUDE_MODEL` env var).
 
 - Set `API_KEY` in production — the API has no auth when this is empty
 - `API_CORS_ORIGINS` defaults to localhost; set explicitly for any deployed frontend
-- The Watchdog never writes to `main` directly — all fixes go through a PR
+- The Watchdog never writes code patches to `main` directly — all fixes go through a PR
+- The Watchdog does write `.watchdog/state.json` to `main` to persist the daily invocation counter; CI is configured to ignore this path (`paths-ignore: .watchdog/**`) so the write does not trigger new CI runs or re-activate the watchdog loop
 
 ## Development
 
@@ -118,4 +120,14 @@ When a GitHub Actions workflow fails, the Watchdog:
 6. PR opened for human review — CI runs on the branch to validate
 7. Human merges if CI is green
 
-The Watchdog never pushes to `main` automatically.
+The Watchdog never pushes to `main` automatically, with one exception: it reads and writes `.watchdog/state.json` on `main` to track the daily invocation count. This file contains only operational metadata (date + counter) and never carries code changes.
+
+### Daily invocation ceiling
+
+To prevent run-away invocations (e.g. a flapping CI that fires the watchdog hundreds of times a day), the watchdog enforces a per-UTC-day ceiling controlled by `WATCHDOG_DAILY_MAX` (default: 10). Persistent state is stored in `.watchdog/state.json` in the repository:
+
+```json
+{ "date": "2025-01-15", "invocations": 3 }
+```
+
+When the ceiling is reached for the current UTC day the watchdog prints a warning to stderr and exits 0 without opening a PR or creating an issue.
