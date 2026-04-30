@@ -67,8 +67,9 @@ async def lifespan(app: FastAPI):
     if not settings.api_key:
         log.warning(
             "api_key_not_set",
-            message="API_KEY is empty — all mutating endpoints are unauthenticated. "
-                    "Set API_KEY in any networked deployment.",
+            message="API_KEY is empty — all task endpoints (create, list, read, "
+                    "cancel, SSE stream) are unauthenticated. Only /health stays "
+                    "open by design. Set API_KEY in any networked deployment.",
         )
     await db.init_db()
     await _reap_zombie_tasks()
