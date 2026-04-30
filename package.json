@@ -1,0 +1,32 @@
+{
+  "name": "ai-coworker-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "echo \"No tests configured\" && exit 0",
+    "analyze": "ANALYZE=true next build",
+    "measure-cwv": "node scripts/measure-cwv.js"
+  },
+  "dependencies": {
+    "next": "15.5.15",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@next/bundle-analyzer": "^15.5.15",
+    "chrome-launcher": "^1.1.2",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^15.5.15",
+    "lighthouse": "^12.2.1"
+  },
+  "eslintConfig": {
+    "extends": ["next/core-web-vitals"]
+  },
+  "overrides": {
+    "postcss": "^8.5.10"
+  }
+}
