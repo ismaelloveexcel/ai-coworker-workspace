@@ -96,6 +96,13 @@ Default model: **`claude-sonnet-4-5`** (set via `CLAUDE_MODEL` env var).
 ## Frontend (Next.js)
 
 The root of the repository contains a Next.js 15 frontend under `app/`.
+These commands are for running that Next.js app directly during development or as
+a standalone deployment.
+
+> **Note:** `docker compose up` currently serves the static site from `./frontend`
+> via nginx. It does **not** run the Next.js app under `app/`, so contributors
+> should treat the Next.js frontend as a separate workflow unless/until Docker is
+> updated to deploy it instead of `frontend/`.
 
 ### Install & run
 

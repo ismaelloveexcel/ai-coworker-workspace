@@ -45,7 +45,13 @@ function waitForServer(url, { retries = 40, intervalMs = 500 } = {}) {
       attempts += 1;
       const req = http.get(url, (res) => {
         res.resume(); // drain
-        resolve();
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve();
+        } else if (attempts >= retries) {
+          reject(new Error(`Server at ${url} did not become ready after ${retries} attempts`));
+        } else {
+          setTimeout(attempt, intervalMs);
+        }
       });
       req.setTimeout(800, () => req.destroy());
       req.on('error', () => {
@@ -69,7 +75,7 @@ async function main() {
 
   const server = spawn(
     process.execPath, // node
-    [path.join(ROOT, 'node_modules', '.bin', 'next'), 'start', '--port', String(port)],
+    [require.resolve('next/dist/bin/next'), 'start', '--port', String(port)],
     {
       cwd: ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
