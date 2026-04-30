@@ -418,7 +418,7 @@ def validate_names(path: str, content: str) -> Tuple[bool, str]:
         if warnings > 0:
             msg = out.getvalue().strip()
             # Filter out known false positives for module-level patterns
-            lines = [ln for ln in msg.splitlines() if 'imported but unused' not in ln]
+            lines = [line for line in msg.splitlines() if 'imported but unused' not in line]
             if lines:
                 return False, "\n".join(lines[:5])
         return True, ""

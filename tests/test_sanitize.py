@@ -2,7 +2,7 @@
 Tests for backend.tool_adapters — path sanitization (F10) and domain whitelist (F20).
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import os
 
 os.environ.setdefault("AGENT_WORKSPACE", "/tmp/test_agent_workspace")

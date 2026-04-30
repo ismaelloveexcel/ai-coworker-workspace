@@ -18,7 +18,6 @@ from typing import Optional
 
 import structlog
 import structlog.stdlib
-import structlog.dev
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -45,7 +44,7 @@ def _configure_logging() -> None:
 
     structlog.configure(
         processors=shared_processors + [
-            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+            structlog.processors.JSONRenderer() if settings.log_json else structlog.dev.ConsoleRenderer(),
         ],
         wrapper_class=structlog.stdlib.BoundLogger,
         context_class=dict,
@@ -64,6 +63,12 @@ log = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("startup", db_path=settings.db_path)
+    if not settings.api_key:
+        log.warning(
+            "api_key_not_set",
+            message="API_KEY is empty — all mutating endpoints are unauthenticated. "
+                    "Set API_KEY in any networked deployment.",
+        )
     await db.init_db()
     await _reap_zombie_tasks()
     yield
@@ -205,7 +210,6 @@ async def health():
 async def create_task(req: CreateTaskRequest, request: Request):
     task = await db.create_task(req.title, req.prompt, req.repo_url)
     task_id = task["id"]
-    get_bus(task_id)
     # Launch agent as a tracked asyncio Task (enables real cancellation)
     t = asyncio.create_task(run_task(task_id))
     _running[task_id] = t

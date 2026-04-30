@@ -117,11 +117,11 @@ async def run_task(task_id: str) -> None:
                 await notify_task_failure(task_id, repo, str(e))
                 return
             except Exception as e:
+                log_ctx.exception("agent_error", error=str(e))
                 await db.update_step(step_id, status="failed",
                                      tool_output=json.dumps({"error": str(e)}))
                 await db.update_task(task_id, status="failed", error=str(e))
                 await emit_log(task_id, "error", f"Agent error: {e}")
-                log_ctx.error("agent_error", exc_info=True)
                 await emit(task_id, "task_failed", {"error": str(e)})
                 await notify_task_failure(task_id, repo, str(e))
                 return

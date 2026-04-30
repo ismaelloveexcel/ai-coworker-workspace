@@ -30,7 +30,11 @@ jobs:
     timeout-minutes: 45
     # F30: one run per repo at a time; don't cancel in-progress so we don't orphan branches
     concurrency:
-      group: agent-${{ github.repository }}-${{ inputs.target_repo || github.repository }}
+      # Use github.event.inputs.* (not the inputs context) so this expression is
+      # safe to evaluate on every event type. The `inputs` context is only
+      # available in workflow_dispatch/workflow_call workflows; referencing it
+      # here previously caused a workflow startup failure on non-dispatch events.
+      group: agent-${{ github.repository }}-${{ github.event.inputs.target_repo || github.repository }}
       cancel-in-progress: false
     # Only run on labeled issues if label is "agent-task"
     if: |
@@ -73,11 +77,11 @@ jobs:
 
       - name: Run autonomous agent
         env:
-          TASK_TITLE: ${{ inputs.task_title || steps.issue-task.outputs.task_title }}
-          TASK_PROMPT: ${{ inputs.task_prompt || steps.issue-task.outputs.task_body }}
+          TASK_TITLE: ${{ github.event.inputs.task_title || steps.issue-task.outputs.task_title }}
+          TASK_PROMPT: ${{ github.event.inputs.task_prompt || steps.issue-task.outputs.task_body }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_PAT: ${{ secrets.GH_PAT }}
-          GITHUB_DEFAULT_REPO: ${{ inputs.target_repo || github.repository }}
+          GITHUB_DEFAULT_REPO: ${{ github.event.inputs.target_repo || github.repository }}
           CLAUDE_MODEL: "claude-sonnet-4-5-20251022"
           MAX_STEPS: "25"
           STEP_TIMEOUT_SECONDS: "90"
