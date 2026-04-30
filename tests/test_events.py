@@ -1,8 +1,6 @@
 """Tests for backend.events — bounded queue, drop-oldest on full."""
-import asyncio
 import pytest
 
-import os
 from backend.events import emit, get_bus, destroy_bus, MAX_QUEUE
 
 
