@@ -98,7 +98,7 @@ Default model: **`claude-sonnet-4-5`** (set via `CLAUDE_MODEL` env var).
 ## Development
 
 ```bash
-# Run tests
+# Run Python tests
 pytest
 
 # Syntax check
@@ -107,6 +107,30 @@ python -m py_compile backend/*.py watchdog.py
 # Security audit
 pip install pip-audit
 pip-audit -r requirements.txt
+```
+
+### Node / TypeScript CI (front-end tooling)
+
+> **Note:** These are local-only checks. The current GitHub Actions CI workflow runs Python steps only. The Node commands below are for local development and pre-commit validation.
+
+```bash
+# Install Node dependencies (requires Node >=18.18.0)
+npm install
+
+# Lint TypeScript files (ESLint v9, strict)
+npm run lint
+
+# Type-check with strict mode (tsc --noEmit)
+npm run build
+
+# End-to-end smoke tests (Playwright, Chromium)
+npm run test:e2e
+```
+
+Local pre-push gate:
+
+```bash
+npm run lint && npm run build
 ```
 
 ## Self-Healing Watchdog
