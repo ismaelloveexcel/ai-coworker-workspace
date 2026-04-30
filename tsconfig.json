@@ -16,6 +16,8 @@
     "incremental": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
     "jsx": "preserve",
     "plugins": [
       {
