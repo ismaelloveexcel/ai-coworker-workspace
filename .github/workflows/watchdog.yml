@@ -5,6 +5,9 @@ on:
     workflows: ["Claude Autonomous Agent", "CI"]
     types: [completed]
 
+permissions:
+  contents: read
+
 jobs:
   watchdog:
     if: >

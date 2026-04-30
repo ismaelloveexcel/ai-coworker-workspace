@@ -159,15 +159,40 @@ def github_list_files(path: str = "", branch: str = "main", repo: str = None) ->
 # -- Filesystem Tools (per-task ephemeral sandbox) ---------------------------
 # F14: each task gets its own tmpdir under AGENT_WORKSPACE; concurrent tasks
 #      cannot clobber each other's files.
+# SECURITY: In production deployments set AGENT_WORKSPACE to a dedicated
+#           directory that is NOT world-writable (e.g. owned by the service
+#           user with mode 0700), so other OS users cannot read or inject
+#           files into the agent sandbox.
+
+import stat as _stat
 
 _WORKSPACE_BASE = os.path.realpath(os.environ.get("AGENT_WORKSPACE", "/tmp/agent_workspace"))
 _SAFE_ROOT = _WORKSPACE_BASE  # backward-compat alias used by tests
 
 
+def _init_workspace() -> None:
+    """Create _WORKSPACE_BASE with mode 0700 and validate it is not world-writable."""
+    os.makedirs(_WORKSPACE_BASE, exist_ok=True)
+    try:
+        os.chmod(_WORKSPACE_BASE, 0o700)
+    except PermissionError:
+        pass  # directory is owned by another user (e.g. pre-created by root); check below
+    st = os.stat(_WORKSPACE_BASE)
+    if st.st_mode & _stat.S_IWOTH:
+        raise RuntimeError(
+            f"AGENT_WORKSPACE ({_WORKSPACE_BASE!r}) is world-writable. "
+            "Set it to a directory owned by the service user with mode 0700 "
+            "to prevent other OS users from reading or injecting files into the agent sandbox."
+        )
+
+
+_init_workspace()
+
+
 def _task_root(task_id: str) -> str:
     """Return (and create) a per-task sandbox directory."""
     root = os.path.join(_WORKSPACE_BASE, task_id)
-    os.makedirs(root, exist_ok=True)
+    os.makedirs(root, mode=0o700, exist_ok=True)
     return root
 
 
