@@ -11,7 +11,7 @@ export default defineConfig({
   webServer: {
     command: 'node scripts/smoke-server.js',
     port: 3000,
-    reuseExistingServer: false,
+    reuseExistingServer: !process.env['CI'],
     timeout: 15_000,
   },
   projects: [

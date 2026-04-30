@@ -13,10 +13,15 @@ const server = http.createServer((req, res) => {
   const pathname = parsed.pathname;
 
   if (pathname === '/') {
-    const html = fs.readFileSync(
-      path.join(__dirname, '..', 'frontend', 'index.html'),
-      'utf-8'
-    );
+    const indexPath = path.join(__dirname, '..', 'frontend', 'index.html');
+    let html;
+    try {
+      html = fs.readFileSync(indexPath, 'utf-8');
+    } catch {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end(`Smoke server: could not read ${indexPath}`);
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
   } else if (pathname === '/success') {
