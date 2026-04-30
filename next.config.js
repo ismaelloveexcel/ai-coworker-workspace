@@ -10,13 +10,19 @@ const nextConfig = {
   async headers() {
     return [
       {
-        // Content-Security-Policy for all routes
+        // Content-Security-Policy for all routes.
+        // 'unsafe-inline' and 'unsafe-eval' are currently required by Next.js
+        // for its runtime inline scripts and style injection. Once the app
+        // adopts Next.js nonce-based CSP (middleware + generateBuildId nonce),
+        // remove these directives and replace with 'nonce-{nonce}'.
         source: '/(.*)',
         headers: [
           {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
+              // TODO: replace 'unsafe-inline'/'unsafe-eval' with nonces once
+              //       Next.js nonce middleware is configured.
               "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob:",
