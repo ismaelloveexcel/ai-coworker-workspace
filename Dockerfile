@@ -4,7 +4,7 @@ FROM python:3.12-slim@sha256:46cb7cc2877e60fbd5e21a9ae6115c30ace7a077b9f8772da87
 WORKDIR /build
 
 # Install build deps
-RUN apt-get update --no-cache && apt-get upgrade -y && apt-get install -y --no-install-recommends gcc && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends gcc && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
@@ -22,6 +22,9 @@ WORKDIR /app
 
 # Non-root user (F12/E8)
 RUN groupadd -r app && useradd -r -g app -d /app -s /sbin/nologin app
+
+# Install curl for HEALTHCHECK
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
