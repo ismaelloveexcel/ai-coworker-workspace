@@ -52,6 +52,33 @@ def test_load_state_corrupt_json():
     assert state == {"date": "2099-06-15", "invocations": 0}
 
 
+def test_load_state_missing_invocations_key():
+    """Normalizes to 0 when 'invocations' key is absent from a valid date-matching file."""
+    stored = json.dumps({"date": "2099-01-01"})  # no 'invocations' key
+    with patch("watchdog.get_file", return_value=stored), \
+         patch("watchdog._today", return_value="2099-01-01"):
+        state = _load_state()
+    assert state["invocations"] == 0
+
+
+def test_load_state_non_int_invocations():
+    """Normalizes non-integer 'invocations' to 0."""
+    stored = json.dumps({"date": "2099-01-01", "invocations": "bad"})
+    with patch("watchdog.get_file", return_value=stored), \
+         patch("watchdog._today", return_value="2099-01-01"):
+        state = _load_state()
+    assert state["invocations"] == 0
+
+
+def test_load_state_negative_invocations():
+    """Normalizes negative 'invocations' to 0."""
+    stored = json.dumps({"date": "2099-01-01", "invocations": -5})
+    with patch("watchdog.get_file", return_value=stored), \
+         patch("watchdog._today", return_value="2099-01-01"):
+        state = _load_state()
+    assert state["invocations"] == 0
+
+
 # ---------------------------------------------------------------------------
 # _save_state — update path (file already exists)
 # ---------------------------------------------------------------------------
@@ -89,6 +116,28 @@ def test_save_state_creates_new_file():
     mock_repo.create_file.assert_called_once()
     args = mock_repo.create_file.call_args
     assert args[0][0] == ".watchdog/state.json"
+
+
+def test_save_state_retries_on_409_conflict():
+    """Retries on SHA mismatch (409) up to 3 times before raising."""
+    from github import GithubException
+
+    mock_contents = MagicMock()
+    mock_contents.sha = "abc123"
+    mock_repo = MagicMock()
+    mock_repo.get_contents.return_value = mock_contents
+    # Always return 409 conflict on update_file
+    mock_repo.update_file.side_effect = GithubException(409, {}, {})
+
+    with patch("watchdog._get_repo", return_value=mock_repo), \
+         patch("watchdog._time_sleep", return_value=None) if False else \
+         patch("time.sleep", return_value=None):
+        with pytest.raises(GithubException) as exc_info:
+            _save_state({"date": "2099-01-01", "invocations": 2})
+
+    assert exc_info.value.status == 409
+    # Should have tried 3 times
+    assert mock_repo.update_file.call_count == 3
 
 
 # ---------------------------------------------------------------------------
@@ -149,3 +198,37 @@ def test_check_blocks_above_ceiling():
 
     assert result is False
     mock_save.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _parse_daily_max (WATCHDOG_DAILY_MAX env parsing)
+# ---------------------------------------------------------------------------
+
+def test_parse_daily_max_valid():
+    """Valid positive integer parses correctly."""
+    import importlib
+    with patch.dict(os.environ, {"WATCHDOG_DAILY_MAX": "5"}):
+        import watchdog as wd
+        # Re-invoke the helper directly
+        assert wd._parse_daily_max() == 5
+
+
+def test_parse_daily_max_invalid_falls_back():
+    """Non-integer value falls back to default 10."""
+    import watchdog as wd
+    with patch.dict(os.environ, {"WATCHDOG_DAILY_MAX": "notanint"}):
+        assert wd._parse_daily_max() == 10
+
+
+def test_parse_daily_max_zero_falls_back():
+    """Zero (< 1) falls back to default 10."""
+    import watchdog as wd
+    with patch.dict(os.environ, {"WATCHDOG_DAILY_MAX": "0"}):
+        assert wd._parse_daily_max() == 10
+
+
+def test_parse_daily_max_empty_falls_back():
+    """Empty string falls back to default 10."""
+    import watchdog as wd
+    with patch.dict(os.environ, {"WATCHDOG_DAILY_MAX": ""}):
+        assert wd._parse_daily_max() == 10

@@ -6,14 +6,17 @@ Architecture (v3):
   - Phase 2: Claude reviews its own patches against full file context
   - Static: py_compile + AST name-resolution check (via pyflakes if available)
   - SAFE landing: patches are committed to a PR branch, not main (F1/F2/E2)
-    Humans or a merge-gate CI can review before landing. No more silent main writes.
+    Humans or a merge-gate CI can review before landing. Code patches never
+    write to main directly.
   - CI gate: waits for CI to pass on the PR branch before marking done
+  - Daily ceiling: .watchdog/state.json is written to main to persist the
+    daily invocation counter. ci.yml ignores .watchdog/** so this write does
+    not trigger a new CI run or re-trigger the watchdog loop.
 
 Critical fixes in v3 (from audit report):
-  F1/F2/E2: Watchdog NO LONGER writes to main directly. All patches go to
-             branch watchdog/fix-<run_id> and a PR is opened for review.
-             This eliminates the infinite re-trigger loop (F2) because pushing
-             to a non-main branch does not trigger ci.yml (which only runs on main).
+  F1/F2/E2: Watchdog NO LONGER writes code patches to main directly.
+             All patches go to branch watchdog/fix-<run_id> and a PR is opened
+             for review. This eliminates the infinite re-trigger loop (F2).
   Pending:  Robust JSON extraction (_parse_json), full tracebacks on exit,
              import builtins fix for AST checker.
 """
@@ -49,7 +52,24 @@ if not GITHUB_TOKEN:
 
 WATCHDOG_ATTEMPT  = int(os.environ.get("WATCHDOG_ATTEMPT", "1"))
 MAX_FIX_ATTEMPTS  = int(os.environ.get("WATCHDOG_MAX_RETRIES", "3"))
-WATCHDOG_DAILY_MAX = int(os.environ.get("WATCHDOG_DAILY_MAX", "10"))
+
+def _parse_daily_max() -> int:
+    """Parse WATCHDOG_DAILY_MAX from env, falling back to 10 on bad/empty values."""
+    raw = os.environ.get("WATCHDOG_DAILY_MAX", "10")
+    try:
+        val = int(raw)
+        if val < 1:
+            raise ValueError("must be >= 1")
+        return val
+    except (ValueError, TypeError):
+        print(
+            f"WARNING: WATCHDOG_DAILY_MAX={raw!r} is not a valid positive integer; "
+            "using default of 10.",
+            file=sys.stderr,
+        )
+        return 10
+
+WATCHDOG_DAILY_MAX = _parse_daily_max()
 MODEL             = os.environ.get("WATCHDOG_MODEL", "claude-sonnet-4-5")
 FAILED_RUN_ID     = os.environ.get("FAILED_RUN_ID", "")
 FAILED_WORKFLOW   = os.environ.get("FAILED_WORKFLOW", "")
@@ -88,6 +108,8 @@ def _load_state() -> Dict:
     """
     Load .watchdog/state.json from the main branch.
     Returns a fresh state dict for today if the file is missing or stale.
+    Always normalizes the returned dict so callers see a valid int >= 0 for
+    "invocations" regardless of how the file was written.
     """
     today = _today()
     raw = get_file(STATE_PATH, ref="main")
@@ -95,6 +117,11 @@ def _load_state() -> Dict:
         try:
             state = json.loads(raw)
             if state.get("date") == today:
+                # Normalize invocations: coerce to int, clamp to >= 0
+                try:
+                    state["invocations"] = max(0, int(state.get("invocations", 0)))
+                except (ValueError, TypeError):
+                    state["invocations"] = 0
                 return state
         except (json.JSONDecodeError, AttributeError):
             pass
@@ -105,27 +132,42 @@ def _save_state(state: Dict) -> None:
     """
     Persist state dict as .watchdog/state.json on the main branch.
     Creates or updates the file directly on main (operational metadata only).
+    Retries up to 3 times on SHA-mismatch (409) conflicts from concurrent runs.
     """
     content = json.dumps(state, indent=2) + "\n"
-    try:
-        existing = _get_repo().get_contents(STATE_PATH, ref="main")
-        _get_repo().update_file(
-            STATE_PATH,
-            f"watchdog: update daily state ({state.get('date', '?')}, "
-            f"invocations={state.get('invocations', '?')})",
-            content,
-            existing.sha,
-            branch="main",
-        )
-    except GithubException as e:
-        if e.status == 404:
-            _get_repo().create_file(
-                STATE_PATH,
-                f"watchdog: create daily state ({state.get('date', '?')})",
-                content,
-                branch="main",
-            )
-        else:
+    commit_msg = (
+        f"watchdog: update daily state ({state.get('date', '?')}, "
+        f"invocations={state.get('invocations', '?')})"
+    )
+    for attempt in range(1, 4):
+        try:
+            try:
+                existing = _get_repo().get_contents(STATE_PATH, ref="main")
+                _get_repo().update_file(
+                    STATE_PATH,
+                    commit_msg,
+                    content,
+                    existing.sha,
+                    branch="main",
+                )
+            except GithubException as e:
+                if e.status == 404:
+                    _get_repo().create_file(
+                        STATE_PATH,
+                        f"watchdog: create daily state ({state.get('date', '?')})",
+                        content,
+                        branch="main",
+                    )
+                else:
+                    raise
+            return  # success
+        except GithubException as e:
+            if e.status == 409 and attempt < 3:
+                # SHA mismatch from a concurrent update — re-read and retry
+                print(f"State save conflict (attempt {attempt}/3), retrying...", file=sys.stderr)
+                import time as _time
+                _time.sleep(2 * attempt)
+                continue
             raise
 
 

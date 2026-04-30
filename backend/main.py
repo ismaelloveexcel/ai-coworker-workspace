@@ -135,9 +135,9 @@ def _sanitize_title(title: str) -> str:
 
 def _looks_like_secret(s: str) -> bool:
     """
-    Heuristic: a string looks like a secret if it is long (>=20 chars),
-    has high character-class diversity (letters + digits + symbols), and
-    contains no common English words.  Used to avoid redacting plain prose.
+    Heuristic: a string looks like a secret if it is long (>=20 chars) and
+    has high character-class diversity (letters + digits + symbols mixed
+    together), making it unlikely to be ordinary prose.
     """
     if len(s) < 20:
         return False
