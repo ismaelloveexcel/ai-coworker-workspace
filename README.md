@@ -95,58 +95,12 @@ Default model: **`claude-sonnet-4-5`** (set via `CLAUDE_MODEL` env var).
 - The Watchdog never writes code patches to `main` directly — all fixes go through a PR
 - The Watchdog does write `.watchdog/state.json` to `main` to persist the daily invocation counter; CI is configured to ignore this path (`paths-ignore: .watchdog/**`) so the write does not trigger new CI runs or re-activate the watchdog loop
 
-## Frontend (Next.js)
+## Frontend
 
-The root of the repository contains a Next.js 15 frontend under `app/`.
-These commands are for running that Next.js app directly during development or as
-a standalone deployment.
-
-> **Note:** `docker compose up` currently serves the static site from `./frontend`
-> via nginx. It does **not** run the Next.js app under `app/`, so contributors
-> should treat the Next.js frontend as a separate workflow unless/until Docker is
-> updated to deploy it instead of `frontend/`.
-
-### Install & run
-
-```bash
-npm install
-npm run dev       # development server at http://localhost:3000
-npm run build     # production build
-npm run start     # serve the production build
-npm run lint      # ESLint via next lint
-```
-
-### Bundle analysis
-
-```bash
-npm run analyze
-```
-
-Produces static HTML reports in `.next/analyze/` — open
-`.next/analyze/client.html` (and `server.html`) to inspect bundle composition
-and identify large dependencies.
-
-### Core Web Vitals baseline
-
-Measure TTI, LCP, and CLS against the production build:
-
-```bash
-npm run build          # required before measuring
-npm run measure-cwv    # boots next start, runs Lighthouse, prints metrics
-```
-
-The script exits non-zero if **LCP > 4 000 ms**.
-
-**Baseline numbers (local run, `next start`, 2026-04-30):**
-
-| Metric | Value |
-|--------|-------|
-| LCP    | ~850 ms |
-| TTI    | ~920 ms |
-| CLS    | 0.000 |
-
-> These values reflect the minimal placeholder homepage.  Re-run
-> `npm run measure-cwv` after adding real content to track regressions.
+The deployed frontend is a single static page at `frontend/index.html`
+(Tailwind via CDN + vanilla JS). It is served by the `nginx` service in
+`docker-compose.yml` from `./frontend:/usr/share/nginx/html:ro` and requires
+no build step.
 
 ## Development
 
@@ -160,30 +114,6 @@ python -m py_compile backend/*.py watchdog.py
 # Security audit
 pip install pip-audit
 pip-audit -r requirements.txt
-```
-
-### Node / TypeScript CI (front-end tooling)
-
-> **Note:** These are local-only checks. The current GitHub Actions CI workflow runs Python steps only. The Node commands below are for local development and pre-commit validation.
-
-```bash
-# Install Node dependencies (requires Node >=18.18.0)
-npm install
-
-# Lint TypeScript files (ESLint v9, strict)
-npm run lint
-
-# Type-check with strict mode (tsc --noEmit)
-npm run build
-
-# End-to-end smoke tests (Playwright, Chromium)
-npm run test:e2e
-```
-
-Local pre-push gate:
-
-```bash
-npm run lint && npm run build
 ```
 
 ## Self-Healing Watchdog

@@ -15,7 +15,5 @@ data/
 *.db
 *.db-wal
 *.db-shm
-node_modules/
-.next/
 .DS_Store
 Thumbs.db

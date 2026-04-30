@@ -2,7 +2,8 @@
 FastAPI application — AI Coworker backend.
 
 v2 fixes:
-- F3/E1:  Optional Bearer token auth on all mutating endpoints
+- F3/E1:  Optional Bearer token auth on all endpoints (mutating + read/SSE);
+          /health is intentionally left unauthenticated for Docker healthchecks
 - F30/E4: SSE generator detects client disconnect (request.is_disconnected)
 - F45:    /health pings the DB, not just returns OK
 - F29:    GET /tasks supports ?limit=&offset= pagination
@@ -217,7 +218,7 @@ async def create_task(req: CreateTaskRequest, request: Request):
     return task
 
 
-@app.get("/tasks")
+@app.get("/tasks", dependencies=[Depends(require_auth)])
 async def list_tasks(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -227,7 +228,7 @@ async def list_tasks(
     return {"tasks": tasks, "limit": limit, "offset": offset, "count": len(tasks)}
 
 
-@app.get("/tasks/{task_id}")
+@app.get("/tasks/{task_id}", dependencies=[Depends(require_auth)])
 async def get_task(task_id: str):
     task = await db.get_task(task_id)
     if not task:
@@ -247,7 +248,7 @@ async def cancel_task(task_id: str):
     return {"status": "cancelled"}
 
 
-@app.get("/tasks/{task_id}/stream")
+@app.get("/tasks/{task_id}/stream", dependencies=[Depends(require_auth)])
 async def stream_task(task_id: str, request: Request):
     """SSE stream with client-disconnect detection (F30)."""
     task = await db.get_task(task_id)

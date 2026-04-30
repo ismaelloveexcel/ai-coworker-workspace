@@ -6,6 +6,12 @@ services:
         PLAYWRIGHT_ENABLED: ${PLAYWRIGHT_ENABLED:-false}
     image: ai-coworker-backend
     env_file: .env
+    # The backend's in-memory _running registry (backend/agent_loop.py) and
+    # in-process SSE event bus (backend/events.py) are not multi-process
+    # safe — running more than one replica would silently double-execute
+    # tasks and split SSE subscribers across processes.
+    deploy:
+      replicas: 1
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
