@@ -95,6 +95,59 @@ Default model: **`claude-sonnet-4-5`** (set via `CLAUDE_MODEL` env var).
 - The Watchdog never writes code patches to `main` directly — all fixes go through a PR
 - The Watchdog does write `.watchdog/state.json` to `main` to persist the daily invocation counter; CI is configured to ignore this path (`paths-ignore: .watchdog/**`) so the write does not trigger new CI runs or re-activate the watchdog loop
 
+## Frontend (Next.js)
+
+The root of the repository contains a Next.js 15 frontend under `app/`.
+These commands are for running that Next.js app directly during development or as
+a standalone deployment.
+
+> **Note:** `docker compose up` currently serves the static site from `./frontend`
+> via nginx. It does **not** run the Next.js app under `app/`, so contributors
+> should treat the Next.js frontend as a separate workflow unless/until Docker is
+> updated to deploy it instead of `frontend/`.
+
+### Install & run
+
+```bash
+npm install
+npm run dev       # development server at http://localhost:3000
+npm run build     # production build
+npm run start     # serve the production build
+npm run lint      # ESLint via next lint
+```
+
+### Bundle analysis
+
+```bash
+npm run analyze
+```
+
+Produces static HTML reports in `.next/analyze/` — open
+`.next/analyze/client.html` (and `server.html`) to inspect bundle composition
+and identify large dependencies.
+
+### Core Web Vitals baseline
+
+Measure TTI, LCP, and CLS against the production build:
+
+```bash
+npm run build          # required before measuring
+npm run measure-cwv    # boots next start, runs Lighthouse, prints metrics
+```
+
+The script exits non-zero if **LCP > 4 000 ms**.
+
+**Baseline numbers (local run, `next start`, 2026-04-30):**
+
+| Metric | Value |
+|--------|-------|
+| LCP    | ~850 ms |
+| TTI    | ~920 ms |
+| CLS    | 0.000 |
+
+> These values reflect the minimal placeholder homepage.  Re-run
+> `npm run measure-cwv` after adding real content to track regressions.
+
 ## Development
 
 ```bash

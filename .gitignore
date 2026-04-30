@@ -9,6 +9,7 @@ data/
 .pytest_cache/
 .DS_Store
 node_modules/
+.next/
 
 .env.*
 !.env.example
