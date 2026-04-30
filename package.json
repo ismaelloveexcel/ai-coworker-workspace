@@ -2,8 +2,11 @@
   "name": "ai-coworker-workspace",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=18.18.0"
+  },
   "scripts": {
-    "lint": "eslint . --ext .ts",
+    "lint": "eslint .",
     "build": "tsc --noEmit",
     "test": "tsc --noEmit",
     "test:e2e": "playwright test"
@@ -11,9 +14,10 @@
   "devDependencies": {
     "@playwright/test": "^1.44.0",
     "@types/node": "^25.6.0",
-    "@typescript-eslint/eslint-plugin": "^7.18.0",
-    "@typescript-eslint/parser": "^7.18.0",
-    "eslint": "^8.57.1",
-    "typescript": "^5.5.4"
+    "eslint": "^9.39.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.59.1"
   }
 }
+

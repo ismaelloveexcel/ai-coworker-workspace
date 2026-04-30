@@ -9,9 +9,9 @@ export default defineConfig({
     baseURL: 'http://localhost:3000',
   },
   webServer: {
-    command: 'node scripts/smoke-server.js',
+    command: 'npx tsx scripts/smoke-server.ts',
     port: 3000,
-    reuseExistingServer: !process.env['CI'],
+    reuseExistingServer: process.env['PW_REUSE_EXISTING_SERVER'] === 'true',
     timeout: 15_000,
   },
   projects: [
