@@ -96,7 +96,7 @@ Default model: **`claude-sonnet-4-5`** (set via `CLAUDE_MODEL` env var).
 ## Development
 
 ```bash
-# Run tests
+# Run Python tests
 pytest
 
 # Syntax check
@@ -105,6 +105,31 @@ python -m py_compile backend/*.py watchdog.py
 # Security audit
 pip install pip-audit
 pip-audit -r requirements.txt
+```
+
+### Node / TypeScript CI (front-end tooling)
+
+```bash
+# Install Node dependencies
+npm install
+
+# Lint TypeScript files
+npm run lint
+
+# Type-check (strict mode)
+npm run test
+
+# Compile check (alias for type-check)
+npm run build
+
+# End-to-end smoke tests (Playwright)
+npm run test:e2e
+```
+
+Full CI gate (mirrors GitHub Actions):
+
+```bash
+npm run lint && npm run test && npm run build
 ```
 
 ## Self-Healing Watchdog
