@@ -25,4 +25,5 @@ build/
 Thumbs.db
 test-results/
 playwright-report/
+tsconfig.tsbuildinfo
 
