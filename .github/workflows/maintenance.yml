@@ -28,7 +28,7 @@ jobs:
           pip-audit -r requirements.txt --format=json --strict 2>&1 | tee /tmp/pip-audit-output.txt
       - name: Notify on security vulnerabilities (A17)
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
