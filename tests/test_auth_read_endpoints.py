@@ -60,6 +60,40 @@ async def test_list_tasks_accepts_correct_token(auth_client):
 
 
 @pytest.mark.asyncio
+async def test_query_param_token_rejected_for_non_sse_read_endpoints(auth_client):
+    from backend import db
+
+    task = await db.create_task("query-token", "prompt")
+
+    list_response = await auth_client.get(f"/tasks?token={_API_KEY}")
+    task_response = await auth_client.get(f"/tasks/{task['id']}?token={_API_KEY}")
+    summary_response = await auth_client.get(f"/summary?token={_API_KEY}")
+
+    assert list_response.status_code == 401
+    assert task_response.status_code == 401
+    assert summary_response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_query_param_token_rejected_for_non_sse_mutating_endpoints(auth_client):
+    from backend import db
+
+    task = await db.create_task("query-token", "prompt")
+    await db.update_task(task["id"], status="failed", error="boom")
+
+    create_response = await auth_client.post(
+        f"/tasks?token={_API_KEY}",
+        json={"title": "t", "prompt": "p"},
+    )
+    delete_response = await auth_client.delete(f"/tasks/{task['id']}?token={_API_KEY}")
+    retry_response = await auth_client.post(f"/tasks/{task['id']}/retry?token={_API_KEY}")
+
+    assert create_response.status_code == 401
+    assert delete_response.status_code == 401
+    assert retry_response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_stream_accepts_token_query_param(auth_client):
     """EventSource cannot send headers; SSE endpoint must accept ?token= query param."""
     from backend import db

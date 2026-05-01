@@ -52,7 +52,7 @@ REASONING: Why this action, what you expect to happen.
 ## TOOL USAGE RULES
 
 - `github_commit_files`: files must be an array — `[{"path": "a.py", "content": "..."}]`
-- `github_commit_files`: protected paths (`.env*`, `.github/workflows/**`, `Dockerfile`, `docker-compose.yml`, `nginx.conf`) require `allow_infra_edits=true` and a clear task reason
+- `github_commit_files`: protected paths (`.env*`, `.github/workflows/**`, `Dockerfile`, `docker-compose.yml`, `nginx.conf`, `CLAUDE.md`) cannot be changed by normal agent tool calls; do not pass `allow_infra_edits`
 - `github_read_file`: always read before editing
 - `repo_snapshot`: use at the start of a task to understand README, instructions, dependencies, workflows, and file tree
 - `secret_scan`: scan prompts or candidate file contents before committing anything that may contain tokens, credentials, customer data, or private business context

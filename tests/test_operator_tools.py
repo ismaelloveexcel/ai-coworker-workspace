@@ -2,9 +2,10 @@
 from unittest.mock import patch
 
 import pytest
+from github import GithubException
 
 from backend import db
-from backend.tool_adapters import cost_status, github_commit_files, humanize_error, run_tests, secret_scan
+from backend.tool_adapters import cost_status, execute_tool, github_commit_files, humanize_error, run_tests, secret_scan
 
 
 def test_secret_scan_detects_common_tokens():
@@ -37,6 +38,33 @@ def test_github_commit_files_blocks_protected_paths_before_network():
     assert "protected path" in result["error"]
 
 
+def test_github_commit_files_blocks_protected_paths_even_with_bypass_flag():
+    result = github_commit_files(
+        "task/test",
+        [{"path": "Dockerfile", "content": "FROM python:3.14"}],
+        "update Dockerfile",
+        allow_infra_edits=True,
+    )
+
+    assert result["success"] is False
+    assert "protected path" in result["error"]
+
+
+def test_execute_tool_cannot_bypass_protected_paths_with_tool_input_flag():
+    result = execute_tool(
+        "github_commit_files",
+        {
+            "branch": "task/test",
+            "files": [{"path": "CLAUDE.md", "content": "new instructions"}],
+            "message": "update instructions",
+            "allow_infra_edits": True,
+        },
+    )
+
+    assert result["success"] is False
+    assert "protected path" in result["error"]
+
+
 def test_github_commit_files_blocks_secrets_before_network():
     result = github_commit_files(
         "task/test",
@@ -47,6 +75,41 @@ def test_github_commit_files_blocks_secrets_before_network():
     assert result["success"] is False
     assert "possible secret" in result["error"]
     assert "sk-ant-abcdefghijklmnopqrstuvwxyz123456" not in result["error"]
+
+
+def test_github_commit_files_blocks_generic_high_entropy_secrets_before_network():
+    result = github_commit_files(
+        "task/test",
+        [{"path": "notes.txt", "content": "standalone secret: A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6"}],
+        "update notes",
+    )
+
+    assert result["success"] is False
+    assert "possible secret" in result["error"]
+    assert "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6" not in result["error"]
+
+
+def test_github_commit_files_allows_uuid_and_git_sha_entropy_false_positives_before_network():
+    with (
+        patch("backend.tool_adapters._get_repo"),
+        patch("backend.tool_adapters._gh_get_contents", side_effect=GithubException(404, {}, None)),
+        patch("backend.tool_adapters._gh_create_file", return_value=None),
+    ):
+
+        result = github_commit_files(
+            "task/test",
+            [{
+                "path": "notes.txt",
+                "content": (
+                    "task id 123e4567-e89b-12d3-a456-426614174000\n"
+                    "commit 0123456789abcdef0123456789abcdef01234567"
+                ),
+            }],
+            "update notes",
+        )
+
+    assert result["success"] is True
+    assert result["data"]["committed"] == ["notes.txt"]
 
 
 def test_humanize_error_maps_github_422():

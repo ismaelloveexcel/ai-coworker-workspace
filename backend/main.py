@@ -142,6 +142,13 @@ app.add_middleware(
 # Auth dependency (F3/E1)
 # ---------------------------------------------------------------------------
 
+_SSE_STREAM_PATH_RE = re.compile(r"^/tasks/[^/]+/stream$")
+
+
+def _is_sse_stream_request(request: Request) -> bool:
+    return request.method == "GET" and bool(_SSE_STREAM_PATH_RE.fullmatch(request.url.path))
+
+
 async def require_auth(request: Request) -> None:
     """If API_KEY is set, validate Bearer token or ?token= query param.
 
@@ -158,7 +165,7 @@ async def require_auth(request: Request) -> None:
         return
     # 2. Fall back to ?token= query param (SSE-only workaround)
     token_param = request.query_params.get("token", "")
-    if token_param and token_param == settings.api_key:
+    if token_param and token_param == settings.api_key and _is_sse_stream_request(request):
         return
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Invalid or missing Bearer token")

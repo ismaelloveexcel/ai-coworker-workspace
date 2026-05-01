@@ -97,6 +97,8 @@ def _secret_findings(content: str, path: str = "text", *, include_generic_entrop
         if name == "generic_high_entropy" and not include_generic_entropy:
             continue
         for match in pattern.finditer(content or ""):
+            if name == "generic_high_entropy" and (_UUID_RE.fullmatch(match.group(0)) or _GIT_SHA_RE.fullmatch(match.group(0))):
+                continue
             start = max(0, match.start() - 12)
             end = min(len(content), match.end() + 12)
             findings.append({
@@ -200,7 +202,7 @@ def github_create_branch(task_id: str, repo: str = None) -> Dict:
         return _err(f"GitHub error creating branch: {e.data}")
 
 
-_PROTECTED_EXACT_PATHS = {".env", "Dockerfile", "docker-compose.yml", "nginx.conf"}
+_PROTECTED_EXACT_PATHS = {".env", "Dockerfile", "docker-compose.yml", "nginx.conf", "CLAUDE.md"}
 _PROTECTED_PREFIXES = (".env.", ".github/workflows/")
 
 
@@ -220,12 +222,12 @@ def github_commit_files(branch: str, files: List[Dict], message: str, repo: str 
         for file_info in files:
             path = _normalize_repo_path(file_info["path"])
             content = file_info["content"]
-            if _is_protected_repo_path(path) and not allow_infra_edits:
+            if _is_protected_repo_path(path):
                 return _err(
                     f"Refusing to commit protected path {path!r}. "
-                    "Set allow_infra_edits=true only for intentional infrastructure changes."
+                    "Protected paths require a future explicit approval path."
                 )
-            findings = _secret_findings(content, path, include_generic_entropy=False)
+            findings = _secret_findings(content, path, include_generic_entropy=True)
             if findings:
                 return _err(
                     f"Refusing to commit {path!r}; possible secret detected: "
