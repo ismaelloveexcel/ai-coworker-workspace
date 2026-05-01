@@ -71,10 +71,23 @@ _SECRET_PATTERNS = [
 ]
 
 
+# Patterns that are NOT secrets — never redact these even if they match
+# the generic_high_entropy pattern.
+_UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+_GIT_SHA_RE = re.compile(r'^[0-9a-f]{40}$', re.I)
+
+
 def _redact(value: str) -> str:
     redacted = value
-    for _, pattern in _SECRET_PATTERNS:
-        redacted = pattern.sub(lambda m: m.group(1) + "=[REDACTED]" if m.lastindex else "[REDACTED]", redacted)
+    for name, pattern in _SECRET_PATTERNS:
+        def _sub(m, _name=name):
+            s = m.group(0)
+            # Whitelist UUIDs (task IDs) and git SHAs — they are not secrets (A12)
+            if _name == "generic_high_entropy":
+                if _UUID_RE.fullmatch(s) or _GIT_SHA_RE.fullmatch(s):
+                    return s
+            return m.group(1) + "=[REDACTED]" if m.lastindex else "[REDACTED]"
+        redacted = pattern.sub(_sub, redacted)
     return redacted
 
 
@@ -116,32 +129,53 @@ def _to_text(value: Any) -> str:
 
 # -- Retry helpers (raise on failure so tenacity can retry) -------------------
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
+
+def _gh_before_sleep(retry_state) -> None:
+    """Honour GitHub Retry-After header when present (A1)."""
+    exc = retry_state.outcome.exception()
+    if not isinstance(exc, GithubException):
+        return
+    try:
+        headers = exc.headers or {}
+        retry_after = headers.get("Retry-After") or headers.get("retry-after")
+        if retry_after:
+            extra = int(retry_after) + 2
+            print(
+                f"[GitHub] Retry-After header: sleeping {extra}s "
+                f"(attempt {retry_state.attempt_number})",
+                flush=True,
+            )
+            time.sleep(extra)
+    except (AttributeError, ValueError, TypeError):
+        pass
+
+
+@retry(stop=stop_after_attempt(5), wait=wait_exponential(min=15, max=90), retry=retry_if_exception(_is_transient), before_sleep=_gh_before_sleep)
 def _gh_create_ref(repo, ref: str, sha: str) -> None:
     repo.create_git_ref(ref=ref, sha=sha)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
+@retry(stop=stop_after_attempt(5), wait=wait_exponential(min=15, max=90), retry=retry_if_exception(_is_transient), before_sleep=_gh_before_sleep)
 def _gh_get_ref(repo, ref: str):
     return repo.get_git_ref(ref)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
+@retry(stop=stop_after_attempt(5), wait=wait_exponential(min=15, max=90), retry=retry_if_exception(_is_transient), before_sleep=_gh_before_sleep)
 def _gh_create_file(repo, path: str, message: str, content: str, branch: str):
     repo.create_file(path, message, content, branch=branch)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
+@retry(stop=stop_after_attempt(5), wait=wait_exponential(min=15, max=90), retry=retry_if_exception(_is_transient), before_sleep=_gh_before_sleep)
 def _gh_update_file(repo, path: str, message: str, content: str, sha: str, branch: str):
     repo.update_file(path, message, content, sha, branch=branch)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
+@retry(stop=stop_after_attempt(5), wait=wait_exponential(min=15, max=90), retry=retry_if_exception(_is_transient), before_sleep=_gh_before_sleep)
 def _gh_create_pr(repo, title: str, body: str, head: str, base: str, draft: bool = False):
     return repo.create_pull(title=title, body=body, head=head, base=base, draft=draft)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4), retry=retry_if_exception(_is_transient))
+@retry(stop=stop_after_attempt(5), wait=wait_exponential(min=15, max=90), retry=retry_if_exception(_is_transient), before_sleep=_gh_before_sleep)
 def _gh_get_contents(repo, path: str, ref: str = None):
     kwargs = {"ref": ref} if ref else {}
     return repo.get_contents(path, **kwargs)

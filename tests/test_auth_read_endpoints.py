@@ -60,6 +60,30 @@ async def test_list_tasks_accepts_correct_token(auth_client):
 
 
 @pytest.mark.asyncio
+async def test_stream_accepts_token_query_param(auth_client):
+    """EventSource cannot send headers; SSE endpoint must accept ?token= query param."""
+    from backend import db
+    from backend.events import emit
+    from unittest.mock import AsyncMock, patch
+    from starlette.requests import Request
+
+    task = await db.create_task("sse-auth-test", "prompt")
+    # Pre-emit a terminal event so the stream closes immediately once auth passes.
+    await emit(task["id"], "task_done", {})
+    # Patch is_disconnected to avoid httpx ASGITransport deadlock in test context.
+    # httpx's receive() blocks on asyncio.Event.wait() once the request body is
+    # consumed, and the SSE generator blocks on is_disconnected() calling receive().
+    # Returning False immediately lets the generator consume the pre-emitted
+    # task_done event and exit cleanly.
+    with patch.object(Request, "is_disconnected", AsyncMock(return_value=False)):
+        r = await auth_client.get(f"/tasks/{task['id']}/stream?token={_API_KEY}")
+        assert r.status_code == 200
+    # Wrong token via query param still rejects (auth fails before stream starts)
+    r2 = await auth_client.get(f"/tasks/{task['id']}/stream?token=wrong")
+    assert r2.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_get_task_accepts_correct_token(auth_client):
     from backend import db
     task = await db.create_task("auth-test", "prompt")

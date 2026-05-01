@@ -23,7 +23,7 @@ def test_load_state_no_file():
     with patch("watchdog.get_file", return_value=None), \
          patch("watchdog._today", return_value="2099-01-01"):
         state = _load_state()
-    assert state == {"date": "2099-01-01", "invocations": 0}
+    assert state == {"date": "2099-01-01", "invocations": 0, "per_run": {}}
 
 
 def test_load_state_same_day():
@@ -41,7 +41,7 @@ def test_load_state_stale_date():
     with patch("watchdog.get_file", return_value=stored), \
          patch("watchdog._today", return_value="2099-01-02"):
         state = _load_state()
-    assert state == {"date": "2099-01-02", "invocations": 0}
+    assert state == {"date": "2099-01-02", "invocations": 0, "per_run": {}}
 
 
 def test_load_state_corrupt_json():
@@ -49,7 +49,7 @@ def test_load_state_corrupt_json():
     with patch("watchdog.get_file", return_value="not-json{{{"), \
          patch("watchdog._today", return_value="2099-06-15"):
         state = _load_state()
-    assert state == {"date": "2099-06-15", "invocations": 0}
+    assert state == {"date": "2099-06-15", "invocations": 0, "per_run": {}}
 
 
 def test_load_state_missing_invocations_key():

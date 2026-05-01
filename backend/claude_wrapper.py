@@ -22,7 +22,7 @@ _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 with open(os.path.join(_ROOT, "CLAUDE.md"), "r", encoding="utf-8") as f:
     _SYSTEM_PROMPT = f.read()
 
-MAX_HISTORY_STEPS = 10
+MAX_HISTORY_STEPS = 20
 MAX_TOKENS = 4096
 
 
@@ -33,11 +33,21 @@ def _is_retryable_anthropic(exc: Exception) -> bool:
     return status in {429, 500, 502, 503, 504, 529}
 
 
+def _anthropic_before_sleep(retry_state) -> None:
+    """Log Anthropic overload retries so operators know the agent is recovering (A2)."""
+    attempt = retry_state.attempt_number
+    print(
+        f"Anthropic overloaded — waiting, will retry automatically (attempt {attempt}/5)",
+        flush=True,
+    )
+
+
 @retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(min=1, max=8),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(min=10, max=120),
     retry=retry_if_exception(_is_retryable_anthropic),
     reraise=True,
+    before_sleep=_anthropic_before_sleep,
 )
 def _create_message(messages: List[Dict]):
     return _client.messages.create(
@@ -91,11 +101,51 @@ def _build_repo_prelude() -> str:
     return "\n\n".join(parts)
 
 
+def _build_compact_repo_context() -> str:
+    """Lightweight repo context injected on every step >0 (A11).
+
+    Includes only the first 500 chars of README.md and the raw file tree —
+    no full file contents.  Adds ~800–1 000 tokens per step but prevents
+    Claude from hallucinating file paths on long tasks.
+    """
+    parts = []
+    readme = _read_context_file("README.md", limit=500)
+    if readme:
+        parts.append(f"--- README.md (summary) ---\n{readme}")
+    try:
+        tree: list = []
+        for root, dirs, filenames in os.walk(_ROOT):
+            rel_root = os.path.relpath(root, _ROOT)
+            if rel_root == ".":
+                rel_root = ""
+            dirs[:] = [d for d in dirs if d not in {".git", ".venv", "node_modules", ".next", "__pycache__"}]
+            depth = 0 if not rel_root else rel_root.count(os.sep) + 1
+            if depth > 2:
+                dirs[:] = []
+                continue
+            for name in filenames:
+                rel = os.path.join(rel_root, name).replace(os.sep, "/") if rel_root else name
+                tree.append(rel)
+                if len(tree) >= 160:
+                    break
+            if len(tree) >= 160:
+                break
+        parts.append("--- file tree ---\n" + "\n".join(tree))
+    except OSError:
+        pass
+    return "\n\n".join(parts)
+
+
 # -- Context builder -----------------------------------------------------------
 
 def build_task_context(task: Dict, steps: List[Dict]) -> str:
     recent = steps[-MAX_HISTORY_STEPS:]
     history = []
+    if len(steps) > MAX_HISTORY_STEPS:
+        omitted = len(steps) - MAX_HISTORY_STEPS
+        history.append(
+            f"[Earlier steps 1\u2013{omitted} omitted. Total steps so far: {len(steps)}]"
+        )
     for s in recent:
         history.append(
             f"[Step {s['step_num']}] Tool={s.get('tool_name','?')} "
@@ -105,11 +155,20 @@ def build_task_context(task: Dict, steps: List[Dict]) -> str:
         )
     repo_context = ""
     if not steps:
+        # Step 0: full repo prelude with file contents
         prelude = _build_repo_prelude()
         if prelude:
             repo_context = f"""
 === Repo Snapshot ===
 {prelude}
+"""
+    else:
+        # Steps >0: compact context — file tree + README header only (A11)
+        compact = _build_compact_repo_context()
+        if compact:
+            repo_context = f"""
+=== Repo Context ===
+{compact}
 """
 
     return f"""Task ID: {task['id']}

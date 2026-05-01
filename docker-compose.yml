@@ -23,7 +23,7 @@ services:
     # creates /tmp/agent_workspace at import time. tmpfs keeps the rest of the
     # root filesystem read-only while giving the sandbox a writable directory.
     tmpfs:
-      - /tmp:rw,nosuid,nodev,size=64m
+      - /tmp:rw,nosuid,nodev,size=256m
     security_opt:
       - no-new-privileges:true
     healthcheck:

@@ -22,8 +22,8 @@ class Settings:
     anthropic_api_key: str   = field(default_factory=lambda: _require("ANTHROPIC_API_KEY"))
     github_token: str        = field(default_factory=lambda: _require("GH_PAT"))
     github_default_repo: str = field(default_factory=lambda: _optional("GITHUB_DEFAULT_REPO", "ismaelloveexcel/ai-coworker-workspace"))
-    model: str               = field(default_factory=lambda: _optional("CLAUDE_MODEL", "claude-sonnet-4-5"))
-    watchdog_model: str      = field(default_factory=lambda: _optional("WATCHDOG_MODEL", _optional("CLAUDE_MODEL", "claude-sonnet-4-5")))
+    model: str               = field(default_factory=lambda: _optional("CLAUDE_MODEL", "claude-sonnet-4-5-20251101"))
+    watchdog_model: str      = field(default_factory=lambda: _optional("WATCHDOG_MODEL", _optional("CLAUDE_MODEL", "claude-sonnet-4-5-20251101")))
     environment: str         = field(default_factory=lambda: _optional("ENV", _optional("APP_ENV", "development")).lower())
 
     # Database
@@ -46,9 +46,10 @@ class Settings:
         d.strip() for d in _optional("WHITELISTED_DOMAINS", "github.com").split(",") if d.strip()
     ])
 
-    # Cost cap — raise BudgetExceeded when a task exceeds this USD amount
+    # Cost caps
     max_task_usd: float = field(default_factory=lambda: float(_optional("MAX_TASK_USD", "5.00")))
     watchdog_max_usd: float = field(default_factory=lambda: float(_optional("WATCHDOG_MAX_USD", "2.00")))
+    daily_max_usd: float = field(default_factory=lambda: float(_optional("DAILY_MAX_USD", "20.00")))
 
     # SQLite backup rotation
     backup_enabled: bool = field(default_factory=lambda: _optional("DB_BACKUP_ENABLED", "true").lower() == "true")
@@ -60,10 +61,20 @@ class Settings:
     log_json: bool  = field(default_factory=lambda: _optional("LOG_JSON", "false").lower() == "true")
 
     def __post_init__(self) -> None:
+        import re as _re
+        import logging as _logging
+        _DATE_PIN_RE = _re.compile(r"claude-.+-\d{8}")
         for field_name in ("model", "watchdog_model"):
             value = getattr(self, field_name)
             if not value or not value.startswith("claude-"):
                 raise RuntimeError(f"{field_name} must be a Claude model name, got {value!r}")
+            if not _DATE_PIN_RE.search(value):
+                _logging.getLogger(__name__).warning(
+                    "%s=%r has no date pin — it may break if Anthropic retires the alias. "
+                    "Consider using claude-sonnet-4-5-20251101.",
+                    field_name,
+                    value,
+                )
 
 
 settings = Settings()

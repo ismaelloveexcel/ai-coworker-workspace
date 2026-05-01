@@ -37,7 +37,10 @@
   <!-- Header -->
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-bold text-white">AI Coworker</h1>
-    <span id="conn-status" class="text-sm text-slate-400">—</span>
+    <div class="text-right">
+      <span id="conn-status" class="text-sm text-slate-400">—</span>
+      <p id="spend-summary" class="text-xs text-slate-500 mt-0.5 hidden"></p>
+    </div>
   </div>
 
   <!-- New task form -->
@@ -123,6 +126,9 @@ async function createTask() {
   }
 
   const headers = { 'Content-Type': 'application/json' };
+  // NOTE (A15): localStorage survives browser close and is readable by JS on
+  // this origin. For networked deployments, prefer HttpOnly session cookies
+  // via a reverse proxy rather than storing the key here.
   const apiKey = localStorage.getItem('api_key');
   if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
 
@@ -231,7 +237,12 @@ function appendLog(taskId, message, level) {
 
 function subscribeSSE(taskId) {
   if (activeStreams[taskId]) return;
-  const es = new EventSource(API + '/tasks/' + encodeURIComponent(taskId) + '/stream');
+  // EventSource cannot send custom headers; pass the token as ?token= query param.
+  // The server's require_auth accepts this fallback for SSE endpoints only.
+  const apiKey = localStorage.getItem('api_key');
+  const url = API + '/tasks/' + encodeURIComponent(taskId) + '/stream'
+    + (apiKey ? '?token=' + encodeURIComponent(apiKey) : '');
+  const es = new EventSource(url);
   activeStreams[taskId] = es;
 
   const terminal = new Set(['task_done', 'task_failed', 'task_cancelled']);
@@ -300,9 +311,32 @@ async function retryTask(taskId) {
 // Load existing tasks on page load
 // ---------------------------------------------------------------------------
 
+function _readHeaders() {
+  const h = {};
+  const k = localStorage.getItem('api_key');
+  if (k) h['Authorization'] = 'Bearer ' + k;
+  return h;
+}
+
+async function loadSummary() {
+  try {
+    const r = await fetch(API + '/summary', { headers: _readHeaders() });
+    if (!r.ok) return;
+    const d = await r.json();
+    const el = document.getElementById('spend-summary');
+    if (!el) return;
+    el.textContent =
+      `This week: ${d.tasks_this_week} tasks • ` +
+      `${d.succeeded_this_week} succeeded • ` +
+      `${d.failed_this_week} failed • ` +
+      `$${Number(d.total_usd_this_week).toFixed(4)} spent`;
+    el.classList.remove('hidden');
+  } catch { /* non-fatal */ }
+}
+
 async function loadTasks(offset = 0) {
   try {
-    const r = await fetch(API + '/tasks?limit=50&offset=' + offset);
+    const r = await fetch(API + '/tasks?limit=50&offset=' + offset, { headers: _readHeaders() });
     if (!r.ok) return;
     const data = await r.json();
     budgetCap = data.max_task_usd == null ? budgetCap : data.max_task_usd;
@@ -320,6 +354,7 @@ async function loadTasks(offset = 0) {
 }
 
 loadTasks();
+loadSummary();
 </script>
 </body>
 </html>

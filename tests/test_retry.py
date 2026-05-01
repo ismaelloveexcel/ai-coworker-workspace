@@ -11,8 +11,9 @@ def _make_gh_exc(status=502):
     return GithubException(status, {"message": "Bad Gateway"}, {})
 
 
+@patch("time.sleep")  # suppress wait_exponential delays so tests don't hang
 @patch("backend.tool_adapters._get_repo")
-def test_create_branch_retries_on_github_exception(mock_get_repo):
+def test_create_branch_retries_on_github_exception(mock_get_repo, mock_sleep):
     """_gh_get_ref should be retried up to 3 times on GithubException."""
     mock_repo = MagicMock()
     mock_repo.get_git_ref.side_effect = _make_gh_exc(502)
@@ -28,8 +29,9 @@ def test_create_branch_retries_on_github_exception(mock_get_repo):
     assert mock_repo.get_git_ref.call_count >= 3
 
 
+@patch("time.sleep")  # suppress wait_exponential delays so tests don't hang
 @patch("backend.tool_adapters._get_repo")
-def test_github_read_file_retries(mock_get_repo):
+def test_github_read_file_retries(mock_get_repo, mock_sleep):
     mock_repo = MagicMock()
     mock_repo.get_contents.side_effect = _make_gh_exc(503)
     mock_get_repo.return_value = mock_repo
@@ -42,8 +44,9 @@ def test_github_read_file_retries(mock_get_repo):
     assert mock_repo.get_contents.call_count >= 3
 
 
+@patch("time.sleep")  # suppress wait_exponential delays so tests don't hang
 @patch("backend.tool_adapters._get_repo")
-def test_github_create_branch_succeeds_on_retry(mock_get_repo):
+def test_github_create_branch_succeeds_on_retry(mock_get_repo, mock_sleep):
     """Should succeed if the second attempt works."""
     mock_repo = MagicMock()
     # Fail first call to get_git_ref for main SHA, succeed on second

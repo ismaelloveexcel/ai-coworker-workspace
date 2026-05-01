@@ -247,6 +247,37 @@ async def run_task(task_id: str) -> None:
                     await notify_task_failure(task_id, repo, err)
                     return
                 pr_url = pr_result.get("data", {}).get("pr_url", "")
+
+                # A13: append a CHANGELOG entry on the task branch so the operator
+                # can answer "what did the agent change?" without reading git log.
+                try:
+                    from datetime import date as _date
+                    from backend.tool_adapters import github_read_file, github_commit_files
+                    cl_result = await loop.run_in_executor(
+                        _tool_executor, github_read_file, "CHANGELOG.md", branch, repo
+                    )
+                    existing_cl = cl_result.get("data", {}).get("content", "") if cl_result.get("success") else ""
+                    changed = ", ".join(
+                        f.get("filename", "") for f in changed_files[:5]
+                    ) or "no files"
+                    entry = (
+                        f"\n## [{task_id[:8]}] {task['title']} — {_date.today()}\n"
+                        f"- PR: {pr_url}\n"
+                        f"- Changed: {changed}\n"
+                        f"- Reasoning: {_redact(reasoning[:300])}\n"
+                    )
+                    new_cl = existing_cl + entry
+                    await loop.run_in_executor(
+                        _tool_executor,
+                        github_commit_files,
+                        branch,
+                        [{"path": "CHANGELOG.md", "content": new_cl}],
+                        f"chore: update CHANGELOG for task {task_id[:8]}",
+                        repo,
+                        False,
+                    )
+                except Exception as cl_exc:
+                    log_ctx.warning("changelog_update_skipped", error=str(cl_exc))
                 await db.update_step(step_id, status="done",
                                      tool_output=_json_redacted({"pr_url": pr_url, "compare": compare_result.get("data", {})}))
                 await db.update_task(task_id, status="done", pr_url=pr_url)

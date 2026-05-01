@@ -305,6 +305,55 @@ async def get_zombie_tasks(stale_minutes: int = 10) -> List[Dict]:
 
 
 # ---------------------------------------------------------------------------
+# Spend aggregates (A8, A9)
+# ---------------------------------------------------------------------------
+
+async def get_daily_spend() -> float:
+    """Sum usd_spent for all tasks created since UTC midnight today (A8)."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    async with _get_db() as db:
+        row = await (await db.execute(
+            "SELECT COALESCE(SUM(usd_spent), 0) FROM tasks WHERE created_at >= ?",
+            (today,),
+        )).fetchone()
+    return float(row[0]) if row else 0.0
+
+
+async def get_summary() -> Dict:
+    """Return task count and spend for today and the last 7 days (A9)."""
+    now = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
+    week_ago = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+    async with _get_db() as db:
+        t_row = await (await db.execute(
+            """SELECT COUNT(*) as n,
+                      COALESCE(SUM(usd_spent), 0) as usd,
+                      SUM(CASE WHEN status='done'   THEN 1 ELSE 0 END) as succeeded,
+                      SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as failed
+               FROM tasks WHERE created_at >= ?""",
+            (today,),
+        )).fetchone()
+        w_row = await (await db.execute(
+            """SELECT COUNT(*) as n,
+                      COALESCE(SUM(usd_spent), 0) as usd,
+                      SUM(CASE WHEN status='done'   THEN 1 ELSE 0 END) as succeeded,
+                      SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as failed
+               FROM tasks WHERE created_at >= ?""",
+            (week_ago,),
+        )).fetchone()
+    return {
+        "tasks_today":        int(t_row["n"])        if t_row else 0,
+        "tasks_this_week":    int(w_row["n"])        if w_row else 0,
+        "succeeded_today":    int(t_row["succeeded"]) if t_row else 0,
+        "failed_today":       int(t_row["failed"])    if t_row else 0,
+        "succeeded_this_week": int(w_row["succeeded"]) if w_row else 0,
+        "failed_this_week":   int(w_row["failed"])    if w_row else 0,
+        "total_usd_today":    round(float(t_row["usd"]) if t_row else 0.0, 4),
+        "total_usd_this_week": round(float(w_row["usd"]) if w_row else 0.0, 4),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Health (F45)
 # ---------------------------------------------------------------------------
 

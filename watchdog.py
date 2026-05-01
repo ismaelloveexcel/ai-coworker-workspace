@@ -36,6 +36,7 @@ from typing import Dict, List, Optional, Tuple
 
 import anthropic
 from github import Auth, Github, GithubException
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 # ---------------------------------------------------------------------------
 # Config
@@ -72,7 +73,7 @@ def _parse_daily_max() -> int:
         return 10
 
 WATCHDOG_DAILY_MAX = _parse_daily_max()
-MODEL             = os.environ.get("WATCHDOG_MODEL") or os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5")
+MODEL             = os.environ.get("WATCHDOG_MODEL") or os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5-20251101")
 WATCHDOG_MAX_USD  = float(os.environ.get("WATCHDOG_MAX_USD", "2.00"))
 FAILED_RUN_ID     = os.environ.get("FAILED_RUN_ID", "")
 FAILED_WORKFLOW   = os.environ.get("FAILED_WORKFLOW", "")
@@ -155,10 +156,13 @@ def _load_state() -> Dict:
                     state["invocations"] = max(0, int(state.get("invocations", 0)))
                 except (ValueError, TypeError):
                     state["invocations"] = 0
+                # Ensure per_run dict exists (A16)
+                if "per_run" not in state or not isinstance(state["per_run"], dict):
+                    state["per_run"] = {}
                 return state
         except (json.JSONDecodeError, AttributeError):
             pass
-    return {"date": today, "invocations": 0}
+    return {"date": today, "invocations": 0, "per_run": {}}
 
 
 def _save_state(state: Dict) -> None:
@@ -201,6 +205,15 @@ def _save_state(state: Dict) -> None:
                 import time as _time
                 _time.sleep(2 * attempt)
                 continue
+            if e.status == 422:
+                # Branch protection prevents direct writes to main (A6)
+                print(
+                    "WARNING: Branch protection prevents direct writes to main — "
+                    "watchdog invocation count not persisted. If you enable branch "
+                    "protection, switch WATCHDOG_STATE_BACKEND to cache.",
+                    file=sys.stderr,
+                )
+                return
             raise
 
 
@@ -209,6 +222,9 @@ def _check_and_increment_daily() -> bool:
     Load today's state, check against WATCHDOG_DAILY_MAX, and if under the
     ceiling atomically increment and persist.  Returns True when the run is
     allowed, False when the ceiling has been reached.
+
+    Also tracks per-run-ID attempt count in state["per_run"] (A16) as the
+    authoritative limit, preventing over-counting when PRs are merged/closed.
     """
     state = _load_state()
     if state["invocations"] >= WATCHDOG_DAILY_MAX:
@@ -219,6 +235,21 @@ def _check_and_increment_daily() -> bool:
             file=sys.stderr,
         )
         return False
+
+    # Per-run attempt gate: use state.json as authoritative source (A16)
+    if FAILED_RUN_ID:
+        per_run = state.get("per_run", {})
+        run_attempts = per_run.get(FAILED_RUN_ID, 0)
+        if run_attempts >= MAX_FIX_ATTEMPTS:
+            print(
+                f"Max fix attempts ({MAX_FIX_ATTEMPTS}) already reached for run "
+                f"{FAILED_RUN_ID} per state.json. Skipping.",
+                file=sys.stderr,
+            )
+            return False
+        per_run[FAILED_RUN_ID] = run_attempts + 1
+        state["per_run"] = per_run
+
     state["invocations"] += 1
     _save_state(state)
     print(
@@ -592,6 +623,31 @@ def apply_patches(patches: List[Dict], branch: str) -> Tuple[int, int]:
 
 
 # ---------------------------------------------------------------------------
+# Claude API helper with retry on overload (A10)
+# ---------------------------------------------------------------------------
+
+def _is_retryable_anthropic_exc(exc) -> bool:
+    return getattr(exc, "status_code", None) in {429, 500, 529}
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(min=10, max=60),
+    retry=retry_if_exception(_is_retryable_anthropic_exc),
+    reraise=True,
+)
+def _call_claude(messages: List[Dict], max_tokens: int = 4096) -> str:
+    """Call Claude with automatic retry on overload (429/529/500)."""
+    response = _get_client().messages.create(
+        model=MODEL,
+        max_tokens=max_tokens,
+        messages=messages,
+    )
+    _record_watchdog_usage(response)
+    return response.content[0].text
+
+
+# ---------------------------------------------------------------------------
 # Claude phases
 # ---------------------------------------------------------------------------
 
@@ -676,13 +732,11 @@ Rules:
 - Each patch.find must appear EXACTLY ONCE in the target file
 - Do not invent variable names or functions that don't exist
 """
-    response = _get_client().messages.create(
-        model=MODEL,
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    _record_watchdog_usage(response)
-    raw = response.content[0].text
+    try:
+        raw = _call_claude([{"role": "user", "content": prompt}])
+    except Exception as e:
+        print(f"Phase 1 Claude call failed after retries: {e}", file=sys.stderr)
+        raise
     try:
         return _parse_json(raw)
     except json.JSONDecodeError as e:
@@ -723,13 +777,11 @@ Respond with ONLY a JSON object:
 If approved=true, corrected_patches may be the same as the input or improved.
 If approved=false, corrected_patches should be empty and rejection_reason must be set.
 """
-    response = _get_client().messages.create(
-        model=MODEL,
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    _record_watchdog_usage(response)
-    raw = response.content[0].text
+    try:
+        raw = _call_claude([{"role": "user", "content": prompt}])
+    except Exception as e:
+        print(f"Phase 2 Claude call failed after retries: {e}", file=sys.stderr)
+        raise
     try:
         return _parse_json(raw)
     except json.JSONDecodeError as e:

@@ -143,13 +143,25 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 async def require_auth(request: Request) -> None:
-    """If API_KEY is set, validate Bearer token. No-op when API_KEY is empty."""
+    """If API_KEY is set, validate Bearer token or ?token= query param.
+
+    The ?token= fallback exists solely for the SSE endpoint: the browser
+    EventSource API cannot set custom headers, so the token must be passed
+    as a query parameter there.  All other endpoints should use the
+    Authorization header.
+    """
     if not settings.api_key:
         return  # unauthenticated mode (localhost dev)
+    # 1. Check Authorization header (preferred)
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or auth[7:] != settings.api_key:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Invalid or missing Bearer token")
+    if auth.startswith("Bearer ") and auth[7:] == settings.api_key:
+        return
+    # 2. Fall back to ?token= query param (SSE-only workaround)
+    token_param = request.query_params.get("token", "")
+    if token_param and token_param == settings.api_key:
+        return
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid or missing Bearer token")
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +258,18 @@ async def health():
 
 @app.post("/tasks", status_code=201, dependencies=[Depends(require_auth)])
 async def create_task(req: CreateTaskRequest, request: Request):
+    # Daily budget cap (A8)
+    if settings.daily_max_usd > 0:
+        daily_spend = await db.get_daily_spend()
+        if daily_spend >= settings.daily_max_usd:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"Daily API budget (${settings.daily_max_usd:.2f}) reached — "
+                    "tasks paused until tomorrow."
+                ),
+            )
+
     active = {tid: task for tid, task in _running.items() if not task.done()}
     _running.clear()
     _running.update(active)
@@ -263,7 +287,13 @@ async def create_task(req: CreateTaskRequest, request: Request):
     return task
 
 
-@app.get("/tasks")
+@app.get("/summary", dependencies=[Depends(require_auth)])
+async def summary():
+    """Return task counts and USD spend for today and the last 7 days (A9)."""
+    return await db.get_summary()
+
+
+@app.get("/tasks", dependencies=[Depends(require_auth)])
 async def list_tasks(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -273,7 +303,7 @@ async def list_tasks(
     return {"tasks": tasks, "limit": limit, "offset": offset, "count": len(tasks), "max_task_usd": settings.max_task_usd}
 
 
-@app.get("/tasks/{task_id}")
+@app.get("/tasks/{task_id}", dependencies=[Depends(require_auth)])
 async def get_task(task_id: str):
     task = await db.get_task(task_id)
     if not task:
@@ -317,7 +347,7 @@ async def retry_task(task_id: str):
     return task
 
 
-@app.get("/tasks/{task_id}/stream")
+@app.get("/tasks/{task_id}/stream", dependencies=[Depends(require_auth)])
 async def stream_task(task_id: str, request: Request):
     """SSE stream with client-disconnect detection (F30)."""
     task = await db.get_task(task_id)
