@@ -83,7 +83,7 @@ async def run_task(task_id: str) -> None:
     loop = asyncio.get_running_loop()   # F34: never use get_event_loop() in a coroutine
     log_ctx = log.bind(task_id=task_id)
 
-    await db.update_task(task_id, status="running")
+    await db.update_task(task_id, status="running", current_step=0)
     await db.touch_heartbeat(task_id)   # prevent false-positive zombie reap during branch creation
     await emit_log(task_id, "info", "Agent starting")
 
@@ -109,6 +109,7 @@ async def run_task(task_id: str) -> None:
             return
 
         branch = branch_result["data"]["branch"]
+        await db.update_task(task_id, branch=branch)
         await emit_log(task_id, "info", f"Working on branch: {branch}")
 
         steps = []
@@ -116,6 +117,7 @@ async def run_task(task_id: str) -> None:
 
         while step_count < settings.max_steps:
             step_count += 1
+            await db.update_task(task_id, current_step=step_count)
             await emit_log(task_id, "info", f"Step {step_count}/{settings.max_steps}")
             await db.touch_heartbeat(task_id)
 
@@ -188,6 +190,8 @@ async def run_task(task_id: str) -> None:
             tool_name = parsed.get("tool", "")
             tool_input = parsed.get("input", {})
             reasoning = parsed.get("reasoning", "")
+
+            await db.update_task(task_id, last_action=action, last_tool=tool_name or None)
 
             await db.update_step(step_id, tool_name=tool_name,
                                  tool_input=_json_redacted(tool_input),
@@ -332,13 +336,24 @@ async def run_task(task_id: str) -> None:
                 )
                 if pr_result.get("success"):
                     pr_url = pr_result.get("data", {}).get("pr_url", "")
-                    await db.update_task(task_id, status="failed", error=f"{human_err} Partial draft PR: {pr_url}", pr_url=pr_url)
+                    await db.update_task(
+                        task_id,
+                        status="failed",
+                        error=f"{human_err} Partial draft PR: {pr_url}",
+                        pr_url=pr_url,
+                        recovery_note=f"Partial draft PR opened at {pr_url}. Review the PR before retrying.",
+                    )
                     await emit(task_id, "task_failed", {"error": human_err, "pr_url": pr_url})
                     await notify_task_failure(task_id, repo, f"{human_err} Partial draft PR: {pr_url}")
                     return
         except Exception as exc:
             await emit_log(task_id, "warning", f"Partial PR creation skipped: {_human_error(str(exc))}")
-        await db.update_task(task_id, status="failed", error=human_err)
+        await db.update_task(
+            task_id,
+            status="failed",
+            error=human_err,
+            recovery_note=f"Agent stopped after reaching max steps. Review branch {branch!r} for partial work.",
+        )
         await emit(task_id, "task_failed", {"error": human_err})
         await notify_task_failure(task_id, repo, human_err)
 

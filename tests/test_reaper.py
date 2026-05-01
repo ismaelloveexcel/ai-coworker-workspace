@@ -142,3 +142,78 @@ async def test_touch_heartbeat_prevents_reaping():
 
     updated = await db.get_task(task["id"])
     assert updated["status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_running_task_with_branch_marks_failed_with_recovery_note():
+    task = await db.create_task("Interrupted", "prompt")
+    await db.update_task(task["id"], status="running", branch="task/interrupted")
+
+    mock_notify = AsyncMock()
+    with patch("backend.main.notify_task_failure", new=mock_notify):
+        from backend.main import _reconcile_interrupted_tasks
+        await _reconcile_interrupted_tasks()
+
+    updated = await db.get_task(task["id"])
+    logs = await db.get_logs(task["id"])
+    assert updated["status"] == "failed"
+    assert "backend restart" in updated["error"]
+    assert "task/interrupted" in updated["recovery_note"]
+    assert updated["reconciled_at"]
+    assert "task/interrupted" in logs[-1]["message"]
+    mock_notify.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_running_task_without_branch_marks_failed_with_recovery_note():
+    task = await db.create_task("Interrupted early", "prompt")
+    await db.update_task(task["id"], status="running")
+
+    with patch("backend.main.notify_task_failure", new=AsyncMock()):
+        from backend.main import _reconcile_interrupted_tasks
+        await _reconcile_interrupted_tasks()
+
+    updated = await db.get_task(task["id"])
+    assert updated["status"] == "failed"
+    assert "before branch creation" in updated["recovery_note"]
+    assert updated["reconciled_at"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_running_task_with_pr_url_preserves_pr_for_review():
+    task = await db.create_task("Interrupted with PR", "prompt")
+    await db.update_task(
+        task["id"],
+        status="running",
+        branch="task/with-pr",
+        pr_url="https://github.com/owner/repo/pull/1",
+    )
+
+    with patch("backend.main.notify_task_failure", new=AsyncMock()):
+        from backend.main import _reconcile_interrupted_tasks
+        await _reconcile_interrupted_tasks()
+
+    updated = await db.get_task(task["id"])
+    assert updated["status"] == "failed"
+    assert updated["pr_url"] == "https://github.com/owner/repo/pull/1"
+    assert "PR already exists" in updated["recovery_note"]
+    assert "https://github.com/owner/repo/pull/1" in updated["recovery_note"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_does_not_touch_terminal_tasks():
+    done = await db.create_task("Done", "prompt")
+    cancelled = await db.create_task("Cancelled", "prompt")
+    failed = await db.create_task("Failed", "prompt")
+    await db.update_task(done["id"], status="done", recovery_note="keep done")
+    await db.update_task(cancelled["id"], status="cancelled", recovery_note="keep cancelled")
+    await db.update_task(failed["id"], status="failed", recovery_note="keep failed")
+
+    with patch("backend.main.notify_task_failure", new=AsyncMock()) as mock_notify:
+        from backend.main import _reconcile_interrupted_tasks
+        await _reconcile_interrupted_tasks()
+
+    assert (await db.get_task(done["id"]))["recovery_note"] == "keep done"
+    assert (await db.get_task(cancelled["id"]))["recovery_note"] == "keep cancelled"
+    assert (await db.get_task(failed["id"]))["recovery_note"] == "keep failed"
+    mock_notify.assert_not_called()

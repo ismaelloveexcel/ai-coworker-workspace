@@ -34,6 +34,10 @@ async def test_final_answer_fails_when_branch_has_no_changes(monkeypatch):
 
     final = await db.get_task(task["id"])
     assert final["status"] == "failed"
+    assert final["branch"] == "task/test"
+    assert final["current_step"] == 1
+    assert final["last_action"] == "final_answer"
+    assert final["last_tool"] is None
     assert "No file changes" in final["error"]
     create_pr.assert_not_called()
 
@@ -101,5 +105,9 @@ async def test_final_answer_auto_runs_validation_and_opens_pr(monkeypatch):
     final = await db.get_task(task["id"])
     assert final["status"] == "done"
     assert final["pr_url"] == "https://github.com/owner/repo/pull/1"
+    assert final["branch"] == "task/test"
+    assert final["current_step"] == 1
+    assert final["last_action"] == "final_answer"
+    assert final["last_tool"] is None
     tests.assert_called_once_with("frontend")
 

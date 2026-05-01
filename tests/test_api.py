@@ -196,6 +196,33 @@ async def test_list_tasks_pagination(client):
 
 
 @pytest.mark.asyncio
+async def test_get_task_includes_recovery_fields(client):
+    from backend import db
+
+    task = await db.create_task("Recoverable", "prompt")
+    await db.update_task(
+        task["id"],
+        branch="task/recoverable",
+        current_step=2,
+        last_action="tool_call",
+        last_tool="github_commit_files",
+        recovery_note="Review branch task/recoverable",
+        reconciled_at="2026-05-02T00:00:00+00:00",
+    )
+
+    r = await client.get(f"/tasks/{task['id']}")
+
+    assert r.status_code == 200
+    returned = r.json()["task"]
+    assert returned["branch"] == "task/recoverable"
+    assert returned["current_step"] == 2
+    assert returned["last_action"] == "tool_call"
+    assert returned["last_tool"] == "github_commit_files"
+    assert returned["recovery_note"] == "Review branch task/recoverable"
+    assert returned["reconciled_at"] == "2026-05-02T00:00:00+00:00"
+
+
+@pytest.mark.asyncio
 async def test_get_task_not_found(client):
     r = await client.get("/tasks/nonexistent-id")
     assert r.status_code == 404

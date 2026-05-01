@@ -79,11 +79,24 @@ ALTER TABLE tasks ADD COLUMN heartbeat_at TEXT NULL;
 """
 _MIGRATIONS.append(_SCHEMA_V2)
 
+_SCHEMA_V3 = """
+ALTER TABLE tasks ADD COLUMN branch TEXT NULL;
+ALTER TABLE tasks ADD COLUMN current_step INTEGER DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN last_action TEXT NULL;
+ALTER TABLE tasks ADD COLUMN last_tool TEXT NULL;
+ALTER TABLE tasks ADD COLUMN recovery_note TEXT NULL;
+ALTER TABLE tasks ADD COLUMN reconciled_at TEXT NULL;
+"""
+_MIGRATIONS.append(_SCHEMA_V3)
+
 # ---------------------------------------------------------------------------
 # Column allowlists (F19)
 # ---------------------------------------------------------------------------
 
-_TASK_UPDATABLE = frozenset({"status", "pr_url", "error", "updated_at", "heartbeat_at", "usd_spent"})
+_TASK_UPDATABLE = frozenset({
+    "status", "pr_url", "error", "updated_at", "heartbeat_at", "usd_spent",
+    "branch", "current_step", "last_action", "last_tool", "recovery_note", "reconciled_at",
+})
 _STEP_UPDATABLE = frozenset({"status", "tool_name", "tool_input", "tool_output", "reasoning", "updated_at"})
 
 
@@ -187,8 +200,9 @@ async def list_tasks(limit: int = 50, offset: int = 0) -> List[Dict]:
 
 async def update_task(task_id: str, **kwargs) -> None:
     kwargs = _safe_cols(_TASK_UPDATABLE, kwargs)
-    if "error" in kwargs:
-        kwargs["error"] = _redact_text(kwargs["error"])
+    for key in ("error", "recovery_note"):
+        if key in kwargs:
+            kwargs[key] = _redact_text(kwargs[key])
     kwargs["updated_at"] = _now()
     cols = ", ".join(f"{k}=?" for k in kwargs)
     async with _get_db() as db:
@@ -300,6 +314,15 @@ async def get_zombie_tasks(stale_minutes: int = 10) -> List[Dict]:
                AND created_at < ?
                AND (heartbeat_at IS NULL OR heartbeat_at < ?)""",
             (cutoff, cutoff),
+        )).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def get_running_tasks() -> List[Dict]:
+    """Return all tasks currently marked running in the DB."""
+    async with _get_db() as db:
+        rows = await (await db.execute(
+            "SELECT * FROM tasks WHERE status='running' ORDER BY created_at ASC"
         )).fetchall()
     return [dict(r) for r in rows]
 

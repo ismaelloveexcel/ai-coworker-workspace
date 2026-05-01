@@ -28,6 +28,50 @@ async def test_update_task_valid_column():
 
 
 @pytest.mark.asyncio
+async def test_task_recovery_columns_exist_and_are_updatable():
+    task = await db.create_task("Recoverable", "Prompt")
+    await db.update_task(
+        task["id"],
+        branch="task/abc",
+        current_step=3,
+        last_action="tool_call",
+        last_tool="github_commit_files",
+        recovery_note="Review branch task/abc",
+        reconciled_at="2026-05-02T00:00:00+00:00",
+    )
+
+    updated = await db.get_task(task["id"])
+    assert updated["branch"] == "task/abc"
+    assert updated["current_step"] == 3
+    assert updated["last_action"] == "tool_call"
+    assert updated["last_tool"] == "github_commit_files"
+    assert "Review branch" in updated["recovery_note"]
+    assert updated["reconciled_at"] == "2026-05-02T00:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_get_running_tasks_returns_only_running_tasks():
+    running = await db.create_task("Running", "Prompt")
+    done = await db.create_task("Done", "Prompt")
+    await db.update_task(running["id"], status="running")
+    await db.update_task(done["id"], status="done")
+
+    rows = await db.get_running_tasks()
+
+    assert [row["id"] for row in rows] == [running["id"]]
+
+
+@pytest.mark.asyncio
+async def test_recovery_note_redacts_secrets():
+    task = await db.create_task("Secret recovery", "Prompt")
+    await db.update_task(task["id"], recovery_note="token=ghp_abcdefghijklmnopqrstuvwxyz123456")
+
+    updated = await db.get_task(task["id"])
+    assert "ghp_abcdefghijklmnopqrstuvwxyz123456" not in updated["recovery_note"]
+    assert "[REDACTED]" in updated["recovery_note"]
+
+
+@pytest.mark.asyncio
 async def test_update_task_rejects_invalid_column():
     task = await db.create_task("T", "P")
     with pytest.raises(ValueError, match="disallowed"):
@@ -68,6 +112,15 @@ async def test_migration_idempotent():
     # Running init_db twice should not raise
     await db.init_db()
     await db.init_db()
+
+
+@pytest.mark.asyncio
+async def test_recovery_migration_columns_present_after_init():
+    async with db._get_db() as conn:
+        rows = await (await conn.execute("PRAGMA table_info(tasks)")).fetchall()
+
+    columns = {row["name"] for row in rows}
+    assert {"branch", "current_step", "last_action", "last_tool", "recovery_note", "reconciled_at"}.issubset(columns)
 
 
 @pytest.mark.asyncio

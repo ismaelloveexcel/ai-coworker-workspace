@@ -80,6 +80,7 @@ async def lifespan(app: FastAPI):
                     "Set API_KEY in any networked deployment.",
         )
     await db.init_db()
+    await _reconcile_interrupted_tasks()
     await _reap_zombie_tasks()
     _reaper_task = asyncio.create_task(_periodic_zombie_reaper())
     _backup_task = asyncio.create_task(_periodic_db_backup())
@@ -123,6 +124,44 @@ async def _reap_zombie_tasks() -> None:
             await notify_task_failure(task_id, repo, reason)
         except Exception as exc:
             log.warning("zombie_notify_failed", task_id=task_id, error=str(exc))
+
+
+def _recovery_note_for_interrupted_task(task: Dict) -> str:
+    branch = task.get("branch")
+    pr_url = task.get("pr_url")
+    if pr_url:
+        return (
+            f"Backend restarted while this task was running. A PR already exists: {pr_url}. "
+            "Review that PR before retrying."
+        )
+    if branch:
+        return (
+            f"Backend restarted before this task completed. Branch {branch!r} may contain partial work; "
+            "review the branch before retrying."
+        )
+    return "Backend restarted before branch creation completed. No task branch is known; retry the task if needed."
+
+
+async def _reconcile_interrupted_tasks() -> None:
+    """Conservatively fail DB-running tasks that have no in-memory worker after startup."""
+    running_tasks = await db.get_running_tasks()
+    for task in running_tasks:
+        task_id = task["id"]
+        active = _running.get(task_id)
+        if active and not active.done():
+            continue
+        repo = task.get("repo_url") or settings.github_default_repo
+        note = _recovery_note_for_interrupted_task(task)
+        reason = "task interrupted by backend restart"
+        await db.update_task(
+            task_id,
+            status="failed",
+            error=reason,
+            recovery_note=note,
+            reconciled_at=db._now(),
+        )
+        await db.add_log(task_id, "warning", f"{reason}: {note}")
+        log.warning("task_reconciled_after_restart", task_id=task_id, repo=repo, branch=task.get("branch"), pr_url=task.get("pr_url"))
 
 
 # ---------------------------------------------------------------------------
