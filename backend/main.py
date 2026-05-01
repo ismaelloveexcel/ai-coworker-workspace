@@ -13,14 +13,16 @@ v2 fixes:
 import asyncio
 import os as _os
 import re
+import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Deque, Dict, Optional
 
 import structlog
 import structlog.stdlib
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, field_validator
 
 from backend import db
@@ -56,6 +58,9 @@ _configure_logging()
 log = structlog.get_logger(__name__)
 _reaper_task: Optional[asyncio.Task] = None
 _backup_task: Optional[asyncio.Task] = None
+_task_creation_lock = asyncio.Lock()
+_task_create_rate_limiter: Dict[str, Deque[float]] = defaultdict(deque)
+_task_create_rate_limit_lock = asyncio.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +143,32 @@ app.add_middleware(
 )
 
 
+_TASK_RETRY_PATH_RE = re.compile(r"^/tasks/[^/]+/retry$")
+
+
+def _is_task_mutation_request(request: Request) -> bool:
+    return request.method == "POST" and (
+        request.url.path == "/tasks" or bool(_TASK_RETRY_PATH_RE.fullmatch(request.url.path))
+    )
+
+
+@app.middleware("http")
+async def enforce_task_request_size(request: Request, call_next):
+    if _is_task_mutation_request(request) and settings.task_request_max_bytes > 0:
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                size = int(content_length)
+            except ValueError:
+                size = 0
+            if size > settings.task_request_max_bytes:
+                return JSONResponse(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    content={"detail": f"Task request body must be <= {settings.task_request_max_bytes} bytes"},
+                )
+    return await call_next(request)
+
+
 # ---------------------------------------------------------------------------
 # Auth dependency (F3/E1)
 # ---------------------------------------------------------------------------
@@ -169,6 +200,59 @@ async def require_auth(request: Request) -> None:
         return
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Invalid or missing Bearer token")
+
+
+def _task_create_rate_limit_key(request: Request) -> str:
+    auth = request.headers.get("Authorization", "")
+    if settings.api_key and auth.startswith("Bearer ") and auth[7:] == settings.api_key:
+        return "api-key"
+    if request.client and request.client.host:
+        return f"ip:{request.client.host}"
+    return "anonymous-dev"
+
+
+async def _check_task_create_rate_limit(request: Request) -> None:
+    if not settings.task_create_rate_limit_enabled:
+        return
+    limit = max(1, settings.task_create_rate_limit_count)
+    window = max(1, settings.task_create_rate_limit_window_seconds)
+    key = _task_create_rate_limit_key(request)
+    now = time.monotonic()
+    async with _task_create_rate_limit_lock:
+        entries = _task_create_rate_limiter[key]
+        while entries and now - entries[0] >= window:
+            entries.popleft()
+        if len(entries) >= limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Task creation rate limit exceeded: {limit} per {window} seconds",
+            )
+        entries.append(now)
+
+
+def _reset_task_create_rate_limiter() -> None:
+    _task_create_rate_limiter.clear()
+
+
+def _prune_running_tasks() -> Dict[str, asyncio.Task]:
+    active = {tid: task for tid, task in _running.items() if not task.done()}
+    _running.clear()
+    _running.update(active)
+    return active
+
+
+async def _create_and_start_task(req) -> Dict:
+    active = _prune_running_tasks()
+    if len(active) >= settings.max_concurrent_tasks:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Too many active tasks ({len(active)}/{settings.max_concurrent_tasks}). Retry when one finishes.",
+        )
+    task = await db.create_task(req.title, req.prompt, req.repo_url)
+    task_id = task["id"]
+    t = asyncio.create_task(run_task(task_id))
+    _running[task_id] = t
+    return task
 
 
 # ---------------------------------------------------------------------------
@@ -277,20 +361,10 @@ async def create_task(req: CreateTaskRequest, request: Request):
                 ),
             )
 
-    active = {tid: task for tid, task in _running.items() if not task.done()}
-    _running.clear()
-    _running.update(active)
-    if len(active) >= settings.max_concurrent_tasks:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Too many active tasks ({len(active)}/{settings.max_concurrent_tasks}). Retry when one finishes.",
-        )
-    task = await db.create_task(req.title, req.prompt, req.repo_url)
-    task_id = task["id"]
-    # Launch agent as a tracked asyncio Task (enables real cancellation)
-    t = asyncio.create_task(run_task(task_id))
-    _running[task_id] = t
-    log.info("task_created", task_id=task_id, title=req.title)
+    await _check_task_create_rate_limit(request)
+    async with _task_creation_lock:
+        task = await _create_and_start_task(req)
+    log.info("task_created", task_id=task["id"], title=req.title)
     return task
 
 
@@ -331,7 +405,8 @@ async def cancel_task(task_id: str):
 
 
 @app.post("/tasks/{task_id}/retry", status_code=201, dependencies=[Depends(require_auth)])
-async def retry_task(task_id: str):
+async def retry_task(task_id: str, request: Request):
+    """Retry a failed/cancelled task. Retries share the task creation rate limit."""
     original = await db.get_task(task_id)
     if not original:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -342,14 +417,9 @@ async def retry_task(task_id: str):
         prompt=original["prompt"],
         repo_url=original.get("repo_url"),
     )
-    active = {tid: task for tid, task in _running.items() if not task.done()}
-    _running.clear()
-    _running.update(active)
-    if len(active) >= settings.max_concurrent_tasks:
-        raise HTTPException(status_code=409, detail="Too many active tasks. Retry when one finishes.")
-    task = await db.create_task(req.title, req.prompt, req.repo_url)
-    t = asyncio.create_task(run_task(task["id"]))
-    _running[task["id"]] = t
+    await _check_task_create_rate_limit(request)
+    async with _task_creation_lock:
+        task = await _create_and_start_task(req)
     log.info("task_retried", original_task_id=task_id, task_id=task["id"])
     return task
 

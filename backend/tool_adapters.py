@@ -203,7 +203,7 @@ def github_create_branch(task_id: str, repo: str = None) -> Dict:
 
 
 _PROTECTED_EXACT_PATHS = {".env", "Dockerfile", "docker-compose.yml", "nginx.conf", "CLAUDE.md"}
-_PROTECTED_PREFIXES = (".env.", ".github/workflows/")
+_PROTECTED_PREFIXES = (".github/workflows/",)
 
 
 def _normalize_repo_path(path: str) -> str:
@@ -212,7 +212,13 @@ def _normalize_repo_path(path: str) -> str:
 
 def _is_protected_repo_path(path: str) -> bool:
     normalized = _normalize_repo_path(path)
-    return normalized in _PROTECTED_EXACT_PATHS or any(normalized.startswith(prefix) for prefix in _PROTECTED_PREFIXES)
+    segments = normalized.split("/")
+    has_env_segment = any(segment == ".env" or segment.startswith(".env.") for segment in segments)
+    return (
+        normalized in _PROTECTED_EXACT_PATHS
+        or has_env_segment
+        or any(normalized.startswith(prefix) for prefix in _PROTECTED_PREFIXES)
+    )
 
 
 def github_commit_files(branch: str, files: List[Dict], message: str, repo: str = None, allow_infra_edits: bool = False) -> Dict:

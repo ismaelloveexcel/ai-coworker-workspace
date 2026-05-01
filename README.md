@@ -84,6 +84,10 @@ See `.env.example` for the full list. Key variables:
 | `WATCHDOG_MODEL` | — | Watchdog model; defaults to `CLAUDE_MODEL` |
 | `MAX_STEPS` | — | Max agent steps per task (default: 25) |
 | `MAX_CONCURRENT_TASKS` | — | Active task limit; default serializes tasks with `1` |
+| `TASK_CREATE_RATE_LIMIT_ENABLED` | — | Enable in-process task creation/retry rate limiting |
+| `TASK_CREATE_RATE_LIMIT_COUNT` | — | Task creation/retry attempts allowed per window |
+| `TASK_CREATE_RATE_LIMIT_WINDOW_SECONDS` | — | Rate-limit window for task creation/retry attempts |
+| `TASK_REQUEST_MAX_BYTES` | — | Max task mutation request body size checked by the app |
 | `MAX_TASK_USD` | — | Per-task agent spend cap |
 | `WATCHDOG_DAILY_MAX` | — | Max watchdog invocations per UTC day (default: `10`) |
 | `WATCHDOG_MAX_USD` | — | Per-run watchdog spend cap |
@@ -97,6 +101,7 @@ Default model: **`claude-sonnet-4-5`** (set via `CLAUDE_MODEL` env var).
 
 - Set `API_KEY` in production — startup fails when `ENV=production` and this is empty
 - `API_CORS_ORIGINS` defaults to localhost; set explicitly for any deployed frontend
+- Task creation and retry endpoints have basic in-process rate limiting and request-size checks; nginx also caps request bodies at 64 KiB and rate-limits `/api/` traffic
 - The Watchdog never writes code patches to `main` directly — all fixes go through a PR
 - The Watchdog does write `.watchdog/state.json` to `main` to persist the daily invocation counter; CI is configured to ignore this path (`paths-ignore: .watchdog/**`) so the write does not trigger new CI runs or re-activate the watchdog loop
 

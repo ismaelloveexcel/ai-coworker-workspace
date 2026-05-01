@@ -38,6 +38,10 @@ class Settings:
     max_steps: int           = field(default_factory=lambda: int(_optional("MAX_STEPS", "25")))
     step_timeout_seconds: int = field(default_factory=lambda: int(_optional("STEP_TIMEOUT_SECONDS", "300")))
     max_concurrent_tasks: int = field(default_factory=lambda: int(_optional("MAX_CONCURRENT_TASKS", "1")))
+    task_create_rate_limit_enabled: bool = field(default_factory=lambda: _optional("TASK_CREATE_RATE_LIMIT_ENABLED", "true").lower() == "true")
+    task_create_rate_limit_count: int = field(default_factory=lambda: int(_optional("TASK_CREATE_RATE_LIMIT_COUNT", "6")))
+    task_create_rate_limit_window_seconds: int = field(default_factory=lambda: int(_optional("TASK_CREATE_RATE_LIMIT_WINDOW_SECONDS", "60")))
+    task_request_max_bytes: int = field(default_factory=lambda: int(_optional("TASK_REQUEST_MAX_BYTES", "65536")))
     zombie_reaper_interval_seconds: int = field(default_factory=lambda: int(_optional("ZOMBIE_REAPER_INTERVAL_SECONDS", "60")))
 
     # Playwright

@@ -50,6 +50,18 @@ def test_github_commit_files_blocks_protected_paths_even_with_bypass_flag():
     assert "protected path" in result["error"]
 
 
+@pytest.mark.parametrize("path", ["config/.env", "apps/web/.env.production", ".env.example"])
+def test_github_commit_files_blocks_env_files_at_any_path_segment(path):
+    result = github_commit_files(
+        "task/test",
+        [{"path": path, "content": "API_KEY=example"}],
+        "update env",
+    )
+
+    assert result["success"] is False
+    assert "protected path" in result["error"]
+
+
 def test_execute_tool_cannot_bypass_protected_paths_with_tool_input_flag():
     result = execute_tool(
         "github_commit_files",

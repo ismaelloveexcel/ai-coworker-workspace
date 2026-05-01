@@ -11,7 +11,8 @@ from unittest.mock import patch, AsyncMock
 @pytest.fixture
 async def client():
     """Async test client that bypasses lifespan (DB already init'd by isolated_db)."""
-    from backend.main import _running, app
+    from backend.main import _reset_task_create_rate_limiter, _running, app
+    _reset_task_create_rate_limiter()
     _running.clear()
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -21,6 +22,7 @@ async def client():
     for task in _running.values():
         task.cancel()
     _running.clear()
+    _reset_task_create_rate_limiter()
 
 
 @pytest.mark.asyncio
@@ -49,12 +51,11 @@ async def test_create_task_no_auth(client):
 
 
 @pytest.mark.asyncio
-async def test_create_task_with_auth_required(client):
+async def test_create_task_with_auth_required(client, monkeypatch):
     """When API_KEY is set, requests without token get 401."""
-    with patch("backend.main.settings") as ms:
-        ms.api_key = "secret-token"
-        ms.max_concurrent_tasks = 10
-        r = await client.post("/tasks", json={"title": "t", "prompt": "p"})
+    monkeypatch.setattr("backend.main.settings.api_key", "secret-token")
+    monkeypatch.setattr("backend.main.settings.max_concurrent_tasks", 10)
+    r = await client.post("/tasks", json={"title": "t", "prompt": "p"})
     assert r.status_code == 401
 
 
@@ -90,6 +91,70 @@ async def test_create_task_rejects_when_concurrency_limit_reached(client, monkey
 
 
 @pytest.mark.asyncio
+async def test_create_task_concurrent_requests_respect_concurrency_lock(client, monkeypatch):
+    started = asyncio.Event()
+
+    async def long_running(_task_id):
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("backend.main.settings.max_concurrent_tasks", 1)
+    with patch("backend.main.run_task", side_effect=long_running):
+        responses = await asyncio.gather(
+            client.post("/tasks", json={"title": "one", "prompt": "p"}),
+            client.post("/tasks", json={"title": "two", "prompt": "p"}),
+        )
+
+    statuses = sorted(response.status_code for response in responses)
+    assert statuses == [201, 409]
+
+
+@pytest.mark.asyncio
+async def test_create_task_rate_limit_rejects_second_request(client, monkeypatch):
+    monkeypatch.setattr("backend.main.settings.max_concurrent_tasks", 10)
+    monkeypatch.setattr("backend.main.settings.task_create_rate_limit_count", 1)
+    monkeypatch.setattr("backend.main.settings.task_create_rate_limit_window_seconds", 60)
+
+    with patch("backend.main.run_task", new=AsyncMock()):
+        first = await client.post("/tasks", json={"title": "one", "prompt": "p"})
+        second = await client.post("/tasks", json={"title": "two", "prompt": "p"})
+
+    assert first.status_code == 201
+    assert second.status_code == 429
+    assert "rate limit" in second.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_auth_failure_does_not_consume_task_rate_limit(client, monkeypatch):
+    monkeypatch.setattr("backend.main.settings.api_key", "secret-token")
+    monkeypatch.setattr("backend.main.settings.max_concurrent_tasks", 10)
+    monkeypatch.setattr("backend.main.settings.task_create_rate_limit_count", 1)
+    monkeypatch.setattr("backend.main.settings.task_create_rate_limit_window_seconds", 60)
+
+    first_bad = await client.post("/tasks", json={"title": "bad", "prompt": "p"})
+    second_bad = await client.post("/tasks", json={"title": "bad2", "prompt": "p"})
+    with patch("backend.main.run_task", new=AsyncMock()):
+        good = await client.post(
+            "/tasks",
+            json={"title": "good", "prompt": "p"},
+            headers={"Authorization": "Bearer secret-token"},
+        )
+
+    assert first_bad.status_code == 401
+    assert second_bad.status_code == 401
+    assert good.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_create_task_rejects_oversized_request_body(client, monkeypatch):
+    monkeypatch.setattr("backend.main.settings.task_request_max_bytes", 20)
+
+    response = await client.post("/tasks", json={"title": "large", "prompt": "payload"})
+
+    assert response.status_code == 413
+
+
+@pytest.mark.asyncio
 async def test_retry_failed_task_creates_new_task(client):
     from backend import db
 
@@ -101,6 +166,24 @@ async def test_retry_failed_task_creates_new_task(client):
 
     assert r.status_code == 201
     assert r.json()["title"].startswith("Retry:")
+
+
+@pytest.mark.asyncio
+async def test_retry_failed_task_rate_limit_rejects_second_retry(client, monkeypatch):
+    from backend import db
+
+    task = await db.create_task("failed", "prompt")
+    await db.update_task(task["id"], status="failed", error="boom")
+    monkeypatch.setattr("backend.main.settings.max_concurrent_tasks", 10)
+    monkeypatch.setattr("backend.main.settings.task_create_rate_limit_count", 1)
+    monkeypatch.setattr("backend.main.settings.task_create_rate_limit_window_seconds", 60)
+
+    with patch("backend.main.run_task", new=AsyncMock()):
+        first = await client.post(f"/tasks/{task['id']}/retry")
+        second = await client.post(f"/tasks/{task['id']}/retry")
+
+    assert first.status_code == 201
+    assert second.status_code == 429
 
 
 @pytest.mark.asyncio
