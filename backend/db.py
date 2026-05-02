@@ -126,6 +126,11 @@ CREATE INDEX IF NOT EXISTS idx_tasks_workspace_status ON tasks (workspace, statu
 """
 _MIGRATIONS.append(_SCHEMA_V4)
 
+_SCHEMA_V5 = """
+ALTER TABLE tasks ADD COLUMN checkpoint_phase TEXT NULL;
+"""
+_MIGRATIONS.append(_SCHEMA_V5)
+
 # ---------------------------------------------------------------------------
 # Column allowlists (F19)
 # ---------------------------------------------------------------------------
@@ -133,7 +138,7 @@ _MIGRATIONS.append(_SCHEMA_V4)
 _TASK_UPDATABLE = frozenset({
     "status", "pr_url", "error", "updated_at", "heartbeat_at", "usd_spent",
     "branch", "current_step", "last_action", "last_tool", "recovery_note", "reconciled_at",
-    "workspace",
+    "workspace", "checkpoint_phase",
 })
 _STEP_UPDATABLE = frozenset({"status", "tool_name", "tool_input", "tool_output", "reasoning", "updated_at"})
 _ARTIFACT_TYPES = frozenset({

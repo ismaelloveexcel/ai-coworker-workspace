@@ -111,7 +111,7 @@ async def run_task(task_id: str) -> None:
             return
 
         branch = branch_result["data"]["branch"]
-        await db.update_task(task_id, branch=branch)
+        await db.update_task(task_id, branch=branch, checkpoint_phase="post_branch")
         await emit_log(task_id, "info", f"Working on branch: {branch}")
 
         steps = []
@@ -257,6 +257,11 @@ async def run_task(task_id: str) -> None:
                     await notify_task_failure(task_id, repo, err)
                     return
                 pr_url = pr_result.get("data", {}).get("pr_url", "")
+
+                # Persist the PR URL and checkpoint immediately so that if the
+                # backend restarts before final status write, the reconciler
+                # surfaces the correct PR URL and avoids a duplicate-PR retry.
+                await db.update_task(task_id, pr_url=pr_url, checkpoint_phase="post_pr")
 
                 # A13: append a CHANGELOG entry on the task branch so the operator
                 # can answer "what did the agent change?" without reading git log.
