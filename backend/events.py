@@ -47,14 +47,17 @@ async def emit(task_id: str, event_type: str, data: dict) -> None:
         try:
             queue.put_nowait(event)
         except asyncio.QueueFull:
-            _dropped[id(queue)] = _dropped.get(id(queue), 0) + 1
-            dropped_count = _dropped[id(queue)]
             # Drop 2 oldest events to make room for the new event and the warning.
+            # The counter tracks every item physically removed from the queue.
+            evicted = 0
             for _ in range(2):
                 try:
                     queue.get_nowait()
+                    evicted += 1
                 except asyncio.QueueEmpty:
                     break
+            _dropped[id(queue)] = _dropped.get(id(queue), 0) + evicted
+            dropped_count = _dropped[id(queue)]
             # Insert the triggering event.
             try:
                 queue.put_nowait(event)
@@ -62,6 +65,7 @@ async def emit(task_id: str, event_type: str, data: dict) -> None:
                 pass
             # Insert a stream_warning to signal loss (non-blocking; may itself be
             # dropped under extreme back-pressure, but the dropped counter persists).
+            # warn_seq is allocated here; a gap in seq indicates the warning was lost.
             warn_seq = _next_seq(task_id)
             warning_event = {
                 "type": "stream_warning",

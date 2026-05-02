@@ -136,7 +136,8 @@ async def test_overflow_increments_dropped_counter():
     assert initial_dropped == 0
     # Trigger overflow
     await emit(task_id, "log", {"i": MAX_QUEUE})
-    assert _dropped.get(id(bus), 0) == 1
+    # Two items were evicted from the queue: one for the triggering event, one for the warning.
+    assert _dropped.get(id(bus), 0) == 2
     destroy_bus(task_id)
 
 
@@ -156,7 +157,7 @@ async def test_overflow_emits_stream_warning():
     warning_events = [e for e in events if e["type"] == "stream_warning"]
     assert len(warning_events) == 1
     warning = warning_events[0]
-    assert warning["data"]["dropped"] == 1
+    assert warning["data"]["dropped"] == 2  # two items evicted: slot for event + slot for warning
     assert warning["data"]["task_id"] == task_id
     assert "seq" in warning
     destroy_bus(task_id)
