@@ -23,9 +23,9 @@ import structlog
 import structlog.stdlib
 
 from backend import db
-from backend.claude_wrapper import MalformedOutputError, build_task_context, run_agent_turn
+from backend.claude_wrapper import MalformedOutputError, build_task_context, run_agent_turn, MAX_TOKENS, SYSTEM_PROMPT_TOKENS
 from backend.config import settings
-from backend.cost_tracker import BudgetExceeded, record_and_check
+from backend.cost_tracker import BudgetExceeded, BudgetPreflightError, estimate_input_tokens, preflight_check, record_and_check
 from backend.events import destroy_bus, emit, emit_log
 from backend.model_router import infer_task_profile
 from backend.notifier import notify_task_failure
@@ -136,6 +136,29 @@ async def run_task(task_id: str) -> None:
             context = build_task_context(task, steps)
             messages = [{"role": "user", "content": context}]
             route_context = infer_task_profile(task)
+
+            # --- Preflight budget guard --------------------------------------
+            # Estimate cost before calling the model to prevent avoidable
+            # single-call budget overshoots (PR-B7).
+            estimated_input = estimate_input_tokens(messages, system_tokens=SYSTEM_PROMPT_TOKENS)
+            try:
+                await preflight_check(
+                    task_id,
+                    settings.model,
+                    estimated_input,
+                    MAX_TOKENS,  # worst-case output
+                )
+            except BudgetPreflightError as e:
+                human = _human_error(str(e))
+                log_ctx.warning("budget_preflight_refused", error=human)
+                step_id = await db.create_step(task_id, step_count)
+                await db.update_step(step_id, status="failed",
+                                     tool_output=_json_redacted({"error": human}))
+                await db.update_task(task_id, status="failed", error=human)
+                await emit_log(task_id, "error", human)
+                await emit(task_id, "task_failed", {"error": human})
+                await notify_task_failure(task_id, repo, human)
+                return
 
             # --- Claude call -------------------------------------------------
             step_id = await db.create_step(task_id, step_count)
