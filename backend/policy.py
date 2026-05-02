@@ -10,6 +10,48 @@ ALLOW = "allow"
 DENY = "deny"
 REQUIRE_APPROVAL = "require_approval"
 
+# ---------------------------------------------------------------------------
+# Stage definitions
+# ---------------------------------------------------------------------------
+
+STAGE_PLANNING = "planning"
+STAGE_READ = "read"
+STAGE_EDIT = "edit"
+STAGE_VALIDATE = "validate"
+STAGE_FINALIZE = "finalize"
+STAGE_BROWSER = "browser"
+
+# Static allowlist matrix: every known tool mapped to its stage/class.
+# Tools absent from this matrix are unknown and denied by default when a
+# stage context is active.
+STAGE_TOOL_MATRIX: Dict[str, str] = {
+    # planning / supervision
+    "repo_snapshot": STAGE_PLANNING,
+    "cost_status": STAGE_PLANNING,
+    "humanize_error": STAGE_PLANNING,
+    # read / inspection
+    "filesystem_read": STAGE_READ,
+    "filesystem_list": STAGE_READ,
+    "github_read_file": STAGE_READ,
+    "github_list_files": STAGE_READ,
+    "github_compare_branch": STAGE_READ,
+    "source_summarize": STAGE_READ,
+    "research_compare": STAGE_READ,
+    # edit / commit
+    "filesystem_write": STAGE_EDIT,
+    "github_create_branch": STAGE_EDIT,
+    "github_commit_files": STAGE_EDIT,
+    "secret_scan": STAGE_EDIT,
+    # test / validation
+    "run_tests": STAGE_VALIDATE,
+    # PR / finalization
+    "github_create_pr": STAGE_FINALIZE,
+    # browser / network
+    "playwright_browse": STAGE_BROWSER,
+    "web_search": STAGE_BROWSER,
+    "fetch_url": STAGE_BROWSER,
+}
+
 _LOCAL_TOOL_CATEGORIES = {
     "filesystem_read": "filesystem",
     "filesystem_write": "filesystem",
@@ -38,6 +80,53 @@ _SAFE_NONLOCAL_TOOLS = {
 _SENSITIVE_PATH_SEGMENTS = {".ssh", ".gnupg", ".aws", ".azure", ".config", "AppData"}
 _AUDIT_LIMIT = 500
 _POLICY_AUDIT_LOG: List[Dict[str, Any]] = []
+
+
+# ---------------------------------------------------------------------------
+# Per-run stage context
+# ---------------------------------------------------------------------------
+
+
+class AgentStageContext:
+    """Tracks per-run execution state for stage-aware policy enforcement.
+
+    Create one instance per agent loop run and pass it to every
+    ``evaluate_tool_call`` / ``execute_tool`` invocation.  The enforcer
+    records gate-relevant side-effects (branch creation, validation) so that
+    downstream capability checks (commit, PR) can be evaluated correctly.
+    """
+
+    def __init__(self, *, browser_enabled: bool = False) -> None:
+        self._branch_created: bool = False
+        self._validation_done: bool = False
+        self._browser_enabled: bool = browser_enabled
+
+    # -- state setters -------------------------------------------------------
+
+    def record_tool_succeeded(self, tool_name: str) -> None:
+        """Update gate state after a successful tool execution."""
+        if tool_name == "github_create_branch":
+            self._branch_created = True
+        if tool_name == "run_tests":
+            self._validation_done = True
+
+    def enable_browser(self) -> None:
+        """Explicitly opt-in to browser/network tools for this run."""
+        self._browser_enabled = True
+
+    # -- state accessors -----------------------------------------------------
+
+    @property
+    def branch_created(self) -> bool:
+        return self._branch_created
+
+    @property
+    def validation_done(self) -> bool:
+        return self._validation_done
+
+    @property
+    def browser_enabled(self) -> bool:
+        return self._browser_enabled
 
 
 @dataclass(frozen=True)
@@ -78,9 +167,67 @@ def _path_policy(tool_name: str, tool_input: Dict[str, Any]) -> PolicyDecision:
     return _decision(tool_name, "filesystem", ALLOW, "Filesystem action is constrained to the task sandbox")
 
 
-def evaluate_tool_call(tool_name: str, tool_input: Dict[str, Any] | None = None) -> PolicyDecision:
-    """Return a policy decision before executing a tool."""
+def _stage_context_policy(
+    tool_name: str, context: "AgentStageContext"
+) -> PolicyDecision | None:
+    """Apply stage-context gates; return a denial decision or *None* to continue.
+
+    Gates checked (in order):
+    1. Tool must be present in STAGE_TOOL_MATRIX – deny unknown tools.
+    2. browser/network tools require ``context.browser_enabled``.
+    3. ``github_commit_files`` requires a branch to have been created first.
+    4. ``github_create_pr`` requires validation (run_tests) to have completed.
+    """
+    stage = STAGE_TOOL_MATRIX.get(tool_name)
+    if stage is None:
+        return _decision(tool_name, "unknown", DENY, "Unknown tools are denied by policy")
+
+    if stage == STAGE_BROWSER and not context.browser_enabled:
+        return _decision(
+            tool_name,
+            STAGE_BROWSER,
+            DENY,
+            "Browser/network tools are disabled; call context.enable_browser() to opt in",
+        )
+
+    if tool_name == "github_commit_files" and not context.branch_created:
+        return _decision(
+            tool_name,
+            STAGE_EDIT,
+            DENY,
+            "github_commit_files is gated behind branch creation; call github_create_branch first",
+        )
+
+    if tool_name == "github_create_pr" and not context.validation_done:
+        return _decision(
+            tool_name,
+            STAGE_FINALIZE,
+            DENY,
+            "github_create_pr is gated behind validation; complete run_tests before creating a PR",
+        )
+
+    return None
+
+
+def evaluate_tool_call(
+    tool_name: str,
+    tool_input: Dict[str, Any] | None = None,
+    context: "AgentStageContext | None" = None,
+) -> PolicyDecision:
+    """Return a policy decision before executing a tool.
+
+    When *context* is supplied the call is evaluated against the static
+    ``STAGE_TOOL_MATRIX`` and any active capability gates before the
+    category-level path/suite checks are applied.
+    """
     tool_input = tool_input or {}
+
+    # Stage-context enforcement (new in PR-B2)
+    if context is not None:
+        stage_decision = _stage_context_policy(tool_name, context)
+        if stage_decision is not None:
+            return stage_decision
+
     if tool_name in _SAFE_NONLOCAL_TOOLS:
         return _decision(tool_name, "remote_or_support", ALLOW, "Tool is outside the local worker action surface")
     category = _LOCAL_TOOL_CATEGORIES.get(tool_name)
