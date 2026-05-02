@@ -748,7 +748,8 @@ async def stream_task(task_id: str, request: Request, workspace: str = Depends(_
                     continue
 
                 import json
-                yield f"event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
+                seq_line = f"id: {event['seq']}\n" if "seq" in event else ""
+                yield f"{seq_line}event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
 
                 # Terminal events — close stream
                 if event["type"] in ("task_done", "task_failed", "task_cancelled"):
