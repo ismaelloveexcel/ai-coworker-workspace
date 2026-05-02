@@ -13,6 +13,7 @@ v4 fixes (from audit):
 """
 import asyncio
 import concurrent.futures
+import functools
 import json
 import traceback
 from typing import Dict, Optional
@@ -25,6 +26,7 @@ from backend.claude_wrapper import MalformedOutputError, build_task_context, run
 from backend.config import settings
 from backend.cost_tracker import BudgetExceeded, record_and_check
 from backend.events import destroy_bus, emit, emit_log
+from backend.model_router import infer_task_profile
 from backend.notifier import notify_task_failure
 from backend.tool_adapters import _redact, execute_tool, github_compare_branch, github_create_branch, github_create_pr, humanize_error, run_tests
 
@@ -126,6 +128,7 @@ async def run_task(task_id: str) -> None:
             steps = await db.get_steps(task_id)
             context = build_task_context(task, steps)
             messages = [{"role": "user", "content": context}]
+            route_context = infer_task_profile(task)
 
             # --- Claude call -------------------------------------------------
             step_id = await db.create_step(task_id, step_count)
@@ -134,7 +137,10 @@ async def run_task(task_id: str) -> None:
 
             try:
                 raw_text, parsed, usage = await asyncio.wait_for(
-                    loop.run_in_executor(_claude_executor, run_agent_turn, messages),
+                    loop.run_in_executor(
+                        _claude_executor,
+                        functools.partial(run_agent_turn, messages, route_context),
+                    ),
                     timeout=float(settings.step_timeout_seconds),
                 )
                 # Note: wait_for cancels the Future but the underlying thread
@@ -173,7 +179,7 @@ async def run_task(task_id: str) -> None:
             # Track cost and enforce budget cap
             try:
                 await record_and_check(
-                    task_id, settings.model,
+                    task_id, usage.get("model", settings.model),
                     usage["input_tokens"], usage["output_tokens"],
                 )
             except BudgetExceeded as e:
