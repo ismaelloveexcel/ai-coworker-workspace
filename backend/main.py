@@ -280,7 +280,7 @@ def _verify_stream_token(token: str, task_id: str) -> bool:
 def _fail_closed() -> None:
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or missing Bearer token",
+        detail="API key required — provide a valid Bearer token or set your API key in settings.",
     )
 
 
