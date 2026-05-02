@@ -736,9 +736,10 @@ async def operator_recipes(category: str = Query(default="")):
 async def operator_run_history(
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    workspace: str = Depends(_workspace_query),
 ):
     """Recent task runs summarized for fast operator review."""
-    tasks = await db.list_tasks(limit=limit, offset=offset)
+    tasks = await db.list_tasks(limit=limit, offset=offset, workspace=workspace)
     data = run_history(tasks)
     data.update({"limit": limit, "offset": offset})
     return data
@@ -748,18 +749,19 @@ async def operator_run_history(
 async def operator_artifacts(
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    workspace: str = Depends(_workspace_query),
 ):
     """Derived artifact index backed by task runs until artifact tables land."""
-    tasks = await db.list_tasks(limit=limit, offset=offset)
+    tasks = await db.list_tasks(limit=limit, offset=offset, workspace=workspace)
     data = artifact_index(tasks)
     data.update({"limit": limit, "offset": offset})
     return data
 
 
 @app.get("/operator/handoff/{task_id}", dependencies=[Depends(require_auth)])
-async def operator_handoff(task_id: str):
+async def operator_handoff(task_id: str, workspace: str = Depends(_workspace_query)):
     """Traceable handoff summary for a single task."""
-    task = await db.get_task(task_id)
+    task = await db.get_task(task_id, workspace=workspace)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     steps = await db.get_steps(task_id)

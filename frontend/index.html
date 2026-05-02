@@ -732,6 +732,7 @@
     workspace = next;
     document.getElementById('workspace-personal').classList.toggle('active', workspace === 'personal');
     document.getElementById('workspace-work').classList.toggle('active', workspace === 'work');
+    loadAll();
   }
 
   function readHeaders(json) {
@@ -987,13 +988,14 @@
   }
 
   async function cancelTask(id) {
-    await fetch(API + '/tasks/' + encodeURIComponent(id), {method:'DELETE', headers:readHeaders(false)});
-    patchTask(id, {status:'cancelled'});
+    const res = await fetch(API + '/tasks/' + encodeURIComponent(id) + '?workspace=' + encodeURIComponent(workspace), {method:'DELETE', headers:readHeaders(false)});
+    if (!res.ok) { addLog(id, 'Cancel failed: ' + res.statusText, 'error'); return; }
     if (activeStreams[id]) { activeStreams[id].close(); delete activeStreams[id]; }
+    await loadTasks();
   }
 
   async function retryTask(id) {
-    const res = await fetch(API + '/tasks/' + encodeURIComponent(id) + '/retry', {method:'POST', headers:readHeaders(false)});
+    const res = await fetch(API + '/tasks/' + encodeURIComponent(id) + '/retry?workspace=' + encodeURIComponent(workspace), {method:'POST', headers:readHeaders(false)});
     if (!res.ok) { addLog(id, 'Retry failed: ' + res.statusText, 'error'); return; }
     const task = await res.json(); mergeTask(task); await subscribeSSE(task.id);
   }
@@ -1072,7 +1074,7 @@
 
   async function loadSummary() {
     try {
-      const res = await fetch(API + '/summary', {headers:readHeaders(false)});
+      const res = await fetch(API + '/summary?workspace=' + encodeURIComponent(workspace), {headers:readHeaders(false)});
       if (!res.ok) return;
       const d = await res.json();
       document.getElementById('metric-week').textContent = '$' + Number(d.total_usd_this_week||0).toFixed(4);
@@ -1081,7 +1083,7 @@
 
   async function loadTasks() {
     try {
-      const res = await fetch(API + '/tasks?limit=50&offset=0', {headers:readHeaders(false)});
+      const res = await fetch(API + '/tasks?limit=50&offset=0&workspace=' + encodeURIComponent(workspace), {headers:readHeaders(false)});
       if (!res.ok) { document.getElementById('conn-status').textContent = 'Tavern is closed\u2026'; renderTasks(); return; }
       const d = await res.json();
       tasks = d.tasks || [];
@@ -1104,9 +1106,9 @@
     try {
       const h = readHeaders(false);
       const [aRes, rRes, runRes] = await Promise.all([
-        fetch(API + '/operator/artifacts?limit=5', {headers:h}),
+        fetch(API + '/operator/artifacts?limit=5&workspace=' + encodeURIComponent(workspace), {headers:h}),
         fetch(API + '/operator/recipes', {headers:h}),
-        fetch(API + '/operator/run-history?limit=5', {headers:h})
+        fetch(API + '/operator/run-history?limit=5&workspace=' + encodeURIComponent(workspace), {headers:h})
       ]);
       if (aRes.ok) {
         const d = await aRes.json();
