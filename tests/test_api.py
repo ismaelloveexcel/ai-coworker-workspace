@@ -353,6 +353,9 @@ async def test_two_sse_streams_for_same_task_receive_event():
     assert "event: task_done" in second_chunk
     assert '"ok": true' in first_chunk
     assert '"ok": true' in second_chunk
+    # A2a: sequence ID should appear as SSE id: field
+    assert "id: " in first_chunk
+    assert "id: " in second_chunk
 
     await first.body_iterator.aclose()
     await second.body_iterator.aclose()
