@@ -60,7 +60,7 @@ async def emit(task_id: str, event_type: str, data: dict) -> None:
             except asyncio.QueueFull:
                 pass
             # Emit a stream_warning so the consumer knows events were lost
-            warning_seq = _sequence.get(task_id, seq) + 1
+            warning_seq = seq + 1
             _sequence[task_id] = warning_seq
             warning = {
                 "type": "stream_warning",
