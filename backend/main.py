@@ -28,7 +28,7 @@ from pydantic import BaseModel, field_validator
 
 from backend import db
 from backend.agents.registry import list_agents
-from backend.agent_loop import _running, run_task
+from backend.agent_loop import _running, request_cancel, run_task
 from backend.config import settings
 from backend.events import subscribe, unsubscribe
 from backend.notifier import notify_task_failure
@@ -685,6 +685,7 @@ async def cancel_task(task_id: str, workspace: str = Depends(_workspace_query)):
     running_task = _running.get(task_id)
     if running_task and not running_task.done():
         running_task.cancel()
+    request_cancel(task_id)
     await db.update_task(task_id, status="cancelled")
     log.info("task_cancelled", task_id=task_id)
     return {"status": "cancelled"}

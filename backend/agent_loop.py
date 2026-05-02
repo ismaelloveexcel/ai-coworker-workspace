@@ -41,6 +41,56 @@ _tool_executor   = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_n
 # Registry of running asyncio Tasks keyed by task_id (for cancellation)
 _running: Dict[str, asyncio.Task] = {}
 
+# Set of task IDs for which cancellation has been explicitly requested.
+# Populated by request_cancel() (called from the API layer) so that write
+# checkpoints in run_task see the cancellation signal immediately, even when
+# asyncio CancelledError delivery is delayed by an in-flight executor (PR-B4).
+_cancel_requested: set = set()
+
+# Write tools that produce external side-effects; used for in-flight recording.
+_WRITE_TOOLS = frozenset({
+    "github_create_branch", "github_commit_files", "github_create_pr", "filesystem_write",
+})
+
+
+def request_cancel(task_id: str) -> None:
+    """Register a cancellation request for the given task.
+
+    Call from the API layer alongside asyncio Task.cancel() so that write
+    checkpoints in run_task block new writes as soon as cancellation is
+    acknowledged (PR-B4).
+    """
+    _cancel_requested.add(task_id)
+
+
+async def _check_cancel_checkpoint(task_id: str, op_name: str) -> None:
+    """Raise CancelledError if cancellation has been requested for this task.
+
+    Insert immediately before every write side-effect (PR-B4): once
+    cancellation is acknowledged no new write operation is allowed to start.
+    """
+    if task_id in _cancel_requested:
+        await emit_log(
+            task_id, "info",
+            f"Cancel checkpoint: {op_name} blocked — cancellation acknowledged",
+        )
+        raise asyncio.CancelledError(f"cancelled before {op_name}")
+
+
+async def _notify_if_not_cancelled(task_id: str, repo: str, error: str) -> None:
+    """Send failure notification only if cancellation has not been requested.
+
+    Prevents creating a GitHub issue after cancel has been acknowledged
+    (PR-B4 notification-issue checkpoint).
+    """
+    if task_id in _cancel_requested:
+        await emit_log(
+            task_id, "info",
+            "Failure notification skipped — cancellation acknowledged",
+        )
+        return
+    await notify_task_failure(task_id, repo, error)
+
 
 def _human_error(error: str) -> str:
     translated = humanize_error(error)
@@ -98,16 +148,24 @@ async def run_task(task_id: str) -> None:
         repo = task.get("repo_url") or settings.github_default_repo
 
         # --- Create branch ---------------------------------------------------
+        await _check_cancel_checkpoint(task_id, "branch_creation")
         await emit_log(task_id, "info", f"Creating branch for task {task_id}")
-        branch_result = await loop.run_in_executor(
-            _tool_executor, github_create_branch, task_id, repo
-        )
+        try:
+            branch_result = await loop.run_in_executor(
+                _tool_executor, github_create_branch, task_id, repo
+            )
+        except asyncio.CancelledError:
+            await emit_log(task_id, "warning",
+                           "Cancelled during branch creation — branch may exist on GitHub")
+            await db.update_task(task_id, status="cancelled",
+                                 error="Cancelled during branch creation — branch may exist on GitHub")
+            raise
         if not branch_result.get("success"):
             err = branch_result.get("error", "unknown")
             await db.update_task(task_id, status="failed", error=f"Branch creation failed: {err}")
             await emit_log(task_id, "error", f"Branch creation failed: {err}")
             await emit(task_id, "task_failed", {"error": err})
-            await notify_task_failure(task_id, repo, f"Branch creation failed: {err}")
+            await _notify_if_not_cancelled(task_id, repo, f"Branch creation failed: {err}")
             return
 
         branch = branch_result["data"]["branch"]
@@ -154,7 +212,7 @@ async def run_task(task_id: str) -> None:
                 await db.update_task(task_id, status="failed", error=human)
                 await emit_log(task_id, "error", f"Step {step_count} timed out")
                 await emit(task_id, "task_failed", {"error": human})
-                await notify_task_failure(task_id, repo, human)
+                await _notify_if_not_cancelled(task_id, repo, human)
                 return
             except MalformedOutputError as e:
                 human = _human_error(str(e))
@@ -163,7 +221,7 @@ async def run_task(task_id: str) -> None:
                 await db.update_task(task_id, status="failed", error=human)
                 await emit_log(task_id, "error", f"Malformed output: {human}")
                 await emit(task_id, "task_failed", {"error": human})
-                await notify_task_failure(task_id, repo, human)
+                await _notify_if_not_cancelled(task_id, repo, human)
                 return
             except Exception as e:
                 human = _human_error(str(e))
@@ -173,7 +231,7 @@ async def run_task(task_id: str) -> None:
                 await db.update_task(task_id, status="failed", error=human)
                 await emit_log(task_id, "error", f"Agent error: {human}")
                 await emit(task_id, "task_failed", {"error": human})
-                await notify_task_failure(task_id, repo, human)
+                await _notify_if_not_cancelled(task_id, repo, human)
                 return
 
             # Track cost and enforce budget cap
@@ -189,7 +247,7 @@ async def run_task(task_id: str) -> None:
                 await db.update_task(task_id, status="failed", error=human)
                 await emit_log(task_id, "error", human)
                 await emit(task_id, "task_failed", {"error": human})
-                await notify_task_failure(task_id, repo, human)
+                await _notify_if_not_cancelled(task_id, repo, human)
                 return
 
             action    = parsed.get("action", "error")
@@ -215,7 +273,7 @@ async def run_task(task_id: str) -> None:
                     await db.update_task(task_id, status="failed", error=err)
                     await emit_log(task_id, "error", err)
                     await emit(task_id, "task_failed", {"error": err})
-                    await notify_task_failure(task_id, repo, err)
+                    await _notify_if_not_cancelled(task_id, repo, err)
                     return
 
                 changed_files = compare_result.get("data", {}).get("files", [])
@@ -225,7 +283,7 @@ async def run_task(task_id: str) -> None:
                     await db.update_task(task_id, status="failed", error=err)
                     await emit_log(task_id, "error", err)
                     await emit(task_id, "task_failed", {"error": err})
-                    await notify_task_failure(task_id, repo, err)
+                    await _notify_if_not_cancelled(task_id, repo, err)
                     return
 
                 if not _has_successful_tests(steps):
@@ -238,28 +296,37 @@ async def run_task(task_id: str) -> None:
                         await db.update_task(task_id, status="failed", error=err)
                         await emit_log(task_id, "error", err)
                         await emit(task_id, "task_failed", {"error": err})
-                        await notify_task_failure(task_id, repo, err)
+                        await _notify_if_not_cancelled(task_id, repo, err)
                         return
 
-                pr_result = await loop.run_in_executor(
-                    _tool_executor, github_create_pr,
-                    branch,
-                    f"[Agent] {task['title']}",
-                    _redact(f"Automated PR for task {task_id}\n\n{reasoning}"),
-                    repo,
-                )
+                await _check_cancel_checkpoint(task_id, "pr_creation")
+                try:
+                    pr_result = await loop.run_in_executor(
+                        _tool_executor, github_create_pr,
+                        branch,
+                        f"[Agent] {task['title']}",
+                        _redact(f"Automated PR for task {task_id}\n\n{reasoning}"),
+                        repo,
+                    )
+                except asyncio.CancelledError:
+                    await emit_log(task_id, "warning",
+                                   "Cancelled during PR creation — PR may exist on GitHub")
+                    await db.update_task(task_id, status="cancelled",
+                                         error="Cancelled during PR creation — PR may exist on GitHub")
+                    raise
                 if not pr_result.get("success"):
                     err = _human_error(pr_result.get("error", "PR creation failed"))
                     await db.update_step(step_id, status="failed", tool_output=_json_redacted({"error": err, "compare": compare_result.get("data", {})}))
                     await db.update_task(task_id, status="failed", error=err)
                     await emit_log(task_id, "error", err)
                     await emit(task_id, "task_failed", {"error": err})
-                    await notify_task_failure(task_id, repo, err)
+                    await _notify_if_not_cancelled(task_id, repo, err)
                     return
                 pr_url = pr_result.get("data", {}).get("pr_url", "")
 
                 # A13: append a CHANGELOG entry on the task branch so the operator
                 # can answer "what did the agent change?" without reading git log.
+                await _check_cancel_checkpoint(task_id, "changelog_commit")
                 try:
                     from datetime import date as _date
                     from backend.tool_adapters import github_read_file, github_commit_files
@@ -277,15 +344,24 @@ async def run_task(task_id: str) -> None:
                         f"- Reasoning: {_redact(reasoning[:300])}\n"
                     )
                     new_cl = existing_cl + entry
-                    await loop.run_in_executor(
-                        _tool_executor,
-                        github_commit_files,
-                        branch,
-                        [{"path": "CHANGELOG.md", "content": new_cl}],
-                        f"chore: update CHANGELOG for task {task_id[:8]}",
-                        repo,
-                        False,
-                    )
+                    try:
+                        await loop.run_in_executor(
+                            _tool_executor,
+                            github_commit_files,
+                            branch,
+                            [{"path": "CHANGELOG.md", "content": new_cl}],
+                            f"chore: update CHANGELOG for task {task_id[:8]}",
+                            repo,
+                            False,
+                        )
+                    except asyncio.CancelledError:
+                        await emit_log(task_id, "warning",
+                                       "Cancelled during changelog commit — commit may have completed in background")
+                        await db.update_task(
+                            task_id, status="cancelled",
+                            error="Cancelled during changelog commit — commit may have completed in background",
+                        )
+                        raise
                 except Exception as cl_exc:
                     log_ctx.warning("changelog_update_skipped", error=str(cl_exc))
                 await db.update_step(step_id, status="done",
@@ -303,7 +379,7 @@ async def run_task(task_id: str) -> None:
                 await db.update_task(task_id, status="failed", error=human)
                 await emit_log(task_id, "error", f"Agent reported error: {human}")
                 await emit(task_id, "task_failed", {"error": human})
-                await notify_task_failure(task_id, repo, human)
+                await _notify_if_not_cancelled(task_id, repo, human)
                 return
 
             # --- tool_call ---------------------------------------------------
@@ -313,10 +389,23 @@ async def run_task(task_id: str) -> None:
                 await emit_log(task_id, "warning", "tool_call with no TOOL name")
                 continue
 
+            await _check_cancel_checkpoint(task_id, tool_name)
             await emit(task_id, "tool_start", {"tool": tool_name, "input": _redact(json.dumps(tool_input))[:500]})
-            tool_result = await loop.run_in_executor(
-                _tool_executor, execute_tool, tool_name, tool_input, task_id
-            )
+            try:
+                tool_result = await loop.run_in_executor(
+                    _tool_executor, execute_tool, tool_name, tool_input, task_id
+                )
+            except asyncio.CancelledError:
+                if tool_name in _WRITE_TOOLS:
+                    await emit_log(
+                        task_id, "warning",
+                        f"Cancelled during in-flight {tool_name} — operation may have completed in background",
+                    )
+                    await db.update_task(
+                        task_id, status="cancelled",
+                        error=f"Cancelled during {tool_name} — operation may have completed in background",
+                    )
+                raise
             tool_output_str = _json_redacted(tool_result)   # F16
 
             await db.update_step(step_id, status="done", tool_output=tool_output_str)
@@ -331,15 +420,23 @@ async def run_task(task_id: str) -> None:
         try:
             compare_result = await loop.run_in_executor(_tool_executor, github_compare_branch, branch, "main", repo)
             if compare_result.get("success") and compare_result.get("data", {}).get("has_changes"):
-                pr_result = await loop.run_in_executor(
-                    _tool_executor,
-                    github_create_pr,
-                    branch,
-                    f"[Agent incomplete] {task['title']}",
-                    _redact(f"Task {task_id} reached max steps before finalizing.\n\n{human_err}"),
-                    repo,
-                    True,
-                )
+                await _check_cancel_checkpoint(task_id, "pr_creation")
+                try:
+                    pr_result = await loop.run_in_executor(
+                        _tool_executor,
+                        github_create_pr,
+                        branch,
+                        f"[Agent incomplete] {task['title']}",
+                        _redact(f"Task {task_id} reached max steps before finalizing.\n\n{human_err}"),
+                        repo,
+                        True,
+                    )
+                except asyncio.CancelledError:
+                    await emit_log(task_id, "warning",
+                                   "Cancelled during max-steps PR creation — PR may exist on GitHub")
+                    await db.update_task(task_id, status="cancelled",
+                                         error="Cancelled during max-steps PR creation — PR may exist on GitHub")
+                    raise
                 if pr_result.get("success"):
                     pr_url = pr_result.get("data", {}).get("pr_url", "")
                     await db.update_task(
@@ -350,7 +447,7 @@ async def run_task(task_id: str) -> None:
                         recovery_note=f"Partial draft PR opened at {pr_url}. Review the PR before retrying.",
                     )
                     await emit(task_id, "task_failed", {"error": human_err, "pr_url": pr_url})
-                    await notify_task_failure(task_id, repo, f"{human_err} Partial draft PR: {pr_url}")
+                    await _notify_if_not_cancelled(task_id, repo, f"{human_err} Partial draft PR: {pr_url}")
                     return
         except Exception as exc:
             await emit_log(task_id, "warning", f"Partial PR creation skipped: {_human_error(str(exc))}")
@@ -361,7 +458,7 @@ async def run_task(task_id: str) -> None:
             recovery_note=f"Agent stopped after reaching max steps. Review branch {branch!r} for partial work.",
         )
         await emit(task_id, "task_failed", {"error": human_err})
-        await notify_task_failure(task_id, repo, human_err)
+        await _notify_if_not_cancelled(task_id, repo, human_err)
 
     except asyncio.CancelledError:
         await db.update_task(task_id, status="cancelled")
@@ -381,8 +478,9 @@ async def run_task(task_id: str) -> None:
                 _repo = _task.get("repo_url") or _repo
         except Exception:
             pass
-        await notify_task_failure(task_id, _repo, err)
+        await _notify_if_not_cancelled(task_id, _repo, err)
     finally:
+        _cancel_requested.discard(task_id)
         _running.pop(task_id, None)
         await asyncio.sleep(5)   # brief grace period for SSE consumers to drain
         destroy_bus(task_id)
