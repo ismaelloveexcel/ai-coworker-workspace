@@ -10,6 +10,55 @@ This playbook gives:
 
 This project is a private internal tool for one operator. It is not a SaaS product.
 
+## Fully Autonomous Mode
+
+This playbook is intended to run without manual intervention between PRs.
+
+Autonomous policy:
+
+1. Start from PR 1 and continue through PR 10 in one continuous run.
+2. Do not pause to ask for confirmation between PRs.
+3. Automatically branch, implement, validate, run independent review gate, commit, push, and open PR for each slice.
+4. Automatically continue to the next PR after a successful push.
+5. Only stop if there is a hard blocker that cannot be resolved with available code/tools/tests.
+6. If blocked, output a single blocker report with exact failing command/output, attempted fixes, and the minimum operator input required.
+7. If a PR is already implemented/merged, verify and skip automatically with evidence.
+
+---
+
+## Zero-Touch Runner Prompt (Copy/Paste)
+
+Use this prompt when you want full sequential execution with no human checkpoints:
+
+"""
+Run docs/AUTONOMOUS_PR_PROMPTS.md in fully autonomous mode.
+
+Requirements:
+- Execute PR 1 through PR 10 sequentially in one run.
+- Do not ask for confirmation between PRs.
+- After each PR implementation, run independent Explore subagent verification (thorough) before commit.
+- If verification has High/Medium findings, fix and re-run verification before commit.
+- For each PR, run validations, commit, push, and open PR URL.
+- After finishing one PR, immediately proceed to the next.
+- Only stop for an unrecoverable blocker, and provide blocker report.
+
+Output contract for each PR:
+- PR number and title
+- branch name
+- commit SHA
+- changed files
+- focused tests result
+- full tests result
+- pip_audit result
+- independent subagent result
+- PR URL
+
+Final output at end of PR 10:
+- table of PR 1..10 status (done/skipped/blocked)
+- links to all PR URLs
+- residual risks and follow-ups
+"""
+
 ---
 
 ## Master Orchestrator Prompt (Copy/Paste)
@@ -28,6 +77,7 @@ Hard constraints:
 - No unrelated refactors or formatting churn.
 - If uncertain, read actual files and tests before coding.
 - If you cannot verify a claim from code/tests, do not claim it.
+- Run continuously with no manual checkpoint between PRs unless hard-blocked.
 
 Execution order:
 1) PR 1
@@ -55,6 +105,7 @@ For each PR:
    - git commit -m "<commit message from PR section>"
    - git push -u origin task/<pr-slug>
 8. Output PR URL and validation summary.
+9. Automatically continue to the next PR.
 
 Independent verification gate (MANDATORY):
 - Use the Explore subagent in thorough mode.
@@ -74,6 +125,11 @@ If a command fails:
 - Re-run validations.
 - Do not continue to next PR until current PR is clean.
 
+Autonomous continuation policy:
+- Do not request operator approval between PRs.
+- Continue until PR 10 is complete.
+- Stop only on unrecoverable blocker.
+
 If a PR is already implemented/merged:
 - Verify by diff/log/tests.
 - Mark as completed with evidence.
@@ -87,6 +143,14 @@ Final output after each PR:
 - Validation results
 - Independent subagent result summary
 - PR URL
+
+Hard blocker report format:
+- PR number and title
+- blocker type
+- exact failing command/output
+- fixes attempted
+- why unrecoverable with current tools
+- minimal operator action needed
 """
 
 ---
