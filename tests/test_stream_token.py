@@ -101,22 +101,11 @@ async def test_stream_accepts_valid_stream_token(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_stream_rejects_expired_token(auth_client, monkeypatch):
+async def test_stream_rejects_expired_token(auth_client):
     """Expired stream token returns 401."""
     from backend import db
-    from backend import main as _main
-    from backend import config
 
     task = await db.create_task("sse-tok-expired", "prompt")
-
-    # Generate a token whose expiry is already in the past.
-    original_time = time.time
-    monkeypatch.setattr(config.settings, "stream_token_ttl_seconds", -1)
-    monkeypatch.setattr(_main, "_generate_stream_token",
-                        lambda tid: _main._generate_stream_token.__wrapped__(tid)
-                        if hasattr(_main._generate_stream_token, "__wrapped__")
-                        else _expired_token(tid, _API_KEY))
-
     expired_token = _expired_token(task["id"], _API_KEY)
     r = await auth_client.get(f"/tasks/{task['id']}/stream?token={expired_token}")
     assert r.status_code == 401
@@ -274,3 +263,70 @@ async def test_health_always_open(no_auth_client):
     """/health is always unauthenticated regardless of API_KEY settings."""
     r = await no_auth_client.get("/health")
     assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for _generate_stream_token / _verify_stream_token helpers
+# ---------------------------------------------------------------------------
+
+def test_verify_stream_token_rejects_malformed_no_dots():
+    from backend.main import _verify_stream_token
+    assert _verify_stream_token("noDotsAtAll", "task-id") is False
+
+
+def test_verify_stream_token_rejects_too_few_parts():
+    from backend.main import _verify_stream_token
+    assert _verify_stream_token("only.two", "task-id") is False
+
+
+def test_verify_stream_token_rejects_non_numeric_expiry():
+    from backend.main import _verify_stream_token
+    assert _verify_stream_token("task-id.notanumber.abc123", "task-id") is False
+
+
+def test_verify_stream_token_rejects_wrong_task_id():
+    from backend.main import _generate_stream_token, _verify_stream_token
+    from backend import config
+
+    original = config.settings.api_key
+    config.settings.api_key = _API_KEY
+    try:
+        token = _generate_stream_token("task-abc")
+        assert _verify_stream_token(token, "task-xyz") is False
+    finally:
+        config.settings.api_key = original
+
+
+def test_verify_stream_token_rejects_tampered_signature():
+    from backend.main import _generate_stream_token, _verify_stream_token
+    from backend import config
+
+    original = config.settings.api_key
+    config.settings.api_key = _API_KEY
+    try:
+        token = _generate_stream_token("task-tamper")
+        # Flip the last character of the signature
+        tampered = token[:-1] + ("a" if token[-1] != "a" else "b")
+        assert _verify_stream_token(tampered, "task-tamper") is False
+    finally:
+        config.settings.api_key = original
+
+
+def test_verify_stream_token_accepts_valid_token():
+    from backend.main import _generate_stream_token, _verify_stream_token
+    from backend import config
+
+    original = config.settings.api_key
+    config.settings.api_key = _API_KEY
+    try:
+        task_id = "550e8400-e29b-41d4-a716-446655440000"
+        token = _generate_stream_token(task_id)
+        assert _verify_stream_token(token, task_id) is True
+    finally:
+        config.settings.api_key = original
+
+
+def test_verify_stream_token_rejects_empty_string():
+    from backend.main import _verify_stream_token
+    assert _verify_stream_token("", "task-id") is False
+
