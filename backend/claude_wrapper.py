@@ -14,6 +14,7 @@ import anthropic
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from backend.config import settings
+from backend.model_router import route_model
 
 _client = anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=60.0)
 
@@ -49,9 +50,9 @@ def _anthropic_before_sleep(retry_state) -> None:
     reraise=True,
     before_sleep=_anthropic_before_sleep,
 )
-def _create_message(messages: List[Dict]):
+def _create_message(messages: List[Dict], model: str = None):
     return _client.messages.create(
-        model=settings.model,
+        model=model or settings.model,
         max_tokens=MAX_TOKENS,
         system=_SYSTEM_PROMPT,
         messages=messages,
@@ -278,7 +279,7 @@ class MalformedOutputError(ValueError):
     """Raised when Claude's output is malformed after one correction attempt."""
 
 
-def run_agent_turn(messages: List[Dict]) -> Tuple[str, Dict, Dict]:
+def run_agent_turn(messages: List[Dict], route_context: Optional[Dict[str, str]] = None) -> Tuple[str, Dict, Dict]:
     """
     Call Claude, parse response. One correction attempt on malformed output.
     Returns (raw_text, parsed_action, usage) where usage has input_tokens /
@@ -286,10 +287,18 @@ def run_agent_turn(messages: List[Dict]) -> Tuple[str, Dict, Dict]:
     Raises MalformedOutputError if still malformed after correction.
     Raises anthropic.APIError on API-level failures (let caller retry if needed).
     """
-    response = _create_message(messages)
+    route_context = route_context or {}
+    route = route_model(
+        task_type=route_context.get("task_type", "coding"),
+        risk=route_context.get("risk", "normal"),
+        cost_profile=route_context.get("cost_profile", "standard"),
+    )
+    response = _create_message(messages, model=route.model)
     usage = {
         "input_tokens": response.usage.input_tokens,
         "output_tokens": response.usage.output_tokens,
+        "model": route.model,
+        "model_route": route.to_dict(),
     }
     raw = response.content[0].text
 
@@ -308,7 +317,7 @@ def run_agent_turn(messages: List[Dict]) -> Tuple[str, Dict, Dict]:
                 ),
             },
         ]
-        correction = _create_message(correction_messages)
+        correction = _create_message(correction_messages, model=route.model)
         # Accumulate token usage from the correction call
         usage["input_tokens"] += correction.usage.input_tokens
         usage["output_tokens"] += correction.usage.output_tokens

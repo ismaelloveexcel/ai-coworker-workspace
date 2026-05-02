@@ -26,6 +26,15 @@ class Settings:
     watchdog_model: str      = field(default_factory=lambda: _optional("WATCHDOG_MODEL", _optional("CLAUDE_MODEL", "claude-sonnet-4-5-20251101")))
     environment: str         = field(default_factory=lambda: _optional("ENV", _optional("APP_ENV", "development")).lower())
 
+    # Model routing / council mode
+    model_router_enabled: bool = field(default_factory=lambda: _optional("MODEL_ROUTER_ENABLED", "false").lower() == "true")
+    council_mode_enabled: bool = field(default_factory=lambda: _optional("COUNCIL_MODE_ENABLED", "false").lower() == "true")
+    coding_model: str      = field(default_factory=lambda: _optional("CODING_MODEL", ""))
+    research_model: str    = field(default_factory=lambda: _optional("RESEARCH_MODEL", ""))
+    critic_model: str      = field(default_factory=lambda: _optional("CRITIC_MODEL", ""))
+    summarizer_model: str  = field(default_factory=lambda: _optional("SUMMARIZER_MODEL", ""))
+    judge_model: str       = field(default_factory=lambda: _optional("JUDGE_MODEL", ""))
+
     # Database
     db_path: str             = field(default_factory=lambda: _optional("DB_PATH", "data/agent.db"))
 
