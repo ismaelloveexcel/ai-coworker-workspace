@@ -256,6 +256,31 @@
     .error { color: #ffc4c4; font-size: 0.8rem; min-height: 18px; }
     .hidden { display: none !important; }
 
+    /* Stream health indicator */
+    .stream-health {
+      display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+      border-radius: 7px; border: 1px solid var(--border); background: #0f0d0b;
+      font-size: 0.75rem; transition: border-color .2s, background .2s;
+    }
+    .stream-health.healthy  { border-color: rgba(126,200,138,0.35); background: rgba(126,200,138,0.06); }
+    .stream-health.degraded { border-color: rgba(244,185,66,0.5);   background: rgba(244,185,66,0.08); }
+    .stream-health-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      background: var(--muted);
+    }
+    .stream-health.healthy  .stream-health-dot { background: var(--green); }
+    .stream-health.degraded .stream-health-dot { background: var(--amber); animation: glow-dot 1.4s ease-in-out infinite; }
+    .stream-health-label { flex: 1; color: var(--muted); }
+    .stream-health.healthy  .stream-health-label { color: var(--green); }
+    .stream-health.degraded .stream-health-label { color: var(--amber); }
+    .btn-resync {
+      min-height: 26px; padding: 3px 10px; border-radius: 5px;
+      border: 1px solid rgba(244,185,66,0.5); background: rgba(244,185,66,0.1);
+      color: var(--amber); font-size: 0.72rem; letter-spacing: 0.03em;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn-resync:hover { background: rgba(244,185,66,0.2); }
+
     /* Operator Studio */
     .operator-studio { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; padding: 0 clamp(14px,2.5vw,28px) clamp(14px,2.5vw,28px); }
     .studio-panel { background: linear-gradient(160deg,#1e1b16 0%,#161310 100%); border: 1px solid var(--border); border-radius: 10px; padding: 13px; box-shadow: 0 8px 28px rgba(0,0,0,0.5); }
@@ -581,6 +606,11 @@
           <p id="selected-title" class="task-title">No quest selected</p>
           <p id="selected-id" class="task-id">Select a quest from the board.</p>
         </div>
+        <div id="stream-health-bar" class="stream-health hidden" role="status" aria-live="polite">
+          <span class="stream-health-dot" aria-hidden="true"></span>
+          <span id="stream-health-label" class="stream-health-label">Stream healthy</span>
+          <button id="btn-resync" class="btn-resync hidden" type="button" onclick="resyncStream()">&#x21BB; Resync</button>
+        </div>
         <div class="artifact-list" id="artifact-list"></div>
         <div id="log-panel" class="log-box" aria-live="polite"></div>
       </div>
@@ -634,6 +664,7 @@
   const DISPATCH_BTN_HTML = '\u2694\uFE0F Send to Coworker <span class="key-hint">Ctrl+Enter</span>';
   const TITLE_MAX_LEN = 72;
   let tasks = [], logsByTask = {}, activeStreams = {}, budgetCap = null, selectedTaskId = null, workspace = 'personal';
+  let streamHealthByTask = {};  // 'healthy' | 'degraded' | null
 
   function setWorkspace(next) {
     workspace = next;
@@ -717,11 +748,15 @@
     const idEl     = document.getElementById('selected-id');
     const logsEl   = document.getElementById('log-panel');
     const artEl    = document.getElementById('artifact-list');
+    const healthBar = document.getElementById('stream-health-bar');
+    const healthLabel = document.getElementById('stream-health-label');
+    const resyncBtn = document.getElementById('btn-resync');
     if (!task) {
       statusEl.className = 'status status-pending'; statusEl.textContent = 'None';
       titleEl.textContent = 'No quest selected'; idEl.textContent = 'Select a quest from the board.';
       logsEl.innerHTML = '<p class="log-line">Awaiting the party&#x2026;</p>';
       artEl.innerHTML  = '<div class="artifact-chip">Treasures appear after handoff.</div>';
+      healthBar.className = 'stream-health hidden';
       return;
     }
     statusEl.className = statusClass(task.status); statusEl.textContent = task.status;
@@ -733,6 +768,23 @@
       ? '<a class="artifact-chip" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">&#x1F5E1;&#xFE0F; Pull Request Ready</a>'
       : '<div class="artifact-chip">PR handoff pending&#x2026;</div>';
     logsEl.scrollTop = logsEl.scrollHeight;
+
+    // Stream health bar — only show while task is active (has an open stream)
+    const health = streamHealthByTask[task.id];
+    const isActive = !terminalStatuses.has(task.status);
+    if (isActive && health) {
+      healthBar.className = 'stream-health ' + health;
+      healthBar.classList.remove('hidden');
+      if (health === 'degraded') {
+        healthLabel.textContent = 'Stream degraded \u2014 events may be missing';
+        resyncBtn.classList.remove('hidden');
+      } else {
+        healthLabel.textContent = 'Stream healthy';
+        resyncBtn.classList.add('hidden');
+      }
+    } else {
+      healthBar.className = 'stream-health hidden';
+    }
   }
 
   function selectTask(id) { selectedTaskId = id; renderTasks(); }
@@ -838,7 +890,9 @@
     const url = API + '/tasks/' + encodeURIComponent(taskId) + '/stream' + (k ? '?token=' + encodeURIComponent(k) : '');
     const es = new EventSource(url);
     activeStreams[taskId] = es;
-    ['task_done','task_failed','task_cancelled','tool_start','tool_done','log','heartbeat'].forEach(type => {
+    streamHealthByTask[taskId] = 'healthy';
+    if (selectedTaskId === taskId) renderSelectedTask();
+    ['task_done','task_failed','task_cancelled','tool_start','tool_done','log','heartbeat','stream_warning'].forEach(type => {
       es.addEventListener(type, ev => {
         let d = {}; try { d = JSON.parse(ev.data); } catch {}
         if (type === 'log')        addLog(taskId, d.message||'', d.level||'info');
@@ -847,12 +901,30 @@
         if (type === 'task_done')      patchTask(taskId, {status:'done',      pr_url:d.pr_url});
         if (type === 'task_failed')    patchTask(taskId, {status:'failed',    error:d.error, pr_url:d.pr_url});
         if (type === 'task_cancelled') patchTask(taskId, {status:'cancelled'});
+        if (type === 'stream_warning') {
+          streamHealthByTask[taskId] = 'degraded';
+          addLog(taskId, '\u26A0\uFE0F Stream warning: ' + (d.dropped||0) + ' event(s) lost. Use Resync to reconnect.', 'warning');
+          if (selectedTaskId === taskId) renderSelectedTask();
+        }
         if (type.startsWith('task_'))  addLog(taskId, type.replace('_',' '), type === 'task_failed' ? 'error' : 'info');
         const t = tasks.find(t => t.id === taskId);
-        if (t && terminalStatuses.has(t.status)) { es.close(); delete activeStreams[taskId]; }
+        if (t && terminalStatuses.has(t.status)) {
+          delete streamHealthByTask[taskId];
+          es.close(); delete activeStreams[taskId];
+          if (selectedTaskId === taskId) renderSelectedTask();
+        }
       });
     });
     es.onerror = () => addLog(taskId, 'Stream disconnected', 'warning');
+  }
+
+  function resyncStream() {
+    const taskId = selectedTaskId;
+    if (!taskId) return;
+    if (activeStreams[taskId]) { activeStreams[taskId].close(); delete activeStreams[taskId]; }
+    streamHealthByTask[taskId] = 'healthy';
+    renderSelectedTask();
+    subscribeSSE(taskId);
   }
 
   async function loadSummary() {

@@ -367,6 +367,70 @@ async def test_prompt_too_long(client):
     assert r.status_code == 422
 
 
+@pytest.mark.asyncio
+async def test_sse_stream_includes_seq_id_line():
+    """SSE events must include an 'id: <seq>' line for client-side sequence tracking."""
+    from backend import db
+    from backend.events import destroy_bus, emit
+    from backend.main import stream_task
+
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    task = await db.create_task("SSE seq test", "prompt")
+    resp = await stream_task(task["id"], ConnectedRequest(), workspace="personal")
+
+    await emit(task["id"], "log", {"message": "hello"})
+    await emit(task["id"], "task_done", {})
+
+    chunks = []
+    async for chunk in resp.body_iterator:
+        if isinstance(chunk, bytes):
+            chunk = chunk.decode()
+        chunks.append(chunk)
+        if "task_done" in chunk:
+            break
+
+    body = "".join(chunks)
+    assert "id: " in body, "SSE stream must include id: line with sequence number"
+    await resp.body_iterator.aclose()
+    destroy_bus(task["id"])
+
+
+@pytest.mark.asyncio
+async def test_sse_stream_warning_event_appears_on_overflow():
+    """stream_warning event must appear in SSE stream when queue overflows."""
+    from backend import db
+    from backend.events import MAX_QUEUE, destroy_bus, emit
+    from backend.main import stream_task
+
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    task = await db.create_task("SSE overflow test", "prompt")
+    resp = await stream_task(task["id"], ConnectedRequest(), workspace="personal")
+
+    for i in range(MAX_QUEUE + 2):
+        await emit(task["id"], "log", {"i": i})
+    await emit(task["id"], "task_done", {})
+
+    chunks = []
+    async for chunk in resp.body_iterator:
+        if isinstance(chunk, bytes):
+            chunk = chunk.decode()
+        chunks.append(chunk)
+        if "task_done" in chunk:
+            break
+
+    body = "".join(chunks)
+    assert "stream_warning" in body, "Expected stream_warning event in SSE output after overflow"
+    assert "dropped" in body, "stream_warning data must include dropped count"
+    await resp.body_iterator.aclose()
+    destroy_bus(task["id"])
+
+
 # ---------------------------------------------------------------------------
 # PR-C2: solo flow — error message wording tests
 # ---------------------------------------------------------------------------
@@ -416,7 +480,6 @@ async def test_rate_limit_message_is_actionable(client, monkeypatch):
     assert first.status_code == 201
     assert second.status_code == 429
     detail = second.json()["detail"].lower()
-    # Message should mention a wait period and guide the user to retry
     assert "wait" in detail
 
 
