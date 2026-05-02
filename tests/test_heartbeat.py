@@ -39,7 +39,9 @@ async def test_heartbeat_worker_updates_db():
     assert after["heartbeat_at"] is not None, "heartbeat_at must be set after worker fires"
     # The heartbeat should be very recent (within last 2 seconds)
     hb_str = after["heartbeat_at"]
-    hb_dt = datetime.strptime(hb_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    hb_dt = datetime.fromisoformat(hb_str)
+    if hb_dt.tzinfo is None:
+        hb_dt = hb_dt.replace(tzinfo=timezone.utc)
     age = (datetime.now(timezone.utc) - hb_dt).total_seconds()
     assert age < 2, f"heartbeat_at is {age:.2f}s old — expected < 2s"
 
