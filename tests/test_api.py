@@ -223,6 +223,41 @@ async def test_get_task_includes_recovery_fields(client):
 
 
 @pytest.mark.asyncio
+async def test_two_sse_streams_for_same_task_receive_event():
+    from backend import db
+    from backend.events import _subscribers, destroy_bus, emit
+    from backend.main import stream_task
+
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    task = await db.create_task("SSE fanout", "prompt")
+    first = await stream_task(task["id"], ConnectedRequest())
+    second = await stream_task(task["id"], ConnectedRequest())
+
+    await emit(task["id"], "task_done", {"ok": True})
+
+    first_chunk = await first.body_iterator.__anext__()
+    second_chunk = await second.body_iterator.__anext__()
+
+    if isinstance(first_chunk, bytes):
+        first_chunk = first_chunk.decode()
+    if isinstance(second_chunk, bytes):
+        second_chunk = second_chunk.decode()
+
+    assert "event: task_done" in first_chunk
+    assert "event: task_done" in second_chunk
+    assert '"ok": true' in first_chunk
+    assert '"ok": true' in second_chunk
+
+    await first.body_iterator.aclose()
+    await second.body_iterator.aclose()
+    assert task["id"] not in _subscribers
+    destroy_bus(task["id"])
+
+
+@pytest.mark.asyncio
 async def test_get_task_not_found(client):
     r = await client.get("/tasks/nonexistent-id")
     assert r.status_code == 404
