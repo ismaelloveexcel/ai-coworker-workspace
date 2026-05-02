@@ -9,7 +9,6 @@ v2: Fixed @retry decorators (F4/E3).
     Unbounded _repo_cache replaced with bounded LRU (F11).
 """
 import glob
-import json
 import os
 import re
 import shutil
