@@ -6,9 +6,12 @@ from httpx import ASGITransport, AsyncClient
 
 
 @pytest.fixture
-async def client():
+async def client(monkeypatch):
+    from backend import config
     from backend.main import _running, app
 
+    monkeypatch.setattr(config.settings, "api_key", "")
+    monkeypatch.setattr(config.settings, "insecure_local_auth", True)
     _running.clear()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac

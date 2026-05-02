@@ -103,6 +103,7 @@
       background: linear-gradient(160deg, #1e1b16 0%, #161310 100%);
       border: 1px solid var(--border); border-radius: 10px;
       box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.03); overflow: hidden;
+      contain: layout style;
     }
     .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 14px 0; }
     .panel-title {
@@ -114,6 +115,7 @@
     .intake { padding: 14px; display: grid; gap: 13px; }
     .field { display: grid; gap: 5px; }
     .field label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+    .field-hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: rgba(122,122,140,0.7); font-style: italic; }
     input, textarea {
       width: 100%; border: 1px solid var(--border); background: #0f0d0b; color: var(--text);
       border-radius: 7px; padding: 9px 11px; outline: none; font-family: inherit;
@@ -127,13 +129,22 @@
     }
     .ws-tab { min-height: 32px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: 0.82rem; letter-spacing: 0.04em; transition: background .15s, color .15s; }
     .ws-tab.active { background: linear-gradient(135deg,#5c3d10,#3d2808); color: var(--amber); box-shadow: var(--glow-amber); font-weight: 700; }
+    .advanced-section { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .advanced-toggle { padding: 8px 11px; cursor: pointer; font-size: 0.78rem; color: var(--muted); list-style: none; user-select: none; }
+    .advanced-toggle::-webkit-details-marker { display: none; }
+    .advanced-toggle:hover { color: var(--text); }
+    .advanced-body { padding: 10px 11px; display: grid; gap: 10px; border-top: 1px solid var(--border); background: rgba(0,0,0,0.15); }
+    .api-key-field { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
     .btn-primary {
       min-height: 40px; border-radius: 8px; border: 1px solid var(--amber-dim); padding: 9px 14px;
       font-family: 'MedievalSharp',serif; font-size: 0.9rem; letter-spacing: 0.06em;
       color: var(--ink); background: linear-gradient(135deg,#e8a832,#c47d18);
-      box-shadow: var(--glow-amber); transition: filter .15s;
+      box-shadow: var(--glow-amber); transition: filter .15s, opacity .15s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
     }
-    .btn-primary:hover { filter: brightness(1.12); }
+    .btn-primary:hover:not(:disabled) { filter: brightness(1.12); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; filter: none; }
+    .key-hint { font-family: 'Share Tech Mono',monospace; font-size: 0.65rem; opacity: 0.6; font-weight: 400; letter-spacing: 0; }
     .btn-ghost, .btn-danger {
       min-height: 34px; border-radius: 7px; border: 1px solid var(--border); padding: 6px 11px;
       color: var(--text); background: var(--stone-2); font-size: 0.78rem; transition: border-color .15s;
@@ -141,6 +152,11 @@
     .btn-ghost:hover { border-color: var(--border-light); }
     .btn-danger { color: #ffcaca; border-color: rgba(217,96,96,0.4); }
     .btn-danger:hover { border-color: var(--rose); }
+    /* First-run guidance */
+    .first-run-guide { padding: 18px 14px; border: 1px dashed rgba(244,185,66,0.3); border-radius: 8px; background: rgba(244,185,66,0.04); }
+    .first-run-guide h3 { font-family: 'MedievalSharp',serif; font-size: 0.82rem; color: var(--amber); margin-bottom: 8px; }
+    .first-run-guide ol { padding-left: 18px; margin: 0; display: grid; gap: 5px; }
+    .first-run-guide li { font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
 
     /* Tavern center */
     .tavern-center { display: grid; gap: 16px; min-width: 0; }
@@ -223,6 +239,20 @@
     .card-actions { display: flex; gap: 7px; flex-wrap: wrap; }
     .empty { padding: 24px; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; text-align: center; font-style: italic; }
 
+    /* Budget burn bar */
+    .budget-bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.08); overflow: hidden; margin-top: 5px; }
+    .budget-bar-fill { height: 100%; border-radius: 2px; background: var(--teal); transition: width .4s ease; }
+    .budget-bar-fill.budget-warn     { background: var(--amber); }
+    .budget-bar-fill.budget-critical { background: var(--rose); }
+
+    /* Stream health dot in detail panel */
+    .stream-status { display: inline-flex; align-items: center; gap: 5px; font-size: 0.68rem; color: var(--muted); }
+    .stream-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+    .stream-dot.live   { background: var(--green); animation: glow-dot 2s ease-in-out infinite; }
+    .stream-dot.warn   { background: var(--amber); }
+    .stream-dot.stale  { background: var(--rose); }
+    .stream-dot.closed { background: var(--muted); }
+
     /* Detail rail */
     .details { display: grid; gap: 11px; padding: 13px; }
     .log-box {
@@ -241,9 +271,34 @@
     .error { color: #ffc4c4; font-size: 0.8rem; min-height: 18px; }
     .hidden { display: none !important; }
 
+    /* Stream health indicator */
+    .stream-health {
+      display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+      border-radius: 7px; border: 1px solid var(--border); background: #0f0d0b;
+      font-size: 0.75rem; transition: border-color .2s, background .2s;
+    }
+    .stream-health.healthy  { border-color: rgba(126,200,138,0.35); background: rgba(126,200,138,0.06); }
+    .stream-health.degraded { border-color: rgba(244,185,66,0.5);   background: rgba(244,185,66,0.08); }
+    .stream-health-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      background: var(--muted);
+    }
+    .stream-health.healthy  .stream-health-dot { background: var(--green); }
+    .stream-health.degraded .stream-health-dot { background: var(--amber); animation: glow-dot 1.4s ease-in-out infinite; }
+    .stream-health-label { flex: 1; color: var(--muted); }
+    .stream-health.healthy  .stream-health-label { color: var(--green); }
+    .stream-health.degraded .stream-health-label { color: var(--amber); }
+    .btn-resync {
+      min-height: 26px; padding: 3px 10px; border-radius: 5px;
+      border: 1px solid rgba(244,185,66,0.5); background: rgba(244,185,66,0.1);
+      color: var(--amber); font-size: 0.72rem; letter-spacing: 0.03em;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn-resync:hover { background: rgba(244,185,66,0.2); }
+
     /* Operator Studio */
     .operator-studio { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; padding: 0 clamp(14px,2.5vw,28px) clamp(14px,2.5vw,28px); }
-    .studio-panel { background: linear-gradient(160deg,#1e1b16 0%,#161310 100%); border: 1px solid var(--border); border-radius: 10px; padding: 13px; box-shadow: 0 8px 28px rgba(0,0,0,0.5); }
+    .studio-panel { background: linear-gradient(160deg,#1e1b16 0%,#161310 100%); border: 1px solid var(--border); border-radius: 10px; padding: 13px; box-shadow: 0 8px 28px rgba(0,0,0,0.5); contain: layout style; }
     .studio-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
     .studio-title { font-family: 'MedievalSharp',serif; font-size: 0.8rem; color: var(--gold); letter-spacing: 0.04em; }
     .studio-count { font-size: 0.7rem; color: var(--muted); background: var(--stone-2); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; }
@@ -267,6 +322,23 @@
     @keyframes glow-dot { 0%,100%{box-shadow:0 0 0 0 rgba(92,196,184,0.5)} 50%{box-shadow:0 0 0 5px rgba(92,196,184,0)} }
     @keyframes flicker  { 0%,100%{opacity:1} 25%{opacity:.93} 50%{opacity:1} 75%{opacity:.96} }
 
+    /* Performance: GPU-compositing hints — only when motion is permitted */
+    @media (prefers-reduced-motion: no-preference) {
+      .agent-char.idle .char-sprite,
+      .agent-char.active .char-sprite { will-change: transform; }
+      .agent-char.active .char-orb,
+      .agent-char.active .char-status-dot { will-change: transform, opacity; }
+      .lantern-ambient { will-change: opacity; }
+    }
+
+    /* Accessibility: honour reduced-motion OS preference (WCAG 2.3 AAA) */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
     @media (max-width: 1100px) {
       .layout { grid-template-columns: minmax(260px,.9fr) minmax(0,1.1fr); }
       .right-rail { grid-column: 1 / -1; }
@@ -280,6 +352,71 @@
     @media (max-width: 480px) {
       .char-sprite { font-size: 2.4rem; }
       .rune-floor { min-height: 260px; }
+    }
+
+    /* PR-C1: Step inspection panel */
+    .step-panel-hdr {
+      font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--muted); padding: 0 0 4px;
+    }
+    .step-list { display: grid; gap: 5px; }
+    .step-row {
+      border: 1px solid var(--border); border-radius: 7px;
+      background: #0f0d0a; overflow: hidden;
+    }
+    .step-hdr {
+      display: flex; align-items: center; gap: 7px;
+      padding: 5px 8px; cursor: pointer;
+      transition: background .15s;
+      font-family: 'Share Tech Mono', monospace; font-size: 0.7rem;
+    }
+    .step-hdr:hover { background: rgba(255,255,255,0.04); }
+    .step-num { color: var(--muted); min-width: 22px; flex-shrink: 0; }
+    .step-tool { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .step-status { font-size: 0.62rem; padding: 2px 6px; flex-shrink: 0; }
+    .btn-expand {
+      border: 1px solid var(--border); border-radius: 4px; padding: 0 5px;
+      background: var(--stone-2); color: var(--muted); font-size: 0.65rem;
+      cursor: pointer; flex-shrink: 0; transition: border-color .15s, color .15s;
+      font-family: 'Share Tech Mono', monospace;
+    }
+    .btn-expand:hover { border-color: var(--border-light); color: var(--text); }
+    .step-detail {
+      display: none; border-top: 1px solid var(--border);
+      padding: 8px 9px; flex-direction: column; gap: 7px;
+    }
+    .step-detail.open { display: flex; }
+    .step-detail-section { display: flex; flex-direction: column; gap: 4px; }
+    .step-detail-label {
+      font-size: 0.63rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.07em; color: var(--muted);
+      display: flex; align-items: center; justify-content: space-between; gap: 4px;
+    }
+    .step-raw {
+      background: #080604; border: 1px solid var(--border); border-radius: 5px;
+      padding: 7px 8px; max-height: 220px; overflow-y: auto;
+      font-family: 'Share Tech Mono', monospace; font-size: 0.67rem; color: #c5c5d3;
+      white-space: pre-wrap; word-break: break-all; line-height: 1.4;
+      transition: max-height .2s;
+    }
+    .btn-raw {
+      border: 1px solid var(--border); border-radius: 4px; padding: 1px 7px;
+      background: var(--stone-2); color: var(--muted); font-size: 0.6rem;
+      transition: border-color .15s, color .15s; cursor: pointer;
+    }
+    .btn-raw:hover { border-color: var(--border-light); color: var(--text); }
+    .btn-raw.active { border-color: var(--amber-dim); color: var(--amber); }
+
+    /* Accessibility: honour user motion preferences */
+    @media (prefers-reduced-motion: reduce) {
+      .agent-char.idle    .char-sprite,
+      .agent-char.active  .char-sprite,
+      .agent-char.active  .char-orb,
+      .agent-char.active  .char-status-dot,
+      .agent-char:hover,
+      .lantern-ambient,
+      .stream-dot.live,
+      .budget-bar-fill { animation: none !important; transition: none !important; }
     }
   </style>
 </head>
@@ -308,26 +445,41 @@
     <!-- Quest Board -->
     <section class="panel" aria-labelledby="intake-title">
       <div class="panel-header">
-        <h2 id="intake-title" class="panel-title">&#x1F4CB; Quest Board</h2>
+        <h2 id="intake-title" class="panel-title">&#x1F4CB; New Quest</h2>
       </div>
       <div class="intake">
-        <div class="workspace-tabs" aria-label="Workspace">
-          <button id="workspace-personal" class="ws-tab active" type="button" onclick="setWorkspace('personal')">&#x1F3E0; Personal</button>
-          <button id="workspace-work" class="ws-tab" type="button" onclick="setWorkspace('work')">&#x2694;&#xFE0F; Work</button>
+        <div class="field">
+          <label for="prompt-input">What should your coworker do?</label>
+          <textarea id="prompt-input" rows="5" placeholder="Describe the task: what to build, fix, or investigate. The more detail, the better.&#10;&#10;Example: Add a /ping endpoint to backend/main.py that returns {&quot;ok&quot;: true}."></textarea>
         </div>
         <div class="field">
-          <label for="title-input">Quest Title</label>
-          <input id="title-input" type="text" placeholder="Slay the onboarding bug&#x2026;" autocomplete="off" />
+          <label for="title-input">Quest name <span class="field-hint">(optional — auto-filled from your brief)</span></label>
+          <input id="title-input" type="text" placeholder="Leave blank to auto-name from brief" autocomplete="off" />
         </div>
-        <div class="field">
-          <label for="prompt-input">Mission Brief</label>
-          <textarea id="prompt-input" rows="6" placeholder="Describe the outcome, constraints, and acceptance criteria&#x2026;"></textarea>
-        </div>
-        <div class="field">
-          <label for="repo-input">Repository (owner/repo)</label>
-          <input id="repo-input" type="text" placeholder="owner/repo" autocomplete="off" />
-        </div>
-        <button class="btn-primary" type="button" onclick="createTask()">&#x2694;&#xFE0F; Dispatch Party</button>
+        <details id="advanced-section" class="advanced-section">
+          <summary class="advanced-toggle">&#x2699;&#xFE0F; Advanced options</summary>
+          <div class="advanced-body">
+            <div class="field">
+              <label for="repo-input">Repository <span class="field-hint">(optional — owner/repo)</span></label>
+              <input id="repo-input" type="text" placeholder="owner/repo" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label>Workspace</label>
+              <div class="workspace-tabs" aria-label="Workspace">
+                <button id="workspace-personal" class="ws-tab active" type="button" onclick="setWorkspace('personal')">&#x1F3E0; Personal</button>
+                <button id="workspace-work" class="ws-tab" type="button" onclick="setWorkspace('work')">&#x2694;&#xFE0F; Work</button>
+              </div>
+            </div>
+            <div class="field" id="api-key-row">
+              <label for="api-key-input">API Key <span class="field-hint">(if required by your server)</span></label>
+              <div class="api-key-field">
+                <input id="api-key-input" type="password" placeholder="Paste your API key here" autocomplete="off" />
+                <button class="btn-ghost" type="button" onclick="saveApiKey()">Save</button>
+              </div>
+            </div>
+          </div>
+        </details>
+        <button id="dispatch-btn" class="btn-primary" type="button" onclick="createTask()">&#x2694;&#xFE0F; Send to Coworker <span class="key-hint">Ctrl+Enter</span></button>
         <p id="form-error" class="error hidden"></p>
       </div>
     </section>
@@ -503,33 +655,33 @@
 
             <!-- Agents free-standing on scene floor -->
             <div class="agents-row" aria-label="Agent party">
-              <div class="agent-char active" data-stage="supervisor" id="agent-supervisor">
+              <div class="agent-char idle" data-stage="supervisor" id="agent-supervisor" aria-label="Rex the Supervisor — idle">
                 <span class="char-nameplate">Rex</span>
-                <span class="char-sprite">&#x1F9D9;</span>
-                <div class="char-orb"></div>
+                <span class="char-sprite" aria-hidden="true">&#x1F9D9;</span>
+                <div class="char-orb" aria-hidden="true"></div>
                 <span class="char-role">Supervisor</span>
-                <div class="char-status-dot"></div>
+                <div class="char-status-dot" aria-hidden="true"></div>
               </div>
-              <div class="agent-char idle" data-stage="builder" id="agent-builder">
+              <div class="agent-char idle" data-stage="builder" id="agent-builder" aria-label="Forge the Builder — idle">
                 <span class="char-nameplate">Forge</span>
-                <span class="char-sprite">&#x2692;&#xFE0F;</span>
-                <div class="char-orb"></div>
+                <span class="char-sprite" aria-hidden="true">&#x2692;&#xFE0F;</span>
+                <div class="char-orb" aria-hidden="true"></div>
                 <span class="char-role">Builder</span>
-                <div class="char-status-dot"></div>
+                <div class="char-status-dot" aria-hidden="true"></div>
               </div>
-              <div class="agent-char idle" data-stage="tester" id="agent-tester">
+              <div class="agent-char idle" data-stage="tester" id="agent-tester" aria-label="Sage the Tester — idle">
                 <span class="char-nameplate">Sage</span>
-                <span class="char-sprite">&#x1F9D9;&#x200D;&#x2640;&#xFE0F;</span>
-                <div class="char-orb"></div>
+                <span class="char-sprite" aria-hidden="true">&#x1F9D9;&#x200D;&#x2640;&#xFE0F;</span>
+                <div class="char-orb" aria-hidden="true"></div>
                 <span class="char-role">Tester</span>
-                <div class="char-status-dot"></div>
+                <div class="char-status-dot" aria-hidden="true"></div>
               </div>
-              <div class="agent-char idle" data-stage="handoff" id="agent-handoff">
+              <div class="agent-char idle" data-stage="handoff" id="agent-handoff" aria-label="Myra the Handoff — idle">
                 <span class="char-nameplate">Myra</span>
-                <span class="char-sprite">&#x1F9DD;</span>
-                <div class="char-orb"></div>
+                <span class="char-sprite" aria-hidden="true">&#x1F9DD;</span>
+                <div class="char-orb" aria-hidden="true"></div>
                 <span class="char-role">Handoff</span>
-                <div class="char-status-dot"></div>
+                <div class="char-status-dot" aria-hidden="true"></div>
               </div>
             </div>
           </div>
@@ -550,8 +702,19 @@
         <div>
           <p id="selected-title" class="task-title">No quest selected</p>
           <p id="selected-id" class="task-id">Select a quest from the board.</p>
+          <p id="stream-status-row" class="stream-status hidden" aria-live="polite">
+            <span id="stream-dot" class="stream-dot closed" aria-hidden="true"></span>
+            <span id="stream-label">Stream closed</span>
+          </p>
+        </div>
+        <div id="stream-health-bar" class="stream-health hidden" role="status" aria-live="polite">
+          <span class="stream-health-dot" aria-hidden="true"></span>
+          <span id="stream-health-label" class="stream-health-label">Stream healthy</span>
+          <button id="btn-resync" class="btn-resync hidden" type="button" onclick="resyncStream()">&#x21BB; Resync</button>
         </div>
         <div class="artifact-list" id="artifact-list"></div>
+        <div class="step-panel-hdr" id="step-panel-hdr" style="display:none">&#x2692;&#xFE0F; Steps</div>
+        <div id="step-panel" class="step-list"></div>
         <div id="log-panel" class="log-box" aria-live="polite"></div>
       </div>
     </aside>
@@ -585,6 +748,13 @@
 </div>
 
 <script>
+  // Motion-preference budget: read once at page load and expose for testability.
+  // When false, CSS @media (prefers-reduced-motion: reduce) already disables all
+  // CSS animations via the 0.01ms override.  This JS flag gates any future
+  // script-driven animations and is available to smoke tests as window.__motionOK.
+  const motionOK = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  window.__motionOK = motionOK;
+
   function escHtml(v) {
     if (v == null) return '';
     return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
@@ -601,12 +771,48 @@
 
   const API = '/api';
   const terminalStatuses = new Set(['done','failed','cancelled']);
-  let tasks = [], logsByTask = {}, activeStreams = {}, budgetCap = null, selectedTaskId = null, workspace = 'personal';
+  const DISPATCH_BTN_HTML = '\u2694\uFE0F Send to Coworker <span class="key-hint">Ctrl+Enter</span>';
+  const TITLE_MAX_LEN = 72;
+  const STEP_PREVIEW_CHARS = 400;
+  let tasks = [], logsByTask = {}, stepsByTask = {}, activeStreams = {}, budgetCap = null, selectedTaskId = null, workspace = 'personal';
+
+  // State-driven visuals — track live tool and stream health per task
+  const activeToolByTask = {};      // taskId -> current tool name (cleared on tool_done)
+  const streamHealthByTask = {};    // taskId -> { lastHb: timestamp, dropped: count }
+
+  // Deterministic tool-to-agent mapping (AC1: no hard-coded active-state illusions)
+  const TOOL_AGENT_MAP = {
+    github_create_branch:   'builder',
+    github_commit_files:    'builder',
+    filesystem_write:       'builder',
+    filesystem_read:        'builder',
+    filesystem_list:        'builder',
+    github_read_file:       'builder',
+    github_list_files:      'builder',
+    github_compare_branch:  'builder',
+    run_tests:              'tester',
+    get_code_scanning_alert:'tester',
+    list_code_scanning_alerts:'tester',
+    github_create_pr:       'handoff',
+    final_answer:           'handoff',
+  };
+
+  function toolToAgent(toolName) {
+    return TOOL_AGENT_MAP[toolName] || 'supervisor';
+  }
+
+  const _AGENT_NAMES = {
+    supervisor: 'Rex the Supervisor',
+    builder:    'Forge the Builder',
+    tester:     'Sage the Tester',
+    handoff:    'Myra the Handoff',
+  };
 
   function setWorkspace(next) {
     workspace = next;
     document.getElementById('workspace-personal').classList.toggle('active', workspace === 'personal');
     document.getElementById('workspace-work').classList.toggle('active', workspace === 'work');
+    loadAll();
   }
 
   function readHeaders(json) {
@@ -620,15 +826,45 @@
 
   function setAgentState(stage, state) {
     const el = document.getElementById('agent-' + stage);
-    if (el) el.className = 'agent-char ' + state;
+    if (!el) return;
+    // Use classList to avoid redundant repaints: only write when the state
+    // class actually changes, and never touch unrelated classes on the element.
+    if (!el.classList.contains(state)) el.className = 'agent-char ' + state;
+    el.setAttribute('aria-label', (_AGENT_NAMES[stage] || stage) + ' \u2014 ' + state);
   }
 
   function updateAgentsFromTasks() {
-    const running = tasks.filter(t => t.status === 'running');
+    // Reset all agents to idle first
     ['supervisor','builder','tester','handoff'].forEach(s => setAgentState(s, 'idle'));
+
+    const running = tasks.filter(t => t.status === 'running');
+    const pending  = tasks.filter(t => t.status === 'pending');
+
     if (running.length > 0) {
+      // Use the first running task; prefer the one being actively streamed
+      const task = running[0];
+      // activeToolByTask is updated in real-time from SSE tool_start/tool_done events
+      // and takes precedence over the DB-persisted last_tool field (which lags by one
+      // round-trip). This ensures the agent highlight reflects the live execution state,
+      // not a snapshot from the last API poll.
+      const currentTool = activeToolByTask[task.id] || task.last_tool || '';
+      const workingAgent = toolToAgent(currentTool);
+
+      // Supervisor always active while a task is running (orchestrating)
       setAgentState('supervisor', 'active');
-      setAgentState('builder', 'active');
+      // Highlight the agent currently holding the tool (may also be supervisor)
+      if (workingAgent !== 'supervisor') {
+        setAgentState(workingAgent, 'active');
+      }
+    } else if (pending.length > 0) {
+      // Pending tasks — supervisor is watching
+      setAgentState('supervisor', 'active');
+    } else {
+      // No active work — reflect completed/failed state
+      const anyFailed    = tasks.some(t => t.status === 'failed');
+      const anyDone      = tasks.some(t => t.status === 'done');
+      if (anyFailed && !anyDone) setAgentState('supervisor', 'warning');
+      if (anyDone)               setAgentState('handoff',    'done');
     }
   }
 
@@ -636,9 +872,21 @@
     const active = tasks.filter(t => ['pending','running'].includes(t.status)).length;
     document.getElementById('metric-total').textContent = String(tasks.length);
     document.getElementById('metric-active').textContent = String(active);
-    document.getElementById('factory-state').textContent = active ? 'On Quest' : 'At Rest';
-    document.getElementById('factory-state').className = active ? 'status status-running' : 'status status-pending';
+    const stateLabel = active ? 'On Quest' : 'At Rest';
+    const stateEl = document.getElementById('factory-state');
+    stateEl.textContent = stateLabel;
+    stateEl.className = active ? 'status status-running' : 'status status-pending';
+    stateEl.setAttribute('aria-label', 'Tavern state: ' + stateLabel);
     updateAgentsFromTasks();
+  }
+
+  function renderBudgetBar(spent, cap) {
+    if (cap == null || cap <= 0) return '';
+    const pct = Math.min(100, (spent / cap) * 100);
+    const cls = pct >= 90 ? 'budget-critical' : pct >= 70 ? 'budget-warn' : '';
+    const pctRound = pct.toFixed(0);
+    return '<div class="budget-bar" role="meter" aria-label="Budget ' + pctRound + '% used" aria-valuenow="' + pctRound + '" aria-valuemin="0" aria-valuemax="100">'
+      + '<div class="budget-bar-fill ' + cls + '" style="width:' + pct.toFixed(1) + '%"></div></div>';
   }
 
   function renderTaskCard(task) {
@@ -654,7 +902,8 @@
       + '<p class="task-title">' + escHtml(task.title) + '</p>'
       + '<p class="task-id">' + escHtml(task.id) + '</p>'
       + '<p class="subtle">&#x1FA99; ' + escHtml(budgetText) + '</p>'
-      + '</div><span class="' + statusClass(task.status) + '">' + escHtml(task.status) + '</span></div>'
+      + renderBudgetBar(spent, budgetCap)
+      + '</div><span class="' + statusClass(task.status) + '" aria-label="Status: ' + escHtml(task.status) + '">' + escHtml(task.status) + '</span></div>'
       + (task.error ? '<p class="log-line log-error">' + escHtml(task.error) + '</p>' : '')
       + '<div class="card-actions">' + prLink + cancel + retry + '</div>'
       + '</article>';
@@ -662,9 +911,47 @@
 
   function renderTasks() {
     const list = document.getElementById('task-list');
-    if (!tasks.length) { list.innerHTML = '<div class="empty">No quests posted yet&#x2026;</div>'; updateMetrics(); renderSelectedTask(); return; }
+    if (!tasks.length) {
+      list.innerHTML = '<div class="first-run-guide">'
+        + '<h3>&#x1F31F; Getting Started</h3>'
+        + '<ol>'
+        + '<li>Type what you want your coworker to do in the <strong>What should your coworker do?</strong> box on the left.</li>'
+        + '<li>Optionally give the task a short name. If you skip it, one will be generated.</li>'
+        + '<li>Click <strong>Send to Coworker</strong> (or press Ctrl+Enter).</li>'
+        + '<li>Watch live progress appear here — click any task to see its log.</li>'
+        + '</ol>'
+        + '</div>';
+      updateMetrics(); renderSelectedTask(); return;
+    }
     list.innerHTML = tasks.map(renderTaskCard).join('');
     updateMetrics(); renderSelectedTask();
+  }
+
+  function _updateStreamStatusRow(task) {
+    const row  = document.getElementById('stream-status-row');
+    const dot  = document.getElementById('stream-dot');
+    const lbl  = document.getElementById('stream-label');
+    if (!row || !dot || !lbl) return;
+    if (!task || terminalStatuses.has(task.status)) {
+      row.classList.add('hidden');
+      return;
+    }
+    const h = streamHealthByTask[task.id];
+    let state = 'closed', label = 'No stream';
+    if (activeStreams[task.id]) {
+      if (!h) {
+        state = 'live'; label = 'Stream connected';
+      } else {
+        const age = (Date.now() - h.lastHb) / 1000;
+        if (h.dropped > 0) { state = 'warn'; label = 'Stream: events dropped'; }
+        else if (age > 60) { state = 'stale'; label = 'Stream stale (' + Math.round(age) + 's)'; }
+        else               { state = 'live';  label = 'Stream live'; }
+      }
+    }
+    row.classList.remove('hidden');
+    dot.className = 'stream-dot ' + state;
+    dot.setAttribute('aria-label', label);
+    lbl.textContent = label;
   }
 
   function renderSelectedTask() {
@@ -674,11 +961,19 @@
     const idEl     = document.getElementById('selected-id');
     const logsEl   = document.getElementById('log-panel');
     const artEl    = document.getElementById('artifact-list');
+    const stepHdr  = document.getElementById('step-panel-hdr');
+    const stepPanel= document.getElementById('step-panel');
+    const healthBar = document.getElementById('stream-health-bar');
+    const healthLabel = document.getElementById('stream-health-label');
+    const resyncBtn = document.getElementById('btn-resync');
     if (!task) {
       statusEl.className = 'status status-pending'; statusEl.textContent = 'None';
       titleEl.textContent = 'No quest selected'; idEl.textContent = 'Select a quest from the board.';
       logsEl.innerHTML = '<p class="log-line">Awaiting the party&#x2026;</p>';
       artEl.innerHTML  = '<div class="artifact-chip">Treasures appear after handoff.</div>';
+      if (stepHdr)  stepHdr.style.display  = 'none';
+      if (stepPanel) stepPanel.innerHTML = '';
+      _updateStreamStatusRow(null);
       return;
     }
     statusEl.className = statusClass(task.status); statusEl.textContent = task.status;
@@ -690,9 +985,102 @@
       ? '<a class="artifact-chip" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">&#x1F5E1;&#xFE0F; Pull Request Ready</a>'
       : '<div class="artifact-chip">PR handoff pending&#x2026;</div>';
     logsEl.scrollTop = logsEl.scrollHeight;
+    renderStepList(task.id);
+    if (stepHdr) stepHdr.style.display = '';
+    _updateStreamStatusRow(task);
   }
 
-  function selectTask(id) { selectedTaskId = id; renderTasks(); }
+  /* PR-C1: tool I/O inspectability helpers */
+  const _TOOL_EMOJI = {
+    github_create_branch:'🌿', github_commit_files:'📦', github_create_pr:'📝',
+    github_read_file:'📖', github_list_files:'📂', github_compare_branch:'🔀',
+    filesystem_read:'📖', filesystem_write:'✏️', filesystem_list:'📂',
+    run_tests:'🧪', repo_snapshot:'📸', secret_scan:'🔒',
+    humanize_error:'💬', cost_status:'💰', playwright_browse:'🌐',
+    final_answer:'🏁', web_search:'🔍', fetch_url:'🌐',
+  };
+  function toolEmoji(name) { return _TOOL_EMOJI[name] || '⚙️'; }
+
+  function toggleRaw(btnId, blockId) {
+    const btn   = document.getElementById(btnId);
+    const block = document.getElementById(blockId);
+    if (!btn || !block) return;
+    const expanded = btn.classList.toggle('active');
+    btn.setAttribute('aria-pressed', expanded ? 'true' : 'false');
+    block.style.maxHeight = expanded ? '600px' : '220px';
+    btn.textContent = expanded ? 'Collapse' : 'Raw';
+  }
+
+  function toggleStepDetail(rowId) {
+    const row = document.getElementById(rowId);
+    if (!row) return;
+    const det = row.querySelector('.step-detail');
+    if (!det) return;
+    const open = det.classList.toggle('open');
+    const btn = row.querySelector('.btn-expand');
+    if (btn) btn.textContent = open ? '▾' : '▸';
+  }
+
+  function _renderStepField(step, field) {
+    const val = step[field];
+    if (!val) return '';
+    // `truncated` reflects server-side size-bound truncation (_STEP_MAX_FIELD_CHARS = 50 KB).
+    // `preview` is a separate client-side display limit (STEP_PREVIEW_CHARS) for initial render
+    // performance; "Raw" / "Collapse" expands it — it does not add server data beyond what was
+    // returned.
+    const truncated = (step._truncated_fields || []).includes(field);
+    const preview = val.length > STEP_PREVIEW_CHARS ? val.slice(0, STEP_PREVIEW_CHARS) + '\u2026' : val;
+    const label = field.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+    const blockId = 'sblk-' + escHtml(step.id) + '-' + field;
+    const btnId   = 'sbtn-' + escHtml(step.id) + '-' + field;
+    return '<div class="step-detail-section">'
+      + '<div class="step-detail-label">'
+      + '<span>' + escHtml(label) + (truncated ? ' \u26a0\ufe0f truncated' : '') + '</span>'
+      + '<button class="btn-raw" id="' + btnId + '" type="button"'
+      + ' onclick="toggleRaw(\'' + btnId + '\',\'' + blockId + '\')" aria-pressed="false">Raw</button>'
+      + '</div>'
+      + '<pre id="' + blockId + '" class="step-raw">' + escHtml(preview) + '</pre>'
+      + '</div>';
+  }
+
+  function renderStepList(taskId) {
+    const panel = document.getElementById('step-panel');
+    if (!panel) return;
+    const steps = stepsByTask[taskId] || [];
+    if (!steps.length) {
+      panel.innerHTML = '<p class="log-line" style="font-family:\'Share Tech Mono\',monospace;font-size:0.72rem">No steps recorded yet.</p>';
+      return;
+    }
+    panel.innerHTML = steps.map(step => {
+      const rowId = 'srow-' + escHtml(step.id);
+      const fields = ['tool_input','tool_output','reasoning'].filter(f => step[f]);
+      const hasDetail = fields.length > 0;
+      const emoji = toolEmoji(step.tool_name);
+      return '<div class="step-row" id="' + rowId + '">'
+        + '<div class="step-hdr" onclick="toggleStepDetail(\'' + rowId + '\')">'
+        + '<span class="step-num">#' + escHtml(String(step.step_num + 1)) + '</span>'
+        + '<span class="step-tool">' + escHtml(emoji + '\u00a0' + (step.tool_name || '\u2014')) + '</span>'
+        + '<span class="' + statusClass(step.status) + ' step-status">' + escHtml(step.status) + '</span>'
+        + (hasDetail ? '<button class="btn-expand" aria-label="Toggle step detail">▸</button>' : '')
+        + '</div>'
+        + (hasDetail
+          ? '<div class="step-detail">' + fields.map(f => _renderStepField(step, f)).join('') + '</div>'
+          : '')
+        + '</div>';
+    }).join('');
+  }
+
+  async function loadTaskDetail(taskId) {
+    try {
+      const res = await fetch(API + '/tasks/' + encodeURIComponent(taskId), {headers: readHeaders(false)});
+      if (!res.ok) return;
+      const d = await res.json();
+      stepsByTask[taskId] = d.steps || [];
+      if (selectedTaskId === taskId) renderStepList(taskId);
+    } catch {}
+  }
+
+  function selectTask(id) { selectedTaskId = id; renderTasks(); loadTaskDetail(id); }
 
   function mergeTask(task) {
     const i = tasks.findIndex(t => t.id === task.id);
@@ -713,65 +1101,159 @@
     if (selectedTaskId === id) renderSelectedTask();
   }
 
+  function saveApiKey() {
+    const input = document.getElementById('api-key-input');
+    const k = input.value.trim();
+    if (k) {
+      localStorage.setItem('api_key', k);
+      input.value = '';
+      input.placeholder = '\u2714 Key saved — ready to use';
+    }
+  }
+
+  function _autoTitle(promptText) {
+    const first = promptText.split('\n')[0].trim();
+    return first.length > TITLE_MAX_LEN ? first.slice(0, TITLE_MAX_LEN - 1) + '\u2026' : first;
+  }
+
+  function _friendlyError(detail, statusCode) {
+    if (!detail) {
+      if (statusCode === 401) return 'API key required \u2014 open Advanced options below and paste your key.';
+      if (statusCode === 413) return 'Your brief is too long. Please shorten it and try again.';
+      if (statusCode === 409) return 'A task is already running. Wait for it to finish, then try again.';
+      if (statusCode === 429) return 'Too many tasks started too quickly \u2014 wait a moment and try again.';
+      return 'Something went wrong (HTTP ' + statusCode + '). Please try again.';
+    }
+    return detail;
+  }
+
   async function createTask() {
-    const title = document.getElementById('title-input').value.trim();
     const promptText = document.getElementById('prompt-input').value.trim();
+    const titleInput = document.getElementById('title-input').value.trim();
     const repo = document.getElementById('repo-input').value.trim() || null;
     const errEl = document.getElementById('form-error');
+    const btn   = document.getElementById('dispatch-btn');
     errEl.classList.add('hidden');
-    if (!title || !promptText) { errEl.textContent = 'Quest title and mission are required.'; errEl.classList.remove('hidden'); return; }
-    if (promptText.length > 8000) { errEl.textContent = 'Mission must be 8000 characters or fewer.'; errEl.classList.remove('hidden'); return; }
-    if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) { errEl.textContent = 'Repository must be owner/repo format.'; errEl.classList.remove('hidden'); return; }
+    if (!promptText) { errEl.textContent = 'Please describe what your coworker should do.'; errEl.classList.remove('hidden'); document.getElementById('prompt-input').focus(); return; }
+    if (promptText.length > 8000) { errEl.textContent = 'Brief is too long \u2014 please shorten it to 8000 characters or fewer.'; errEl.classList.remove('hidden'); return; }
+    if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) { errEl.textContent = 'Repository must be in owner/repo format (e.g. acme/my-repo).'; errEl.classList.remove('hidden'); return; }
+    const title = titleInput || _autoTitle(promptText);
+    btn.disabled = true;
+    btn.textContent = '\u23F3 Sending\u2026';
     try {
       const res = await fetch(API + '/tasks', {method:'POST', headers:readHeaders(true), body:JSON.stringify({title, prompt:promptText, repo_url:repo, workspace})});
-      if (res.status === 401) { const k = window.prompt('API key required:'); if (k) localStorage.setItem('api_key', k); return; }
-      if (!res.ok) { const b = await res.json().catch(() => ({})); errEl.textContent = 'Error: ' + (b.detail || res.statusText); errEl.classList.remove('hidden'); return; }
+      if (res.status === 401) {
+        errEl.textContent = 'API key required \u2014 open Advanced options and enter your key, then try again.';
+        errEl.classList.remove('hidden');
+        document.getElementById('advanced-section').open = true;
+        document.getElementById('api-key-input').focus();
+        return;
+      }
+      if (!res.ok) { const b = await res.json().catch(() => ({})); errEl.textContent = _friendlyError(b.detail, res.status); errEl.classList.remove('hidden'); return; }
       const task = await res.json();
       document.getElementById('title-input').value = '';
       document.getElementById('prompt-input').value = '';
       document.getElementById('repo-input').value = '';
       mergeTask(task); subscribeSSE(task.id);
-    } catch (err) { errEl.textContent = 'Network error: ' + String(err); errEl.classList.remove('hidden'); }
+      document.getElementById('log-panel').scrollIntoView({behavior:'smooth', block:'nearest'});
+    } catch (err) {
+      errEl.textContent = 'Could not reach the server \u2014 check your connection and try again.';
+      errEl.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = DISPATCH_BTN_HTML;
+    }
   }
 
   async function cancelTask(id) {
-    await fetch(API + '/tasks/' + encodeURIComponent(id), {method:'DELETE', headers:readHeaders(false)});
-    patchTask(id, {status:'cancelled'});
+    const res = await fetch(API + '/tasks/' + encodeURIComponent(id) + '?workspace=' + encodeURIComponent(workspace), {method:'DELETE', headers:readHeaders(false)});
+    if (!res.ok) { addLog(id, 'Cancel failed: ' + res.statusText, 'error'); return; }
     if (activeStreams[id]) { activeStreams[id].close(); delete activeStreams[id]; }
+    await loadTasks();
   }
 
   async function retryTask(id) {
-    const res = await fetch(API + '/tasks/' + encodeURIComponent(id) + '/retry', {method:'POST', headers:readHeaders(false)});
+    const res = await fetch(API + '/tasks/' + encodeURIComponent(id) + '/retry?workspace=' + encodeURIComponent(workspace), {method:'POST', headers:readHeaders(false)});
     if (!res.ok) { addLog(id, 'Retry failed: ' + res.statusText, 'error'); return; }
-    const task = await res.json(); mergeTask(task); subscribeSSE(task.id);
+    const task = await res.json(); mergeTask(task); await subscribeSSE(task.id);
   }
 
-  function subscribeSSE(taskId) {
+  async function subscribeSSE(taskId) {
     if (activeStreams[taskId]) return;
     const k = localStorage.getItem('api_key');
-    const url = API + '/tasks/' + encodeURIComponent(taskId) + '/stream' + (k ? '?token=' + encodeURIComponent(k) : '');
-    const es = new EventSource(url);
+    let streamUrl = API + '/tasks/' + encodeURIComponent(taskId) + '/stream';
+    if (k) {
+      try {
+        const tr = await fetch(API + '/tasks/' + encodeURIComponent(taskId) + '/stream-token', {method:'POST', headers:readHeaders(false)});
+        if (tr.ok) {
+          const { token } = await tr.json();
+          streamUrl += '?token=' + encodeURIComponent(token);
+        }
+      } catch {}
+    }
+    const es = new EventSource(streamUrl);
     activeStreams[taskId] = es;
-    ['task_done','task_failed','task_cancelled','tool_start','tool_done','log','heartbeat'].forEach(type => {
+    // Initialise stream health entry on connect
+    streamHealthByTask[taskId] = { lastHb: Date.now(), dropped: 0 };
+    if (selectedTaskId === taskId) _updateStreamStatusRow(tasks.find(t => t.id === taskId) || null);
+
+    ['task_done','task_failed','task_cancelled','tool_start','tool_done','log','heartbeat','stream_warning'].forEach(type => {
       es.addEventListener(type, ev => {
         let d = {}; try { d = JSON.parse(ev.data); } catch {}
         if (type === 'log')        addLog(taskId, d.message||'', d.level||'info');
-        if (type === 'tool_start') addLog(taskId, '\u2692 Tool: ' + (d.tool||''), 'info');
-        if (type === 'tool_done')  addLog(taskId, '\u2713 Done: ' + (d.tool||'') + ' [' + (d.success ? 'ok' : 'fail') + ']', d.success ? 'info' : 'error');
+        if (type === 'tool_start') {
+          activeToolByTask[taskId] = d.tool || '';
+          patchTask(taskId, {last_tool: d.tool || null});   // keep task object in sync
+          addLog(taskId, '\u2692 Tool: ' + (d.tool||''), 'info');
+        }
+        if (type === 'tool_done')  {
+          delete activeToolByTask[taskId];
+          addLog(taskId, '\u2713 Done: ' + (d.tool||'') + ' [' + (d.success ? 'ok' : 'fail') + ']', d.success ? 'info' : 'error');
+          if (selectedTaskId === taskId) loadTaskDetail(taskId);
+        }
+        if (type === 'heartbeat') {
+          if (!streamHealthByTask[taskId]) streamHealthByTask[taskId] = { lastHb: 0, dropped: 0 };
+          streamHealthByTask[taskId].lastHb = Date.now();
+          if (selectedTaskId === taskId) _updateStreamStatusRow(tasks.find(t => t.id === taskId) || null);
+        }
+        if (type === 'stream_warning') {
+          if (!streamHealthByTask[taskId]) streamHealthByTask[taskId] = { lastHb: Date.now(), dropped: 0 };
+          streamHealthByTask[taskId].dropped += Number(d.dropped || 1);
+          addLog(taskId, 'Stream: ' + (d.dropped || 1) + ' event(s) dropped', 'warning');
+          if (selectedTaskId === taskId) _updateStreamStatusRow(tasks.find(t => t.id === taskId) || null);
+        }
         if (type === 'task_done')      patchTask(taskId, {status:'done',      pr_url:d.pr_url});
         if (type === 'task_failed')    patchTask(taskId, {status:'failed',    error:d.error, pr_url:d.pr_url});
         if (type === 'task_cancelled') patchTask(taskId, {status:'cancelled'});
         if (type.startsWith('task_'))  addLog(taskId, type.replace('_',' '), type === 'task_failed' ? 'error' : 'info');
         const t = tasks.find(t => t.id === taskId);
-        if (t && terminalStatuses.has(t.status)) { es.close(); delete activeStreams[taskId]; }
+        if (t && terminalStatuses.has(t.status)) {
+          delete streamHealthByTask[taskId];
+          es.close(); delete activeStreams[taskId];
+          delete activeToolByTask[taskId];
+          if (selectedTaskId === taskId) _updateStreamStatusRow(t);
+        }
       });
     });
-    es.onerror = () => addLog(taskId, 'Stream disconnected', 'warning');
+    es.onerror = () => {
+      addLog(taskId, 'Stream disconnected', 'warning');
+      if (streamHealthByTask[taskId]) streamHealthByTask[taskId].lastHb = 0;
+      if (selectedTaskId === taskId) _updateStreamStatusRow(tasks.find(t => t.id === taskId) || null);
+    };
+  }
+
+  function resyncStream() {
+    const taskId = selectedTaskId;
+    if (!taskId) return;
+    if (activeStreams[taskId]) { activeStreams[taskId].close(); delete activeStreams[taskId]; }
+    streamHealthByTask[taskId] = { lastHb: Date.now(), dropped: 0 };
+    if (selectedTaskId === taskId) _updateStreamStatusRow(tasks.find(t => t.id === taskId) || null);
+    subscribeSSE(taskId);
   }
 
   async function loadSummary() {
     try {
-      const res = await fetch(API + '/summary', {headers:readHeaders(false)});
+      const res = await fetch(API + '/summary?workspace=' + encodeURIComponent(workspace), {headers:readHeaders(false)});
       if (!res.ok) return;
       const d = await res.json();
       document.getElementById('metric-week').textContent = '$' + Number(d.total_usd_this_week||0).toFixed(4);
@@ -780,17 +1262,18 @@
 
   async function loadTasks() {
     try {
-      const res = await fetch(API + '/tasks?limit=50&offset=0', {headers:readHeaders(false)});
+      const res = await fetch(API + '/tasks?limit=50&offset=0&workspace=' + encodeURIComponent(workspace), {headers:readHeaders(false)});
       if (!res.ok) { document.getElementById('conn-status').textContent = 'Tavern is closed\u2026'; renderTasks(); return; }
       const d = await res.json();
       tasks = d.tasks || [];
       budgetCap = d.max_task_usd == null ? budgetCap : d.max_task_usd;
       selectedTaskId = tasks[0] ? tasks[0].id : null;
-      for (const t of tasks) { if (['pending','running'].includes(t.status)) subscribeSSE(t.id); }
+      for (const t of tasks) { if (['pending','running'].includes(t.status)) await subscribeSSE(t.id); }
       document.getElementById('conn-status').textContent = tasks.length
         ? tasks.length + ' quest' + (tasks.length === 1 ? '' : 's') + ' on the board'
         : 'Tavern is open \u2014 no quests yet';
       renderTasks();
+      if (selectedTaskId) loadTaskDetail(selectedTaskId);
     } catch { document.getElementById('conn-status').textContent = 'Tavern is closed\u2026'; renderTasks(); }
   }
 
@@ -803,9 +1286,9 @@
     try {
       const h = readHeaders(false);
       const [aRes, rRes, runRes] = await Promise.all([
-        fetch(API + '/operator/artifacts?limit=5', {headers:h}),
+        fetch(API + '/operator/artifacts?limit=5&workspace=' + encodeURIComponent(workspace), {headers:h}),
         fetch(API + '/operator/recipes', {headers:h}),
-        fetch(API + '/operator/run-history?limit=5', {headers:h})
+        fetch(API + '/operator/run-history?limit=5&workspace=' + encodeURIComponent(workspace), {headers:h})
       ]);
       if (aRes.ok) {
         const d = await aRes.json();
@@ -829,7 +1312,27 @@
   }
 
   function loadAll() { loadTasks(); loadSummary(); loadOperatorStudio(); }
+
+  // Ctrl+Enter to submit the form from anywhere on the page
+  document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); createTask(); }
+  });
+
+  // Pre-fill API key field if already saved
+  (function() {
+    const k = localStorage.getItem('api_key');
+    if (k) { const el = document.getElementById('api-key-input'); if (el) el.placeholder = '\u2714 Key saved (paste to update)'; }
+  })();
+
   loadAll();
+
+  // Periodic stream health refresh (every 15 s) so stale indicators update without SSE
+  setInterval(() => {
+    if (selectedTaskId) {
+      const t = tasks.find(t => t.id === selectedTaskId);
+      if (t && !terminalStatuses.has(t.status)) _updateStreamStatusRow(t);
+    }
+  }, 15000);
 </script>
 </body>
 </html>
