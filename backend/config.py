@@ -58,6 +58,7 @@ class Settings:
     task_create_rate_limit_window_seconds: int = field(default_factory=lambda: int(_optional("TASK_CREATE_RATE_LIMIT_WINDOW_SECONDS", "60")))
     task_request_max_bytes: int = field(default_factory=lambda: int(_optional("TASK_REQUEST_MAX_BYTES", "65536")))
     zombie_reaper_interval_seconds: int = field(default_factory=lambda: int(_optional("ZOMBIE_REAPER_INTERVAL_SECONDS", "60")))
+    heartbeat_interval_seconds: int     = field(default_factory=lambda: int(_optional("HEARTBEAT_INTERVAL_SECONDS", "30")))
 
     # Playwright
     playwright_enabled: bool  = field(default_factory=lambda: _optional("PLAYWRIGHT_ENABLED", "false").lower() == "true")
