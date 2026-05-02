@@ -24,6 +24,7 @@ from github import Auth, Github, GithubException
 from tenacity import RetryError, retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from backend.config import settings
+from backend.policy import ALLOW, evaluate_tool_call, record_policy_decision
 
 # PyGithub deprecated the positional-token constructor in 2.x and removes it
 # in 3.x. Use the explicit Auth.Token form so we don't break on upgrade.
@@ -687,15 +688,26 @@ _TOOL_MAP = {
 
 
 def execute_tool(tool_name: str, tool_input: Dict, task_id: str = "") -> Dict:
+    tool_input = tool_input or {}
     if tool_name not in _ALLOWED_TOOLS:
-        return _err(f"Unknown tool: {tool_name!r}. Allowed: {sorted(_ALLOWED_TOOLS)}")
-    fn = _TOOL_MAP[tool_name]
+        decision = evaluate_tool_call(tool_name, tool_input)
+        record_policy_decision(decision)
+        result = _err(f"Unknown tool: {tool_name!r}. Allowed: {sorted(_ALLOWED_TOOLS)}")
+        result["policy_decision"] = decision.to_dict()
+        return result
     # Inject task_id into task-scoped tools for per-task sandbox/cost lookup.
     _FS_TOOLS = {"filesystem_read", "filesystem_write", "filesystem_list"}
     if tool_name in _FS_TOOLS and task_id:
         tool_input = {**tool_input, "task_id": task_id}
     if tool_name == "cost_status" and task_id and not tool_input.get("task_id"):
         tool_input = {**tool_input, "task_id": task_id}
+    decision = evaluate_tool_call(tool_name, tool_input)
+    record_policy_decision(decision)
+    if decision.outcome != ALLOW:
+        result = _err(decision.reason)
+        result["policy_decision"] = decision.to_dict()
+        return result
+    fn = _TOOL_MAP[tool_name]
     try:
         return fn(**tool_input)
     except TypeError as e:
