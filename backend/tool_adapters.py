@@ -30,7 +30,7 @@ from github import Auth, Github, GithubException
 from tenacity import RetryError, retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from backend.config import settings
-from backend.policy import ALLOW, evaluate_tool_call, record_policy_decision
+from backend.policy import ALLOW, AgentStageContext, evaluate_tool_call, record_policy_decision
 from backend.tool_catalog import TOOL_IDS as _CATALOG_TOOL_IDS
 
 # PyGithub deprecated the positional-token constructor in 2.x and removes it
@@ -947,10 +947,15 @@ _TOOL_MAP = {
 }
 
 
-def execute_tool(tool_name: str, tool_input: Dict, task_id: str = "") -> Dict:
+def execute_tool(
+    tool_name: str,
+    tool_input: Dict,
+    task_id: str = "",
+    context: AgentStageContext | None = None,
+) -> Dict:
     tool_input = tool_input or {}
     if tool_name not in _ALLOWED_TOOLS:
-        decision = evaluate_tool_call(tool_name, tool_input)
+        decision = evaluate_tool_call(tool_name, tool_input, context)
         record_policy_decision(decision)
         result = _err(f"Unknown tool: {tool_name!r}. Allowed: {sorted(_ALLOWED_TOOLS)}")
         result["policy_decision"] = decision.to_dict()
@@ -961,7 +966,7 @@ def execute_tool(tool_name: str, tool_input: Dict, task_id: str = "") -> Dict:
         tool_input = {**tool_input, "task_id": task_id}
     if tool_name == "cost_status" and task_id and not tool_input.get("task_id"):
         tool_input = {**tool_input, "task_id": task_id}
-    decision = evaluate_tool_call(tool_name, tool_input)
+    decision = evaluate_tool_call(tool_name, tool_input, context)
     record_policy_decision(decision)
     if decision.outcome != ALLOW:
         result = _err(decision.reason)
@@ -969,7 +974,12 @@ def execute_tool(tool_name: str, tool_input: Dict, task_id: str = "") -> Dict:
         return result
     fn = _TOOL_MAP[tool_name]
     try:
-        return fn(**tool_input)
+        result = fn(**tool_input)
+        # All registered tools return {"success": True/False, ...} dicts.
+        # Only advance gate state when the underlying call actually succeeded.
+        if context is not None and isinstance(result, dict) and result.get("success") is True:
+            context.record_tool_succeeded(tool_name)
+        return result
     except TypeError as e:
         return _err(f"Tool {tool_name!r} called with wrong arguments: {e}")
     except Exception as e:
