@@ -26,6 +26,11 @@ with open(os.path.join(_ROOT, "CLAUDE.md"), "r", encoding="utf-8") as f:
 MAX_HISTORY_STEPS = 20
 MAX_TOKENS = 4096
 
+# Conservative token count for the system prompt used in every Claude call.
+# Estimated via the 4-chars-per-token heuristic so callers can include it in
+# preflight budget checks without importing the raw prompt text.
+SYSTEM_PROMPT_TOKENS: int = (len(_SYSTEM_PROMPT) + 3) // 4
+
 
 def _is_retryable_anthropic(exc: Exception) -> bool:
     if isinstance(exc, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
