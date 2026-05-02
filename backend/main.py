@@ -508,18 +508,11 @@ async def metrics(
 ):
     """Return aggregated reliability and cost metrics for the given time window (A1).
 
-    Supports 24h (default) and 7d (168h) windows.
+    Supports any window from 1h to 168h (7 days).
     Returns success_rate, failure_rate, latency stats, failure_category distribution,
     and cost summary derived from explicit schema fields.
     """
-    result_24h = await db.get_metrics(window_hours=24)
-    result_7d = await db.get_metrics(window_hours=168)
-    return {
-        "window_hours": window,
-        "current_window": await db.get_metrics(window_hours=window),
-        "24h": result_24h,
-        "7d": result_7d,
-    }
+    return await db.get_metrics(window_hours=window)
 
 
 @app.post("/artifacts", status_code=201, dependencies=[Depends(require_auth)])

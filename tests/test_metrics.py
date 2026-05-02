@@ -194,16 +194,32 @@ async def test_metrics_cost_summary():
 
 @pytest.mark.asyncio
 async def test_metrics_window_isolation():
-    """Tasks older than the window should not appear in results."""
-    # All tasks were just created (in-window by default)
+    """Tasks older than the window should not appear in results.
+
+    We seed one task and then query with window_hours=24 (should include it)
+    and also verify that a task created 'in the past' via direct SQL is excluded
+    when querying a small window.
+    """
+    # Seed a normal (in-window) task
     await _seed_task("failed", failure_category="agent_error")
-    # We can't easily insert old tasks without direct SQL, but we can verify
-    # that a 0-hour window returns 0 (no tasks created in the future)
-    result = await db.get_metrics(window_hours=0)
-    # A 0-hour window looks into the future — no tasks should match
-    # (cutoff = now, tasks created <= now should be excluded from "created_at >= cutoff")
-    # Actually this depends on sub-second timing; just verify the field exists
-    assert "total_tasks" in result
+
+    # Insert an old task directly so we can control its created_at timestamp
+    old_ts = (datetime.now(timezone.utc) - timedelta(hours=50)).isoformat()
+    async with db._get_db() as conn:
+        await conn.execute(
+            "INSERT INTO tasks (id, title, prompt, status, created_at, updated_at, workspace) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("old-task-id", "Old", "prompt", "done", old_ts, old_ts, "personal"),
+        )
+
+    # 24h window should include the recent failed task but not the 50h-old done task
+    result_24h = await db.get_metrics(window_hours=24)
+    assert result_24h["total_tasks"] == 1
+    assert result_24h["failed"] == 1
+
+    # 72h window should include both
+    result_72h = await db.get_metrics(window_hours=72)
+    assert result_72h["total_tasks"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +227,7 @@ async def test_metrics_window_isolation():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_metrics_endpoint_returns_24h_and_7d():
+async def test_metrics_endpoint_returns_expected_shape():
     from httpx import AsyncClient, ASGITransport
     from backend.main import app, _reset_task_create_rate_limiter, _running
     _reset_task_create_rate_limiter()
@@ -225,17 +241,15 @@ async def test_metrics_endpoint_returns_24h_and_7d():
 
     assert r.status_code == 200
     data = r.json()
-    assert "24h" in data
-    assert "7d" in data
-    assert "current_window" in data
-    # Verify shape
-    for key in ("24h", "7d"):
-        w = data[key]
-        assert "success_rate" in w
-        assert "failure_rate" in w
-        assert "latency" in w
-        assert "failure_categories" in w
-        assert "cost_summary" in w
+    # Default window is 24h
+    assert data["window_hours"] == 24
+    assert "success_rate" in data
+    assert "failure_rate" in data
+    assert "latency" in data
+    assert "failure_categories" in data
+    assert "cost_summary" in data
+    assert data["succeeded"] == 1
+    assert data["failed"] == 1
 
 
 @pytest.mark.asyncio
@@ -251,7 +265,6 @@ async def test_metrics_endpoint_custom_window():
     assert r.status_code == 200
     data = r.json()
     assert data["window_hours"] == 48
-    assert data["current_window"]["window_hours"] == 48
 
 
 @pytest.mark.asyncio
