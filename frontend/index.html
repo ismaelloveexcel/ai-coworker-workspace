@@ -114,6 +114,7 @@
     .intake { padding: 14px; display: grid; gap: 13px; }
     .field { display: grid; gap: 5px; }
     .field label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+    .field-hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: rgba(122,122,140,0.7); font-style: italic; }
     input, textarea {
       width: 100%; border: 1px solid var(--border); background: #0f0d0b; color: var(--text);
       border-radius: 7px; padding: 9px 11px; outline: none; font-family: inherit;
@@ -127,13 +128,22 @@
     }
     .ws-tab { min-height: 32px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: 0.82rem; letter-spacing: 0.04em; transition: background .15s, color .15s; }
     .ws-tab.active { background: linear-gradient(135deg,#5c3d10,#3d2808); color: var(--amber); box-shadow: var(--glow-amber); font-weight: 700; }
+    .advanced-section { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .advanced-toggle { padding: 8px 11px; cursor: pointer; font-size: 0.78rem; color: var(--muted); list-style: none; user-select: none; }
+    .advanced-toggle::-webkit-details-marker { display: none; }
+    .advanced-toggle:hover { color: var(--text); }
+    .advanced-body { padding: 10px 11px; display: grid; gap: 10px; border-top: 1px solid var(--border); background: rgba(0,0,0,0.15); }
+    .api-key-field { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
     .btn-primary {
       min-height: 40px; border-radius: 8px; border: 1px solid var(--amber-dim); padding: 9px 14px;
       font-family: 'MedievalSharp',serif; font-size: 0.9rem; letter-spacing: 0.06em;
       color: var(--ink); background: linear-gradient(135deg,#e8a832,#c47d18);
-      box-shadow: var(--glow-amber); transition: filter .15s;
+      box-shadow: var(--glow-amber); transition: filter .15s, opacity .15s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
     }
-    .btn-primary:hover { filter: brightness(1.12); }
+    .btn-primary:hover:not(:disabled) { filter: brightness(1.12); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; filter: none; }
+    .key-hint { font-family: 'Share Tech Mono',monospace; font-size: 0.65rem; opacity: 0.6; font-weight: 400; letter-spacing: 0; }
     .btn-ghost, .btn-danger {
       min-height: 34px; border-radius: 7px; border: 1px solid var(--border); padding: 6px 11px;
       color: var(--text); background: var(--stone-2); font-size: 0.78rem; transition: border-color .15s;
@@ -141,6 +151,11 @@
     .btn-ghost:hover { border-color: var(--border-light); }
     .btn-danger { color: #ffcaca; border-color: rgba(217,96,96,0.4); }
     .btn-danger:hover { border-color: var(--rose); }
+    /* First-run guidance */
+    .first-run-guide { padding: 18px 14px; border: 1px dashed rgba(244,185,66,0.3); border-radius: 8px; background: rgba(244,185,66,0.04); }
+    .first-run-guide h3 { font-family: 'MedievalSharp',serif; font-size: 0.82rem; color: var(--amber); margin-bottom: 8px; }
+    .first-run-guide ol { padding-left: 18px; margin: 0; display: grid; gap: 5px; }
+    .first-run-guide li { font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
 
     /* Tavern center */
     .tavern-center { display: grid; gap: 16px; min-width: 0; }
@@ -255,6 +270,31 @@
     .error { color: #ffc4c4; font-size: 0.8rem; min-height: 18px; }
     .hidden { display: none !important; }
 
+    /* Stream health indicator */
+    .stream-health {
+      display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+      border-radius: 7px; border: 1px solid var(--border); background: #0f0d0b;
+      font-size: 0.75rem; transition: border-color .2s, background .2s;
+    }
+    .stream-health.healthy  { border-color: rgba(126,200,138,0.35); background: rgba(126,200,138,0.06); }
+    .stream-health.degraded { border-color: rgba(244,185,66,0.5);   background: rgba(244,185,66,0.08); }
+    .stream-health-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      background: var(--muted);
+    }
+    .stream-health.healthy  .stream-health-dot { background: var(--green); }
+    .stream-health.degraded .stream-health-dot { background: var(--amber); animation: glow-dot 1.4s ease-in-out infinite; }
+    .stream-health-label { flex: 1; color: var(--muted); }
+    .stream-health.healthy  .stream-health-label { color: var(--green); }
+    .stream-health.degraded .stream-health-label { color: var(--amber); }
+    .btn-resync {
+      min-height: 26px; padding: 3px 10px; border-radius: 5px;
+      border: 1px solid rgba(244,185,66,0.5); background: rgba(244,185,66,0.1);
+      color: var(--amber); font-size: 0.72rem; letter-spacing: 0.03em;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn-resync:hover { background: rgba(244,185,66,0.2); }
+
     /* Operator Studio */
     .operator-studio { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; padding: 0 clamp(14px,2.5vw,28px) clamp(14px,2.5vw,28px); }
     .studio-panel { background: linear-gradient(160deg,#1e1b16 0%,#161310 100%); border: 1px solid var(--border); border-radius: 10px; padding: 13px; box-shadow: 0 8px 28px rgba(0,0,0,0.5); }
@@ -334,26 +374,41 @@
     <!-- Quest Board -->
     <section class="panel" aria-labelledby="intake-title">
       <div class="panel-header">
-        <h2 id="intake-title" class="panel-title">&#x1F4CB; Quest Board</h2>
+        <h2 id="intake-title" class="panel-title">&#x1F4CB; New Quest</h2>
       </div>
       <div class="intake">
-        <div class="workspace-tabs" aria-label="Workspace">
-          <button id="workspace-personal" class="ws-tab active" type="button" onclick="setWorkspace('personal')">&#x1F3E0; Personal</button>
-          <button id="workspace-work" class="ws-tab" type="button" onclick="setWorkspace('work')">&#x2694;&#xFE0F; Work</button>
+        <div class="field">
+          <label for="prompt-input">What should your coworker do?</label>
+          <textarea id="prompt-input" rows="5" placeholder="Describe the task: what to build, fix, or investigate. The more detail, the better.&#10;&#10;Example: Add a /ping endpoint to backend/main.py that returns {&quot;ok&quot;: true}."></textarea>
         </div>
         <div class="field">
-          <label for="title-input">Quest Title</label>
-          <input id="title-input" type="text" placeholder="Slay the onboarding bug&#x2026;" autocomplete="off" />
+          <label for="title-input">Quest name <span class="field-hint">(optional — auto-filled from your brief)</span></label>
+          <input id="title-input" type="text" placeholder="Leave blank to auto-name from brief" autocomplete="off" />
         </div>
-        <div class="field">
-          <label for="prompt-input">Mission Brief</label>
-          <textarea id="prompt-input" rows="6" placeholder="Describe the outcome, constraints, and acceptance criteria&#x2026;"></textarea>
-        </div>
-        <div class="field">
-          <label for="repo-input">Repository (owner/repo)</label>
-          <input id="repo-input" type="text" placeholder="owner/repo" autocomplete="off" />
-        </div>
-        <button class="btn-primary" type="button" onclick="createTask()">&#x2694;&#xFE0F; Dispatch Party</button>
+        <details id="advanced-section" class="advanced-section">
+          <summary class="advanced-toggle">&#x2699;&#xFE0F; Advanced options</summary>
+          <div class="advanced-body">
+            <div class="field">
+              <label for="repo-input">Repository <span class="field-hint">(optional — owner/repo)</span></label>
+              <input id="repo-input" type="text" placeholder="owner/repo" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label>Workspace</label>
+              <div class="workspace-tabs" aria-label="Workspace">
+                <button id="workspace-personal" class="ws-tab active" type="button" onclick="setWorkspace('personal')">&#x1F3E0; Personal</button>
+                <button id="workspace-work" class="ws-tab" type="button" onclick="setWorkspace('work')">&#x2694;&#xFE0F; Work</button>
+              </div>
+            </div>
+            <div class="field" id="api-key-row">
+              <label for="api-key-input">API Key <span class="field-hint">(if required by your server)</span></label>
+              <div class="api-key-field">
+                <input id="api-key-input" type="password" placeholder="Paste your API key here" autocomplete="off" />
+                <button class="btn-ghost" type="button" onclick="saveApiKey()">Save</button>
+              </div>
+            </div>
+          </div>
+        </details>
+        <button id="dispatch-btn" class="btn-primary" type="button" onclick="createTask()">&#x2694;&#xFE0F; Send to Coworker <span class="key-hint">Ctrl+Enter</span></button>
         <p id="form-error" class="error hidden"></p>
       </div>
     </section>
@@ -581,6 +636,11 @@
             <span id="stream-label">Stream closed</span>
           </p>
         </div>
+        <div id="stream-health-bar" class="stream-health hidden" role="status" aria-live="polite">
+          <span class="stream-health-dot" aria-hidden="true"></span>
+          <span id="stream-health-label" class="stream-health-label">Stream healthy</span>
+          <button id="btn-resync" class="btn-resync hidden" type="button" onclick="resyncStream()">&#x21BB; Resync</button>
+        </div>
         <div class="artifact-list" id="artifact-list"></div>
         <div id="log-panel" class="log-box" aria-live="polite"></div>
       </div>
@@ -631,7 +691,10 @@
 
   const API = '/api';
   const terminalStatuses = new Set(['done','failed','cancelled']);
+  const DISPATCH_BTN_HTML = '\u2694\uFE0F Send to Coworker <span class="key-hint">Ctrl+Enter</span>';
+  const TITLE_MAX_LEN = 72;
   let tasks = [], logsByTask = {}, activeStreams = {}, budgetCap = null, selectedTaskId = null, workspace = 'personal';
+  let streamHealthByTask = {};  // 'healthy' | 'degraded' | null
 
   // State-driven visuals — track live tool and stream health per task
   const activeToolByTask = {};      // taskId -> current tool name (cleared on tool_done)
@@ -765,7 +828,18 @@
 
   function renderTasks() {
     const list = document.getElementById('task-list');
-    if (!tasks.length) { list.innerHTML = '<div class="empty">No quests posted yet&#x2026;</div>'; updateMetrics(); renderSelectedTask(); return; }
+    if (!tasks.length) {
+      list.innerHTML = '<div class="first-run-guide">'
+        + '<h3>&#x1F31F; Getting Started</h3>'
+        + '<ol>'
+        + '<li>Type what you want your coworker to do in the <strong>What should your coworker do?</strong> box on the left.</li>'
+        + '<li>Optionally give the task a short name. If you skip it, one will be generated.</li>'
+        + '<li>Click <strong>Send to Coworker</strong> (or press Ctrl+Enter).</li>'
+        + '<li>Watch live progress appear here — click any task to see its log.</li>'
+        + '</ol>'
+        + '</div>';
+      updateMetrics(); renderSelectedTask(); return;
+    }
     list.innerHTML = tasks.map(renderTaskCard).join('');
     updateMetrics(); renderSelectedTask();
   }
@@ -804,6 +878,9 @@
     const idEl     = document.getElementById('selected-id');
     const logsEl   = document.getElementById('log-panel');
     const artEl    = document.getElementById('artifact-list');
+    const healthBar = document.getElementById('stream-health-bar');
+    const healthLabel = document.getElementById('stream-health-label');
+    const resyncBtn = document.getElementById('btn-resync');
     if (!task) {
       statusEl.className = 'status status-pending'; statusEl.textContent = 'None';
       titleEl.textContent = 'No quest selected'; idEl.textContent = 'Select a quest from the board.';
@@ -845,25 +922,68 @@
     if (selectedTaskId === id) renderSelectedTask();
   }
 
+  function saveApiKey() {
+    const input = document.getElementById('api-key-input');
+    const k = input.value.trim();
+    if (k) {
+      localStorage.setItem('api_key', k);
+      input.value = '';
+      input.placeholder = '\u2714 Key saved — ready to use';
+    }
+  }
+
+  function _autoTitle(promptText) {
+    const first = promptText.split('\n')[0].trim();
+    return first.length > TITLE_MAX_LEN ? first.slice(0, TITLE_MAX_LEN - 1) + '\u2026' : first;
+  }
+
+  function _friendlyError(detail, statusCode) {
+    if (!detail) {
+      if (statusCode === 401) return 'API key required \u2014 open Advanced options below and paste your key.';
+      if (statusCode === 413) return 'Your brief is too long. Please shorten it and try again.';
+      if (statusCode === 409) return 'A task is already running. Wait for it to finish, then try again.';
+      if (statusCode === 429) return 'Too many tasks started too quickly \u2014 wait a moment and try again.';
+      return 'Something went wrong (HTTP ' + statusCode + '). Please try again.';
+    }
+    return detail;
+  }
+
   async function createTask() {
-    const title = document.getElementById('title-input').value.trim();
     const promptText = document.getElementById('prompt-input').value.trim();
+    const titleInput = document.getElementById('title-input').value.trim();
     const repo = document.getElementById('repo-input').value.trim() || null;
     const errEl = document.getElementById('form-error');
+    const btn   = document.getElementById('dispatch-btn');
     errEl.classList.add('hidden');
-    if (!title || !promptText) { errEl.textContent = 'Quest title and mission are required.'; errEl.classList.remove('hidden'); return; }
-    if (promptText.length > 8000) { errEl.textContent = 'Mission must be 8000 characters or fewer.'; errEl.classList.remove('hidden'); return; }
-    if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) { errEl.textContent = 'Repository must be owner/repo format.'; errEl.classList.remove('hidden'); return; }
+    if (!promptText) { errEl.textContent = 'Please describe what your coworker should do.'; errEl.classList.remove('hidden'); document.getElementById('prompt-input').focus(); return; }
+    if (promptText.length > 8000) { errEl.textContent = 'Brief is too long \u2014 please shorten it to 8000 characters or fewer.'; errEl.classList.remove('hidden'); return; }
+    if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) { errEl.textContent = 'Repository must be in owner/repo format (e.g. acme/my-repo).'; errEl.classList.remove('hidden'); return; }
+    const title = titleInput || _autoTitle(promptText);
+    btn.disabled = true;
+    btn.textContent = '\u23F3 Sending\u2026';
     try {
       const res = await fetch(API + '/tasks', {method:'POST', headers:readHeaders(true), body:JSON.stringify({title, prompt:promptText, repo_url:repo, workspace})});
-      if (res.status === 401) { const k = window.prompt('API key required:'); if (k) localStorage.setItem('api_key', k); return; }
-      if (!res.ok) { const b = await res.json().catch(() => ({})); errEl.textContent = 'Error: ' + (b.detail || res.statusText); errEl.classList.remove('hidden'); return; }
+      if (res.status === 401) {
+        errEl.textContent = 'API key required \u2014 open Advanced options and enter your key, then try again.';
+        errEl.classList.remove('hidden');
+        document.getElementById('advanced-section').open = true;
+        document.getElementById('api-key-input').focus();
+        return;
+      }
+      if (!res.ok) { const b = await res.json().catch(() => ({})); errEl.textContent = _friendlyError(b.detail, res.status); errEl.classList.remove('hidden'); return; }
       const task = await res.json();
       document.getElementById('title-input').value = '';
       document.getElementById('prompt-input').value = '';
       document.getElementById('repo-input').value = '';
       mergeTask(task); subscribeSSE(task.id);
-    } catch (err) { errEl.textContent = 'Network error: ' + String(err); errEl.classList.remove('hidden'); }
+      document.getElementById('log-panel').scrollIntoView({behavior:'smooth', block:'nearest'});
+    } catch (err) {
+      errEl.textContent = 'Could not reach the server \u2014 check your connection and try again.';
+      errEl.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = DISPATCH_BTN_HTML;
+    }
   }
 
   async function cancelTask(id) {
@@ -875,14 +995,23 @@
   async function retryTask(id) {
     const res = await fetch(API + '/tasks/' + encodeURIComponent(id) + '/retry', {method:'POST', headers:readHeaders(false)});
     if (!res.ok) { addLog(id, 'Retry failed: ' + res.statusText, 'error'); return; }
-    const task = await res.json(); mergeTask(task); subscribeSSE(task.id);
+    const task = await res.json(); mergeTask(task); await subscribeSSE(task.id);
   }
 
-  function subscribeSSE(taskId) {
+  async function subscribeSSE(taskId) {
     if (activeStreams[taskId]) return;
     const k = localStorage.getItem('api_key');
-    const url = API + '/tasks/' + encodeURIComponent(taskId) + '/stream' + (k ? '?token=' + encodeURIComponent(k) : '');
-    const es = new EventSource(url);
+    let streamUrl = API + '/tasks/' + encodeURIComponent(taskId) + '/stream';
+    if (k) {
+      try {
+        const tr = await fetch(API + '/tasks/' + encodeURIComponent(taskId) + '/stream-token', {method:'POST', headers:readHeaders(false)});
+        if (tr.ok) {
+          const { token } = await tr.json();
+          streamUrl += '?token=' + encodeURIComponent(token);
+        }
+      } catch {}
+    }
+    const es = new EventSource(streamUrl);
     activeStreams[taskId] = es;
     // Initialise stream health entry on connect
     streamHealthByTask[taskId] = { lastHb: Date.now(), dropped: 0 };
@@ -918,6 +1047,7 @@
         if (type.startsWith('task_'))  addLog(taskId, type.replace('_',' '), type === 'task_failed' ? 'error' : 'info');
         const t = tasks.find(t => t.id === taskId);
         if (t && terminalStatuses.has(t.status)) {
+          delete streamHealthByTask[taskId];
           es.close(); delete activeStreams[taskId];
           delete activeToolByTask[taskId];
           if (selectedTaskId === taskId) _updateStreamStatusRow(t);
@@ -929,6 +1059,15 @@
       if (streamHealthByTask[taskId]) streamHealthByTask[taskId].lastHb = 0;
       if (selectedTaskId === taskId) _updateStreamStatusRow(tasks.find(t => t.id === taskId) || null);
     };
+  }
+
+  function resyncStream() {
+    const taskId = selectedTaskId;
+    if (!taskId) return;
+    if (activeStreams[taskId]) { activeStreams[taskId].close(); delete activeStreams[taskId]; }
+    streamHealthByTask[taskId] = { lastHb: Date.now(), dropped: 0 };
+    if (selectedTaskId === taskId) _updateStreamStatusRow(tasks.find(t => t.id === taskId) || null);
+    subscribeSSE(taskId);
   }
 
   async function loadSummary() {
@@ -948,7 +1087,7 @@
       tasks = d.tasks || [];
       budgetCap = d.max_task_usd == null ? budgetCap : d.max_task_usd;
       selectedTaskId = tasks[0] ? tasks[0].id : null;
-      for (const t of tasks) { if (['pending','running'].includes(t.status)) subscribeSSE(t.id); }
+      for (const t of tasks) { if (['pending','running'].includes(t.status)) await subscribeSSE(t.id); }
       document.getElementById('conn-status').textContent = tasks.length
         ? tasks.length + ' quest' + (tasks.length === 1 ? '' : 's') + ' on the board'
         : 'Tavern is open \u2014 no quests yet';
@@ -991,6 +1130,18 @@
   }
 
   function loadAll() { loadTasks(); loadSummary(); loadOperatorStudio(); }
+
+  // Ctrl+Enter to submit the form from anywhere on the page
+  document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); createTask(); }
+  });
+
+  // Pre-fill API key field if already saved
+  (function() {
+    const k = localStorage.getItem('api_key');
+    if (k) { const el = document.getElementById('api-key-input'); if (el) el.placeholder = '\u2714 Key saved (paste to update)'; }
+  })();
+
   loadAll();
 
   // Periodic stream health refresh (every 15 s) so stale indicators update without SSE

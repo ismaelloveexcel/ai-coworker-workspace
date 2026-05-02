@@ -1,4 +1,4 @@
-"""
+﻿"""
 Tests for PR-C3: state-driven visuals.
 
 Validates:
@@ -14,10 +14,14 @@ from unittest.mock import patch, AsyncMock
 
 from httpx import AsyncClient, ASGITransport
 
+from backend import config
+
 
 @pytest.fixture
-async def client():
+async def client(monkeypatch):
     from backend.main import _reset_task_create_rate_limiter, _running, app
+    monkeypatch.setattr(config.settings, "api_key", "")
+    monkeypatch.setattr(config.settings, "insecure_local_auth", True)
     _reset_task_create_rate_limiter()
     _running.clear()
     async with AsyncClient(
@@ -84,7 +88,7 @@ class TestToolAgentMapping:
         assert tool_to_agent("cost_status") == "supervisor"
 
     def test_all_mapped_tools_have_deterministic_agent(self):
-        """Every tool in the map has exactly one agent — no ambiguity."""
+        """Every tool in the map has exactly one agent â€” no ambiguity."""
         for tool, agent in TOOL_AGENT_MAP.items():
             assert agent in {"builder", "tester", "handoff"}, (
                 f"{tool!r} maps to unexpected agent {agent!r}"
@@ -100,7 +104,7 @@ class TestHardCodedStateCheck:
 
     def test_agent_supervisor_initial_state_is_idle(self):
         import pathlib, re
-        html = pathlib.Path("frontend/index.html").read_text()
+        html = pathlib.Path("frontend/index.html").read_text(encoding="utf-8")
         # The agent-supervisor element must start in 'idle', not 'active'
         match = re.search(r'id="agent-supervisor"', html)
         assert match, "agent-supervisor element not found"
@@ -130,7 +134,7 @@ class TestHardCodedStateCheck:
 class TestAccessibility:
     def test_agent_chars_have_aria_labels(self):
         import pathlib
-        html = pathlib.Path("frontend/index.html").read_text()
+        html = pathlib.Path("frontend/index.html").read_text(encoding="utf-8")
         for agent_id in ["agent-supervisor", "agent-builder", "agent-tester", "agent-handoff"]:
             # Find the element and check aria-label
             import re
@@ -143,7 +147,7 @@ class TestAccessibility:
 
     def test_prefers_reduced_motion_css_present(self):
         import pathlib
-        html = pathlib.Path("frontend/index.html").read_text()
+        html = pathlib.Path("frontend/index.html").read_text(encoding="utf-8")
         assert "prefers-reduced-motion" in html, (
             "HTML must include @media (prefers-reduced-motion) CSS rule"
         )
@@ -154,7 +158,7 @@ class TestAccessibility:
     def test_budget_bar_has_aria_role_meter(self):
         """renderBudgetBar() produces role=meter markup."""
         import pathlib
-        html = pathlib.Path("frontend/index.html").read_text()
+        html = pathlib.Path("frontend/index.html").read_text(encoding="utf-8")
         assert 'role="meter"' in html, (
             "Budget bar must use role='meter' for screen-reader accessibility"
         )
@@ -165,7 +169,7 @@ class TestAccessibility:
     def test_stream_status_has_aria_live(self):
         """Stream status row must use aria-live for dynamic updates."""
         import pathlib
-        html = pathlib.Path("frontend/index.html").read_text()
+        html = pathlib.Path("frontend/index.html").read_text(encoding="utf-8")
         assert 'stream-status-row' in html, "stream-status-row element must exist"
         assert 'aria-live="polite"' in html, (
             "Stream status row must use aria-live='polite' for accessibility"
@@ -191,7 +195,7 @@ async def test_task_list_includes_usd_spent_field(client):
 
 @pytest.mark.asyncio
 async def test_task_list_includes_last_tool_field(client):
-    """GET /tasks must return last_tool so the UI can map tool→agent."""
+    """GET /tasks must return last_tool so the UI can map toolâ†’agent."""
     from backend import db
     task = await db.create_task("tool test", "prompt")
     await db.update_task(task["id"], last_tool="run_tests")
@@ -267,7 +271,7 @@ async def test_heartbeat_emitted_as_keepalive(client):
 
     # The SSE generator yields heartbeats when no events arrive for 25 s.
     # We validate the backend emits the raw string format as expected by the
-    # event generator — not a full integration test (that would block for 25 s).
+    # event generator â€” not a full integration test (that would block for 25 s).
     # Here we just confirm the SSE endpoint accepts running tasks and the
     # generator function exists with the correct heartbeat line.
     import inspect
@@ -277,3 +281,4 @@ async def test_heartbeat_emitted_as_keepalive(client):
     assert "event: heartbeat" in src, "heartbeat must use SSE event: prefix"
 
     destroy_bus(task_id)
+
