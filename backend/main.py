@@ -30,7 +30,7 @@ from backend import db
 from backend.agents.registry import list_agents
 from backend.agent_loop import _running, run_task
 from backend.config import settings
-from backend.events import get_bus
+from backend.events import subscribe, unsubscribe
 from backend.notifier import notify_task_failure
 from backend.recipes import list_recipes, normalize_workspace
 from backend.supervisor import plan_task
@@ -603,27 +603,30 @@ async def stream_task(task_id: str, request: Request):
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    bus = get_bus(task_id)
+    queue = subscribe(task_id)
 
     async def event_generator():
-        while True:
-            # Check if client disconnected before each poll (F30)
-            if await request.is_disconnected():
-                log.info("sse_disconnect", task_id=task_id)
-                break
+        try:
+            while True:
+                # Check if client disconnected before each poll (F30)
+                if await request.is_disconnected():
+                    log.info("sse_disconnect", task_id=task_id)
+                    break
 
-            try:
-                event = await asyncio.wait_for(bus.get(), timeout=25.0)
-            except asyncio.TimeoutError:
-                yield "event: heartbeat\ndata: {}\n\n"
-                continue
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=25.0)
+                except asyncio.TimeoutError:
+                    yield "event: heartbeat\ndata: {}\n\n"
+                    continue
 
-            import json
-            yield f"event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
+                import json
+                yield f"event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
 
-            # Terminal events — close stream
-            if event["type"] in ("task_done", "task_failed", "task_cancelled"):
-                break
+                # Terminal events — close stream
+                if event["type"] in ("task_done", "task_failed", "task_cancelled"):
+                    break
+        finally:
+            unsubscribe(task_id, queue)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
