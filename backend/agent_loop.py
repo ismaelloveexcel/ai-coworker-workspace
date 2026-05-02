@@ -140,12 +140,12 @@ async def run_task(task_id: str) -> None:
             # --- Preflight budget guard --------------------------------------
             # Estimate cost before calling the model to prevent avoidable
             # single-call budget overshoots (PR-B7).
-            _est_input = estimate_input_tokens(messages, system_tokens=SYSTEM_PROMPT_TOKENS)
+            estimated_input = estimate_input_tokens(messages, system_tokens=SYSTEM_PROMPT_TOKENS)
             try:
                 await preflight_check(
                     task_id,
                     settings.model,
-                    _est_input,
+                    estimated_input,
                     MAX_TOKENS,  # worst-case output
                 )
             except BudgetPreflightError as e:
