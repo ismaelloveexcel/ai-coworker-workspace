@@ -13,10 +13,14 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 from unittest.mock import patch, AsyncMock
 
+from backend import config
+
 
 @pytest.fixture
-async def client():
+async def client(monkeypatch):
     from backend.main import _reset_task_create_rate_limiter, _running, app
+    monkeypatch.setattr(config.settings, "api_key", "")
+    monkeypatch.setattr(config.settings, "insecure_local_auth", True)
     _reset_task_create_rate_limiter()
     _running.clear()
     async with AsyncClient(
