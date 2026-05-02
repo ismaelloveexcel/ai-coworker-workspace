@@ -42,6 +42,21 @@ _tool_executor   = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_n
 _running: Dict[str, asyncio.Task] = {}
 
 
+async def _heartbeat_worker(task_id: str, interval: int) -> None:
+    """Periodically touch heartbeat while a task step is actively running.
+
+    Prevents the zombie reaper from falsely marking a long-running but valid
+    step (e.g. a slow Claude call or long-running tool) as a zombie.
+    Swallows CancelledError so cancellation is always clean.
+    """
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            await db.touch_heartbeat(task_id)
+    except asyncio.CancelledError:
+        pass  # Graceful shutdown — caller awaits the task after cancel()
+
+
 def _human_error(error: str) -> str:
     translated = humanize_error(error)
     if translated.get("success"):
@@ -88,6 +103,11 @@ async def run_task(task_id: str) -> None:
     await db.update_task(task_id, status="running", current_step=0)
     await db.touch_heartbeat(task_id)   # prevent false-positive zombie reap during branch creation
     await emit_log(task_id, "info", "Agent starting")
+
+    _hb_task = asyncio.create_task(
+        _heartbeat_worker(task_id, settings.heartbeat_interval_seconds),
+        name=f"heartbeat-{task_id}",
+    )
 
     try:
         task = await db.get_task(task_id)
@@ -383,6 +403,8 @@ async def run_task(task_id: str) -> None:
             pass
         await notify_task_failure(task_id, _repo, err)
     finally:
+        _hb_task.cancel()
+        await asyncio.gather(_hb_task, return_exceptions=True)
         _running.pop(task_id, None)
         await asyncio.sleep(5)   # brief grace period for SSE consumers to drain
         destroy_bus(task_id)
