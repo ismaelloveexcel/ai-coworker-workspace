@@ -881,14 +881,23 @@
   async function retryTask(id) {
     const res = await fetch(API + '/tasks/' + encodeURIComponent(id) + '/retry', {method:'POST', headers:readHeaders(false)});
     if (!res.ok) { addLog(id, 'Retry failed: ' + res.statusText, 'error'); return; }
-    const task = await res.json(); mergeTask(task); subscribeSSE(task.id);
+    const task = await res.json(); mergeTask(task); await subscribeSSE(task.id);
   }
 
-  function subscribeSSE(taskId) {
+  async function subscribeSSE(taskId) {
     if (activeStreams[taskId]) return;
     const k = localStorage.getItem('api_key');
-    const url = API + '/tasks/' + encodeURIComponent(taskId) + '/stream' + (k ? '?token=' + encodeURIComponent(k) : '');
-    const es = new EventSource(url);
+    let streamUrl = API + '/tasks/' + encodeURIComponent(taskId) + '/stream';
+    if (k) {
+      try {
+        const tr = await fetch(API + '/tasks/' + encodeURIComponent(taskId) + '/stream-token', {method:'POST', headers:readHeaders(false)});
+        if (tr.ok) {
+          const { token } = await tr.json();
+          streamUrl += '?token=' + encodeURIComponent(token);
+        }
+      } catch {}
+    }
+    const es = new EventSource(streamUrl);
     activeStreams[taskId] = es;
     streamHealthByTask[taskId] = 'healthy';
     if (selectedTaskId === taskId) renderSelectedTask();
@@ -944,7 +953,7 @@
       tasks = d.tasks || [];
       budgetCap = d.max_task_usd == null ? budgetCap : d.max_task_usd;
       selectedTaskId = tasks[0] ? tasks[0].id : null;
-      for (const t of tasks) { if (['pending','running'].includes(t.status)) subscribeSSE(t.id); }
+      for (const t of tasks) { if (['pending','running'].includes(t.status)) await subscribeSSE(t.id); }
       document.getElementById('conn-status').textContent = tasks.length
         ? tasks.length + ' quest' + (tasks.length === 1 ? '' : 's') + ' on the board'
         : 'Tavern is open \u2014 no quests yet';

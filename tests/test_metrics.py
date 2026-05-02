@@ -13,7 +13,7 @@ Verifies:
 import pytest
 from datetime import datetime, timedelta, timezone
 
-from backend import db
+from backend import db, config
 
 
 # ---------------------------------------------------------------------------
@@ -227,9 +227,11 @@ async def test_metrics_window_isolation():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_metrics_endpoint_returns_expected_shape():
+async def test_metrics_endpoint_returns_expected_shape(monkeypatch):
     from httpx import AsyncClient, ASGITransport
     from backend.main import app, _reset_task_create_rate_limiter, _running
+    monkeypatch.setattr(config.settings, "api_key", "")
+    monkeypatch.setattr(config.settings, "insecure_local_auth", True)
     _reset_task_create_rate_limiter()
     _running.clear()
 
@@ -253,9 +255,11 @@ async def test_metrics_endpoint_returns_expected_shape():
 
 
 @pytest.mark.asyncio
-async def test_metrics_endpoint_custom_window():
+async def test_metrics_endpoint_custom_window(monkeypatch):
     from httpx import AsyncClient, ASGITransport
     from backend.main import app, _reset_task_create_rate_limiter, _running
+    monkeypatch.setattr(config.settings, "api_key", "")
+    monkeypatch.setattr(config.settings, "insecure_local_auth", True)
     _reset_task_create_rate_limiter()
     _running.clear()
 
@@ -268,9 +272,11 @@ async def test_metrics_endpoint_custom_window():
 
 
 @pytest.mark.asyncio
-async def test_metrics_endpoint_rejects_invalid_window():
+async def test_metrics_endpoint_rejects_invalid_window(monkeypatch):
     from httpx import AsyncClient, ASGITransport
     from backend.main import app, _reset_task_create_rate_limiter, _running
+    monkeypatch.setattr(config.settings, "api_key", "")
+    monkeypatch.setattr(config.settings, "insecure_local_auth", True)
     _reset_task_create_rate_limiter()
     _running.clear()
 
