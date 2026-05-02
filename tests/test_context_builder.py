@@ -26,7 +26,7 @@ def _make_task(task_id="t1", title="Test task", prompt="Do something"):
         "id": task_id,
         "title": title,
         "prompt": prompt,
-        "status": "in_progress",
+        "status": "running",
         "repo_url": "https://github.com/owner/repo",
     }
 
