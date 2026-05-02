@@ -407,6 +407,22 @@
     </main>
   </div>
 
+  <!-- Operator Studio panels — artifact/recipe/run previews -->
+  <div id="operator-studio" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:0 20px 20px">
+    <section class="panel" style="padding:14px">
+      <div class="panel-header" style="padding:0 0 8px"><h2 style="font-size:0.9rem">Artifact Studio</h2><span id="artifact-count" class="subtle">0</span></div>
+      <div id="artifact-preview" class="subtle" style="font-size:0.78rem"><p>No artifacts loaded yet.</p></div>
+    </section>
+    <section class="panel" style="padding:14px">
+      <div class="panel-header" style="padding:0 0 8px"><h2 style="font-size:0.9rem">Recipe Library</h2><span id="recipe-count" class="subtle">0</span></div>
+      <div id="recipe-preview" class="subtle" style="font-size:0.78rem"><p>No recipes loaded yet.</p></div>
+    </section>
+    <section class="panel" style="padding:14px">
+      <div class="panel-header" style="padding:0 0 8px"><h2 style="font-size:0.9rem">Run History</h2><span id="run-count" class="subtle">0</span></div>
+      <div id="run-preview" class="subtle" style="font-size:0.78rem"><p>No runs loaded yet.</p></div>
+    </section>
+  </div>
+
   <script>
     function escHtml(value) {
       if (value == null) return '';
@@ -694,9 +710,53 @@
       }
     }
 
+    function renderPreviewRows(items, emptyText, renderRow) {
+      if (!items || !items.length) return '<p>' + escHtml(emptyText) + '</p>';
+      return items.slice(0, 3).map(renderRow).join('');
+    }
+
+    async function loadOperatorStudio() {
+      try {
+        const headers = readHeaders(false);
+        const [artifactResponse, recipeResponse, runResponse] = await Promise.all([
+          fetch(API + '/operator/artifacts?limit=5', { headers }),
+          fetch(API + '/operator/recipes', { headers }),
+          fetch(API + '/operator/run-history?limit=5', { headers })
+        ]);
+        if (artifactResponse.ok) {
+          const data = await artifactResponse.json();
+          document.getElementById('artifact-count').textContent = String(data.count || 0);
+          document.getElementById('artifact-preview').innerHTML = renderPreviewRows(
+            data.artifacts || [],
+            'No task-backed artifacts yet.',
+            item => '<p><span>' + escHtml(item.artifact_type) + '</span> ' + escHtml(item.title) + '</p>'
+          );
+        }
+        if (recipeResponse.ok) {
+          const data = await recipeResponse.json();
+          document.getElementById('recipe-count').textContent = String(data.count || 0);
+          document.getElementById('recipe-preview').innerHTML = renderPreviewRows(
+            data.recipes || [],
+            'No recipes available.',
+            item => '<p><span>' + escHtml(item.name) + '</span> ' + escHtml(item.category) + '</p>'
+          );
+        }
+        if (runResponse.ok) {
+          const data = await runResponse.json();
+          document.getElementById('run-count').textContent = String(data.count || 0);
+          document.getElementById('run-preview').innerHTML = renderPreviewRows(
+            data.runs || [],
+            'No recent runs yet.',
+            item => '<p><span class="' + escHtml('status-' + item.status) + '">' + escHtml(item.status) + '</span> ' + escHtml(item.title) + '</p>'
+          );
+        }
+      } catch { /* non-fatal */ }
+    }
+
     function loadAll() {
       loadTasks();
       loadSummary();
+      loadOperatorStudio();
     }
 
     loadAll();
