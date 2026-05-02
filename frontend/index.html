@@ -4,357 +4,702 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Coworker</title>
-  <!--
-    Tailwind via the Play CDN.
-
-    NOTE on SRI: cdn.tailwindcss.com generates the JS bundle dynamically per
-    request (it inspects the page and emits only the utility classes in use),
-    so the response bytes are not stable and a Subresource Integrity hash
-    cannot be pinned. A static `integrity` attribute on this URL would fail
-    verification and the browser would refuse to execute the script — which
-    is exactly what was breaking the app on first load.
-
-    The script is loaded over HTTPS and pinned to the 3.4.1 path; for a
-    stronger supply-chain guarantee, switch to a precompiled, content-stable
-    Tailwind build (e.g. tailwindcss.css from cdnjs/jsdelivr at a fixed
-    version) and reintroduce SRI there.
-  -->
-  <script src="https://cdn.tailwindcss.com/3.4.1"
-          crossorigin="anonymous"></script>
   <style>
-    body { background: #0f172a; color: #e2e8f0; }
-    .status-pending  { color: #94a3b8; }
-    .status-running  { color: #60a5fa; }
-    .status-done     { color: #4ade80; }
-    .status-failed   { color: #f87171; }
-    .status-cancelled{ color: #fb923c; }
-    #log-panel { font-family: monospace; font-size: 0.75rem; background: #0f172a; }
+    :root {
+      --bg: #101114;
+      --panel: #181a1f;
+      --panel-2: #202329;
+      --line: #333842;
+      --text: #f4f1ea;
+      --muted: #a9adb7;
+      --teal: #4fd1c5;
+      --amber: #f6c453;
+      --rose: #f08484;
+      --green: #77d68d;
+      --ink: #0d0f12;
+      --shadow: 0 18px 45px rgba(0, 0, 0, 0.32);
+    }
+
+    * { box-sizing: border-box; }
+    html { color-scheme: dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button, input, textarea { font: inherit; letter-spacing: 0; }
+    button { cursor: pointer; }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 18px clamp(16px, 3vw, 34px);
+      border-bottom: 1px solid var(--line);
+      background: rgba(16, 17, 20, 0.94);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      backdrop-filter: blur(12px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 8px;
+      color: var(--teal);
+      font-weight: 800;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: clamp(1.1rem, 2.4vw, 1.65rem); line-height: 1.15; }
+    h2 { font-size: 0.92rem; color: var(--text); }
+    h3 { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .metric {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+
+    .metric strong { color: var(--text); font-weight: 700; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) minmax(260px, 340px);
+      gap: 16px;
+      padding: clamp(16px, 3vw, 34px);
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 14px 14px 0;
+    }
+
+    .intake { padding: 14px; display: grid; gap: 12px; }
+    .field { display: grid; gap: 6px; }
+    .field label { color: var(--muted); font-size: 0.74rem; font-weight: 700; text-transform: uppercase; }
+
+    input, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #111318;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 10px 11px;
+      outline: none;
+    }
+
+    textarea { resize: vertical; min-height: 132px; }
+    input:focus, textarea:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(79, 209, 197, 0.12); }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #111318;
+    }
+
+    .segment {
+      min-height: 34px;
+      border: 0;
+      border-radius: 6px;
+      color: var(--muted);
+      background: transparent;
+    }
+
+    .segment.active { color: var(--ink); background: var(--teal); font-weight: 800; }
+
+    .primary, .ghost, .danger {
+      min-height: 38px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      padding: 8px 12px;
+      color: var(--text);
+      background: var(--panel-2);
+      font-weight: 700;
+    }
+
+    .primary { background: var(--teal); color: var(--ink); border-color: var(--teal); }
+    .danger { color: #ffdede; border-color: rgba(240, 132, 132, 0.45); }
+    .ghost:hover, .danger:hover { border-color: var(--muted); }
+    .primary:hover { filter: brightness(1.05); }
+
+    .factory {
+      display: grid;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .factory-stage {
+      padding: 14px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .conveyor {
+      position: relative;
+      min-height: 154px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 10px;
+      align-items: stretch;
+      overflow: hidden;
+    }
+
+    .conveyor::before {
+      content: '';
+      position: absolute;
+      left: 7%;
+      right: 7%;
+      top: 50%;
+      height: 2px;
+      background: var(--line);
+      transform: translateY(-50%);
+    }
+
+    .agent-node {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 10px;
+      min-height: 154px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #15171c;
+    }
+
+    .agent-node.active { border-color: rgba(79, 209, 197, 0.7); }
+    .agent-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .node-dot { width: 10px; height: 10px; border-radius: 999px; background: var(--muted); }
+    .agent-node.active .node-dot { background: var(--teal); animation: pulse 1.4s ease-in-out infinite; }
+    .agent-node.warning .node-dot { background: var(--amber); }
+    .agent-node.done .node-dot { background: var(--green); }
+    .agent-role { color: var(--muted); font-size: 0.76rem; line-height: 1.4; }
+    .node-load { height: 6px; border-radius: 999px; overflow: hidden; background: #2b3038; }
+    .node-load span { display: block; height: 100%; width: 45%; background: var(--teal); animation: sweep 2.8s linear infinite; }
+
+    .queue { display: grid; gap: 10px; }
+    .task-card {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .task-card.selected { border-color: var(--teal); }
+    .task-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .task-title { color: var(--text); font-weight: 800; overflow-wrap: anywhere; }
+    .task-id, .subtle { color: var(--muted); font-size: 0.74rem; overflow-wrap: anywhere; }
+    .status { display: inline-flex; align-items: center; min-height: 26px; border-radius: 999px; padding: 4px 9px; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; }
+    .status-pending { background: #2c3038; color: #d3d7df; }
+    .status-running { background: rgba(79, 209, 197, 0.16); color: var(--teal); }
+    .status-done { background: rgba(119, 214, 141, 0.16); color: var(--green); }
+    .status-failed { background: rgba(240, 132, 132, 0.16); color: var(--rose); }
+    .status-cancelled { background: rgba(246, 196, 83, 0.18); color: var(--amber); }
+    .card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .empty { padding: 22px; color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; text-align: center; }
+
+    .details { display: grid; gap: 12px; padding: 14px; }
+    .log-box {
+      min-height: 260px;
+      max-height: 420px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      background: #0d0f12;
+      border-radius: 8px;
+      padding: 10px;
+      display: grid;
+      align-content: start;
+      gap: 6px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.76rem;
+    }
+
+    .log-line { color: var(--muted); overflow-wrap: anywhere; }
+    .log-error { color: var(--rose); }
+    .log-warning { color: var(--amber); }
+    .artifact-list { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .artifact-chip { border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; background: #15171c; color: var(--muted); font-size: 0.78rem; }
+
+    .error { color: #ffd4d4; font-size: 0.82rem; min-height: 20px; }
+    .hidden { display: none !important; }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(79, 209, 197, 0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(79, 209, 197, 0); }
+    }
+
+    @keyframes sweep {
+      0% { transform: translateX(-110%); }
+      100% { transform: translateX(230%); }
+    }
+
+    @media (max-width: 1120px) {
+      .layout { grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr); }
+      .right-rail { grid-column: 1 / -1; }
+    }
+
+    @media (max-width: 760px) {
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .top-actions { justify-content: flex-start; }
+      .layout { grid-template-columns: 1fr; padding: 14px; }
+      .conveyor { grid-template-columns: 1fr 1fr; }
+      .agent-node { min-height: 132px; }
+      .task-main { flex-direction: column; }
+    }
+
+    @media (max-width: 460px) {
+      .conveyor { grid-template-columns: 1fr; }
+      .metric { white-space: normal; }
+    }
   </style>
 </head>
-<body class="min-h-screen p-6">
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark" aria-hidden="true">AI</div>
+        <div>
+          <h1>AI Coworker Command Center</h1>
+          <p id="conn-status" class="subtle">Loading</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="metric"><span>Queue</span><strong id="metric-total">0</strong></div>
+        <div class="metric"><span>Active</span><strong id="metric-active">0</strong></div>
+        <div class="metric"><span>Week</span><strong id="metric-week">$0.0000</strong></div>
+        <button class="ghost" type="button" onclick="loadAll()">Refresh</button>
+      </div>
+    </header>
 
-<div class="max-w-5xl mx-auto space-y-6">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-bold text-white">AI Coworker</h1>
-    <div class="text-right">
-      <span id="conn-status" class="text-sm text-slate-400">—</span>
-      <p id="spend-summary" class="text-xs text-slate-500 mt-0.5 hidden"></p>
-    </div>
+    <main class="layout">
+      <section class="panel" aria-labelledby="intake-title">
+        <div class="panel-header">
+          <h2 id="intake-title">Task Intake</h2>
+        </div>
+        <div class="intake">
+          <div class="segmented" aria-label="Workspace">
+            <button id="workspace-personal" class="segment active" type="button" onclick="setWorkspace('personal')">Personal</button>
+            <button id="workspace-work" class="segment" type="button" onclick="setWorkspace('work')">Work</button>
+          </div>
+          <div class="field">
+            <label for="title-input">Title</label>
+            <input id="title-input" type="text" placeholder="Ship the onboarding fix" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="prompt-input">Prompt</label>
+            <textarea id="prompt-input" rows="6" placeholder="Describe the outcome, constraints, and checks."></textarea>
+          </div>
+          <div class="field">
+            <label for="repo-input">Repository</label>
+            <input id="repo-input" type="text" placeholder="owner/repo" autocomplete="off" />
+          </div>
+          <button class="primary" type="button" onclick="createTask()">Run Agent</button>
+          <p id="form-error" class="error hidden"></p>
+        </div>
+      </section>
+
+      <section class="factory">
+        <div class="panel factory-stage" aria-labelledby="factory-title">
+          <div class="panel-header" style="padding:0">
+            <h2 id="factory-title">Factory Line</h2>
+            <span id="factory-state" class="status status-pending">Idle</span>
+          </div>
+          <div class="conveyor" aria-label="Agent workflow">
+            <div class="agent-node active" data-stage="supervisor">
+              <div class="agent-top"><h3>Supervisor</h3><span class="node-dot"></span></div>
+              <p class="agent-role">Plan, route, guardrails</p>
+              <div class="node-load"><span></span></div>
+            </div>
+            <div class="agent-node" data-stage="builder">
+              <div class="agent-top"><h3>Builder</h3><span class="node-dot"></span></div>
+              <p class="agent-role">Branch, edit, commit</p>
+              <div class="node-load"><span></span></div>
+            </div>
+            <div class="agent-node warning" data-stage="tester">
+              <div class="agent-top"><h3>Tester</h3><span class="node-dot"></span></div>
+              <p class="agent-role">Compile, tests, audit</p>
+              <div class="node-load"><span></span></div>
+            </div>
+            <div class="agent-node done" data-stage="handoff">
+              <div class="agent-top"><h3>Handoff</h3><span class="node-dot"></span></div>
+              <p class="agent-role">PR, notes, recovery</p>
+              <div class="node-load"><span></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="queue" id="task-list"></div>
+      </section>
+
+      <aside class="panel right-rail" aria-labelledby="details-title">
+        <div class="panel-header">
+          <h2 id="details-title">Task Detail</h2>
+          <span id="selected-status" class="status status-pending">None</span>
+        </div>
+        <div class="details">
+          <div>
+            <p id="selected-title" class="task-title">No task selected</p>
+            <p id="selected-id" class="task-id">Select a task from the queue.</p>
+          </div>
+          <div class="artifact-list" id="artifact-list"></div>
+          <div id="log-panel" class="log-box" aria-live="polite"></div>
+        </div>
+      </aside>
+    </main>
   </div>
 
-  <!-- New task form -->
-  <div class="bg-slate-800 rounded-xl p-5 space-y-4">
-    <h2 class="font-semibold text-slate-200">New Task</h2>
-    <input id="title-input" type="text" placeholder="Task title"
-           class="w-full bg-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-400 border border-slate-600 focus:outline-none focus:border-blue-500" />
-    <textarea id="prompt-input" rows="4" placeholder="Describe what the agent should do..."
-              class="w-full bg-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-400 border border-slate-600 focus:outline-none focus:border-blue-500"></textarea>
-    <input id="repo-input" type="text" placeholder="owner/repo (optional — uses default if blank)"
-           class="w-full bg-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-400 border border-slate-600 focus:outline-none focus:border-blue-500" />
-    <button onclick="createTask()"
-            class="bg-blue-600 hover:bg-blue-500 text-white font-medium px-6 py-2 rounded-lg transition-colors">
-      Run Agent
-    </button>
-    <p id="form-error" class="text-red-400 text-sm hidden"></p>
-  </div>
-
-  <!-- Task list -->
-  <div id="task-list" class="space-y-3"></div>
-</div>
-
-<script>
-// ---------------------------------------------------------------------------
-// Security helpers — ALL dynamic content goes through these (F41/F42)
-// ---------------------------------------------------------------------------
-
-function escHtml(s) {
-  if (s == null) return '';
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-// Validate PR URL — only allow https://github.com/... to prevent javascript: hrefs (F42)
-function safePrUrl(url) {
-  if (!url) return null;
-  try {
-    const u = new URL(url);
-    if (u.protocol !== 'https:') return null;
-    if (!u.hostname.endsWith('github.com')) return null;
-    return u.href;
-  } catch { return null; }
-}
-
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-
-const API = '/api';   // proxied through nginx — no direct port exposure
-let tasks = [];
-let activeStreams = {};
-let budgetCap = null;
-
-// ---------------------------------------------------------------------------
-// Task creation
-// ---------------------------------------------------------------------------
-
-async function createTask() {
-  const title  = document.getElementById('title-input').value.trim();
-  const prompt = document.getElementById('prompt-input').value.trim();
-  const repo   = document.getElementById('repo-input').value.trim() || null;
-  const errEl  = document.getElementById('form-error');
-  errEl.classList.add('hidden');
-
-  if (!title || !prompt) {
-    errEl.textContent = 'Title and prompt are required.';
-    errEl.classList.remove('hidden');
-    return;
-  }
-  if (prompt.length > 8000) {
-    errEl.textContent = 'Prompt must be 8000 characters or less.';
-    errEl.classList.remove('hidden');
-    return;
-  }
-  if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
-    errEl.textContent = 'Repo must be in owner/repo format.';
-    errEl.classList.remove('hidden');
-    return;
-  }
-
-  const headers = { 'Content-Type': 'application/json' };
-  // NOTE (A15): localStorage survives browser close and is readable by JS on
-  // this origin. For networked deployments, prefer HttpOnly session cookies
-  // via a reverse proxy rather than storing the key here.
-  const apiKey = localStorage.getItem('api_key');
-  if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
-
-  try {
-    const r = await fetch(API + '/tasks', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ title, prompt, repo_url: repo })
-    });
-    if (r.status === 401) {
-      const key = prompt('API key required:');
-      if (key) { localStorage.setItem('api_key', key); }
-      return;
+  <script>
+    function escHtml(value) {
+      if (value == null) return '';
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
     }
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      errEl.textContent = 'Error: ' + escHtml(j.detail || r.statusText);
-      errEl.classList.remove('hidden');
-      return;
+
+    function safePrUrl(url) {
+      if (!url) return null;
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'https:') return null;
+        if (!parsed.hostname.endsWith('github.com')) return null;
+        return parsed.href;
+      } catch { return null; }
     }
-    const task = await r.json();
-    document.getElementById('title-input').value = '';
-    document.getElementById('prompt-input').value = '';
-    document.getElementById('repo-input').value = '';
-    prependTask(task);
-    subscribeSSE(task.id);
-  } catch (e) {
-    errEl.textContent = 'Network error: ' + escHtml(String(e));
-    errEl.classList.remove('hidden');
-  }
-}
 
-// ---------------------------------------------------------------------------
-// Task rendering — all escHtml, safePrUrl for links
-// ---------------------------------------------------------------------------
+    const API = '/api';
+    const terminalStatuses = new Set(['done', 'failed', 'cancelled']);
+    let tasks = [];
+    let logsByTask = {};
+    let activeStreams = {};
+    let budgetCap = null;
+    let selectedTaskId = null;
+    let workspace = 'personal';
 
-function renderTask(t) {
-  const prUrl = safePrUrl(t.pr_url);
-  const spent = Number(t.usd_spent || 0);
-  const budgetText = budgetCap == null
-    ? '$' + spent.toFixed(4)
-    : '$' + spent.toFixed(4) + ' / $' + Number(budgetCap).toFixed(2);
-  const errorLine = t.error
-    ? '<p class="text-xs text-red-300 mt-1">' + escHtml(t.error) + '</p>'
-    : '';
-  const prLink = prUrl
-    ? '<a href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer" ' +
-      'class="text-blue-400 hover:underline text-xs">View PR</a>'
-    : '';
+    function setWorkspace(next) {
+      workspace = next;
+      document.getElementById('workspace-personal').classList.toggle('active', workspace === 'personal');
+      document.getElementById('workspace-work').classList.toggle('active', workspace === 'work');
+    }
 
-  return '<div id="task-' + escHtml(t.id) + '" class="bg-slate-800 rounded-xl p-4 space-y-2">' +
-    '<div class="flex items-start justify-between gap-2">' +
-      '<div>' +
-        '<p class="font-medium text-white">' + escHtml(t.title) + '</p>' +
-        '<p class="text-xs text-slate-400 mt-0.5">' + escHtml(t.id) + '</p>' +
-        '<p class="text-xs text-slate-500 mt-0.5">Spend: ' + escHtml(budgetText) + '</p>' +
-        errorLine +
-      '</div>' +
-      '<div class="flex items-center gap-3 shrink-0">' +
-        prLink +
-        '<span class="status-' + escHtml(t.status) + ' text-sm font-medium">' + escHtml(t.status) + '</span>' +
-        (t.status === 'running' || t.status === 'pending'
-          ? '<button onclick="cancelTask(\'' + escHtml(t.id) + '\')" class="text-xs text-slate-400 hover:text-red-400">Cancel</button>'
-          : '') +
-        (t.status === 'failed' || t.status === 'cancelled'
-          ? '<button onclick="retryTask(\'' + escHtml(t.id) + '\')" class="text-xs text-slate-400 hover:text-blue-400">Retry</button>'
-          : '') +
-      '</div>' +
-    '</div>' +
-    '<div id="log-' + escHtml(t.id) + '" class="text-xs text-slate-400 space-y-0.5 max-h-48 overflow-y-auto" id-panel="log-panel"></div>' +
-  '</div>';
-}
+    function readHeaders(json) {
+      const headers = json ? { 'Content-Type': 'application/json' } : {};
+      const apiKey = localStorage.getItem('api_key');
+      if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
+      return headers;
+    }
 
-function prependTask(t) {
-  tasks.unshift(t);
-  const list = document.getElementById('task-list');
-  list.insertAdjacentHTML('afterbegin', renderTask(t));
-}
+    function statusClass(status) {
+      return 'status status-' + escHtml(status || 'pending');
+    }
 
-function updateTaskEl(taskId, updates) {
-  const el = document.getElementById('task-' + taskId);
-  if (!el) return;
-  const updated = tasks.find(t => t.id === taskId);
-  if (!updated) return;
-  Object.assign(updated, updates);
-  const tmp = document.createElement('div');
-  tmp.innerHTML = renderTask(updated);
-  el.replaceWith(tmp.firstElementChild);
-}
+    function updateMetrics() {
+      const active = tasks.filter(task => ['pending', 'running'].includes(task.status)).length;
+      document.getElementById('metric-total').textContent = String(tasks.length);
+      document.getElementById('metric-active').textContent = String(active);
+      document.getElementById('factory-state').textContent = active ? 'Running' : 'Idle';
+      document.getElementById('factory-state').className = active ? 'status status-running' : 'status status-pending';
+    }
 
-function appendLog(taskId, message, level) {
-  const el = document.getElementById('log-' + taskId);
-  if (!el) return;
-  const colours = { error: 'text-red-400', warning: 'text-yellow-400', info: 'text-slate-400' };
-  const colour = colours[level] || 'text-slate-400';
-  const line = document.createElement('p');
-  line.className = colour;
-  line.textContent = message;   // textContent — no XSS possible (F41)
-  el.appendChild(line);
-  el.scrollTop = el.scrollHeight;
-}
+    function renderTaskCard(task) {
+      const prUrl = safePrUrl(task.pr_url);
+      const spent = Number(task.usd_spent || 0);
+      const budgetText = budgetCap == null
+        ? '$' + spent.toFixed(4)
+        : '$' + spent.toFixed(4) + ' / $' + Number(budgetCap).toFixed(2);
+      const selected = task.id === selectedTaskId ? ' selected' : '';
+      const prLink = prUrl
+        ? '<a class="ghost" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">PR</a>'
+        : '';
+      const cancel = ['pending', 'running'].includes(task.status)
+        ? '<button class="danger" type="button" onclick="cancelTask(\'' + escHtml(task.id) + '\')">Cancel</button>'
+        : '';
+      const retry = ['failed', 'cancelled'].includes(task.status)
+        ? '<button class="ghost" type="button" onclick="retryTask(\'' + escHtml(task.id) + '\')">Retry</button>'
+        : '';
+      return '<article class="task-card' + selected + '" onclick="selectTask(\'' + escHtml(task.id) + '\')">' +
+        '<div class="task-main">' +
+          '<div>' +
+            '<p class="task-title">' + escHtml(task.title) + '</p>' +
+            '<p class="task-id">' + escHtml(task.id) + '</p>' +
+            '<p class="subtle">Spend ' + escHtml(budgetText) + '</p>' +
+          '</div>' +
+          '<span class="' + statusClass(task.status) + '">' + escHtml(task.status) + '</span>' +
+        '</div>' +
+        (task.error ? '<p class="log-line log-error">' + escHtml(task.error) + '</p>' : '') +
+        '<div class="card-actions">' + prLink + cancel + retry + '</div>' +
+      '</article>';
+    }
 
-// ---------------------------------------------------------------------------
-// SSE subscription
-// ---------------------------------------------------------------------------
-
-function subscribeSSE(taskId) {
-  if (activeStreams[taskId]) return;
-  // EventSource cannot send custom headers; pass the token as ?token= query param.
-  // The server's require_auth accepts this fallback for SSE endpoints only.
-  const apiKey = localStorage.getItem('api_key');
-  const url = API + '/tasks/' + encodeURIComponent(taskId) + '/stream'
-    + (apiKey ? '?token=' + encodeURIComponent(apiKey) : '');
-  const es = new EventSource(url);
-  activeStreams[taskId] = es;
-
-  const terminal = new Set(['task_done', 'task_failed', 'task_cancelled']);
-
-  es.addEventListener('message', () => {});
-
-  ['task_done','task_failed','task_cancelled','tool_start','tool_done','log','heartbeat'].forEach(evType => {
-    es.addEventListener(evType, e => {
-      let data = {};
-      try { data = JSON.parse(e.data); } catch {}
-
-      if (evType === 'log') {
-        appendLog(taskId, data.message || '', data.level || 'info');
-      } else if (evType === 'tool_start') {
-        appendLog(taskId, 'Tool: ' + (data.tool || ''), 'info');
-      } else if (evType === 'tool_done') {
-        appendLog(taskId, 'Done: ' + (data.tool || '') + ' [' + (data.success ? 'ok' : 'fail') + ']', data.success ? 'info' : 'error');
-      } else if (evType === 'task_done') {
-        updateTaskEl(taskId, { status: 'done', pr_url: data.pr_url });
-        appendLog(taskId, 'Task complete. PR: ' + (data.pr_url || '—'), 'info');
-        es.close(); delete activeStreams[taskId];
-      } else if (evType === 'task_failed') {
-        updateTaskEl(taskId, { status: 'failed', error: data.error, pr_url: data.pr_url });
-        appendLog(taskId, 'Failed: ' + (data.error || 'unknown'), 'error');
-        es.close(); delete activeStreams[taskId];
-      } else if (evType === 'task_cancelled') {
-        updateTaskEl(taskId, { status: 'cancelled' });
-        es.close(); delete activeStreams[taskId];
+    function renderTasks() {
+      const list = document.getElementById('task-list');
+      if (!tasks.length) {
+        list.innerHTML = '<div class="empty">No tasks yet</div>';
+        updateMetrics();
+        renderSelectedTask();
+        return;
       }
-    });
-  });
-
-  es.onerror = () => {
-    appendLog(taskId, 'Stream disconnected — reconnecting...', 'warning');
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Cancel task
-// ---------------------------------------------------------------------------
-
-async function cancelTask(taskId) {
-  const headers = {};
-  const apiKey = localStorage.getItem('api_key');
-  if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
-  await fetch(API + '/tasks/' + encodeURIComponent(taskId), { method: 'DELETE', headers });
-  updateTaskEl(taskId, { status: 'cancelled' });
-  if (activeStreams[taskId]) { activeStreams[taskId].close(); delete activeStreams[taskId]; }
-}
-
-async function retryTask(taskId) {
-  const headers = {};
-  const apiKey = localStorage.getItem('api_key');
-  if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
-  const r = await fetch(API + '/tasks/' + encodeURIComponent(taskId) + '/retry', { method: 'POST', headers });
-  if (!r.ok) {
-    appendLog(taskId, 'Retry failed: ' + r.statusText, 'error');
-    return;
-  }
-  const task = await r.json();
-  prependTask(task);
-  subscribeSSE(task.id);
-}
-
-// ---------------------------------------------------------------------------
-// Load existing tasks on page load
-// ---------------------------------------------------------------------------
-
-function _readHeaders() {
-  const h = {};
-  const k = localStorage.getItem('api_key');
-  if (k) h['Authorization'] = 'Bearer ' + k;
-  return h;
-}
-
-async function loadSummary() {
-  try {
-    const r = await fetch(API + '/summary', { headers: _readHeaders() });
-    if (!r.ok) return;
-    const d = await r.json();
-    const el = document.getElementById('spend-summary');
-    if (!el) return;
-    el.textContent =
-      `This week: ${d.tasks_this_week} tasks • ` +
-      `${d.succeeded_this_week} succeeded • ` +
-      `${d.failed_this_week} failed • ` +
-      `$${Number(d.total_usd_this_week).toFixed(4)} spent`;
-    el.classList.remove('hidden');
-  } catch { /* non-fatal */ }
-}
-
-async function loadTasks(offset = 0) {
-  try {
-    const r = await fetch(API + '/tasks?limit=50&offset=' + offset, { headers: _readHeaders() });
-    if (!r.ok) return;
-    const data = await r.json();
-    budgetCap = data.max_task_usd == null ? budgetCap : data.max_task_usd;
-    const list = document.getElementById('task-list');
-    if (offset === 0) { list.innerHTML = ''; tasks = []; }
-    for (const t of (data.tasks || [])) {
-      tasks.push(t);
-      list.insertAdjacentHTML('beforeend', renderTask(t));
-      if (t.status === 'running' || t.status === 'pending') subscribeSSE(t.id);
+      list.innerHTML = tasks.map(renderTaskCard).join('');
+      updateMetrics();
+      renderSelectedTask();
     }
-    document.getElementById('conn-status').textContent = tasks.length + ' tasks loaded';
-  } catch (e) {
-    document.getElementById('conn-status').textContent = 'Offline';
-  }
-}
 
-loadTasks();
-loadSummary();
-</script>
+    function renderSelectedTask() {
+      const task = tasks.find(item => item.id === selectedTaskId) || null;
+      const status = document.getElementById('selected-status');
+      const title = document.getElementById('selected-title');
+      const id = document.getElementById('selected-id');
+      const logs = document.getElementById('log-panel');
+      const artifacts = document.getElementById('artifact-list');
+      if (!task) {
+        status.className = 'status status-pending';
+        status.textContent = 'None';
+        title.textContent = 'No task selected';
+        id.textContent = 'Select a task from the queue.';
+        logs.innerHTML = '<p class="log-line">Waiting for task events.</p>';
+        artifacts.innerHTML = '<div class="artifact-chip">Artifacts will appear after handoff.</div>';
+        return;
+      }
+      status.className = statusClass(task.status);
+      status.textContent = task.status;
+      title.textContent = task.title || 'Untitled task';
+      id.textContent = task.id;
+      const taskLogs = logsByTask[task.id] || [];
+      logs.innerHTML = taskLogs.length
+        ? taskLogs.map(line => '<p class="log-line log-' + escHtml(line.level || 'info') + '">' + escHtml(line.message) + '</p>').join('')
+        : '<p class="log-line">No live events captured.</p>';
+      const prUrl = safePrUrl(task.pr_url);
+      artifacts.innerHTML = prUrl
+        ? '<a class="artifact-chip" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">Pull request ready</a>'
+        : '<div class="artifact-chip">PR handoff pending</div>';
+      logs.scrollTop = logs.scrollHeight;
+    }
+
+    function selectTask(taskId) {
+      selectedTaskId = taskId;
+      renderTasks();
+    }
+
+    function mergeTask(task) {
+      const index = tasks.findIndex(item => item.id === task.id);
+      if (index === -1) tasks.unshift(task);
+      else tasks[index] = { ...tasks[index], ...task };
+      if (!selectedTaskId) selectedTaskId = task.id;
+      renderTasks();
+    }
+
+    function patchTask(taskId, updates) {
+      const task = tasks.find(item => item.id === taskId);
+      if (!task) return;
+      Object.assign(task, updates);
+      renderTasks();
+    }
+
+    function addLog(taskId, message, level) {
+      if (!logsByTask[taskId]) logsByTask[taskId] = [];
+      logsByTask[taskId].push({ message, level: level || 'info' });
+      if (logsByTask[taskId].length > 120) logsByTask[taskId].shift();
+      if (selectedTaskId === taskId) renderSelectedTask();
+    }
+
+    async function createTask() {
+      const title = document.getElementById('title-input').value.trim();
+      const promptText = document.getElementById('prompt-input').value.trim();
+      const repo = document.getElementById('repo-input').value.trim() || null;
+      const error = document.getElementById('form-error');
+      error.classList.add('hidden');
+
+      if (!title || !promptText) {
+        error.textContent = 'Title and prompt are required.';
+        error.classList.remove('hidden');
+        return;
+      }
+      if (promptText.length > 8000) {
+        error.textContent = 'Prompt must be 8000 characters or less.';
+        error.classList.remove('hidden');
+        return;
+      }
+      if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+        error.textContent = 'Repo must be in owner/repo format.';
+        error.classList.remove('hidden');
+        return;
+      }
+
+      try {
+        const response = await fetch(API + '/tasks', {
+          method: 'POST',
+          headers: readHeaders(true),
+          body: JSON.stringify({ title, prompt: promptText, repo_url: repo, workspace })
+        });
+        if (response.status === 401) {
+          const key = promptKey();
+          if (key) localStorage.setItem('api_key', key);
+          return;
+        }
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          error.textContent = 'Error: ' + (body.detail || response.statusText);
+          error.classList.remove('hidden');
+          return;
+        }
+        const task = await response.json();
+        document.getElementById('title-input').value = '';
+        document.getElementById('prompt-input').value = '';
+        document.getElementById('repo-input').value = '';
+        mergeTask(task);
+        subscribeSSE(task.id);
+      } catch (err) {
+        error.textContent = 'Network error: ' + String(err);
+        error.classList.remove('hidden');
+      }
+    }
+
+    function promptKey() {
+      return window.prompt('API key required:');
+    }
+
+    async function cancelTask(taskId) {
+      await fetch(API + '/tasks/' + encodeURIComponent(taskId), { method: 'DELETE', headers: readHeaders(false) });
+      patchTask(taskId, { status: 'cancelled' });
+      if (activeStreams[taskId]) { activeStreams[taskId].close(); delete activeStreams[taskId]; }
+    }
+
+    async function retryTask(taskId) {
+      const response = await fetch(API + '/tasks/' + encodeURIComponent(taskId) + '/retry', { method: 'POST', headers: readHeaders(false) });
+      if (!response.ok) {
+        addLog(taskId, 'Retry failed: ' + response.statusText, 'error');
+        return;
+      }
+      const task = await response.json();
+      mergeTask(task);
+      subscribeSSE(task.id);
+    }
+
+    function subscribeSSE(taskId) {
+      if (activeStreams[taskId]) return;
+      const apiKey = localStorage.getItem('api_key');
+      const url = API + '/tasks/' + encodeURIComponent(taskId) + '/stream' + (apiKey ? '?token=' + encodeURIComponent(apiKey) : '');
+      const eventSource = new EventSource(url);
+      activeStreams[taskId] = eventSource;
+
+      ['task_done', 'task_failed', 'task_cancelled', 'tool_start', 'tool_done', 'log', 'heartbeat'].forEach(eventType => {
+        eventSource.addEventListener(eventType, event => {
+          let data = {};
+          try { data = JSON.parse(event.data); } catch {}
+          if (eventType === 'log') addLog(taskId, data.message || '', data.level || 'info');
+          if (eventType === 'tool_start') addLog(taskId, 'Tool: ' + (data.tool || ''), 'info');
+          if (eventType === 'tool_done') addLog(taskId, 'Done: ' + (data.tool || '') + ' [' + (data.success ? 'ok' : 'fail') + ']', data.success ? 'info' : 'error');
+          if (eventType === 'task_done') patchTask(taskId, { status: 'done', pr_url: data.pr_url });
+          if (eventType === 'task_failed') patchTask(taskId, { status: 'failed', error: data.error, pr_url: data.pr_url });
+          if (eventType === 'task_cancelled') patchTask(taskId, { status: 'cancelled' });
+          if (eventType.startsWith('task_')) addLog(taskId, eventType.replace('_', ' '), eventType === 'task_failed' ? 'error' : 'info');
+          const task = tasks.find(item => item.id === taskId);
+          if (task && terminalStatuses.has(task.status)) { eventSource.close(); delete activeStreams[taskId]; }
+        });
+      });
+
+      eventSource.onerror = () => addLog(taskId, 'Stream disconnected', 'warning');
+    }
+
+    async function loadSummary() {
+      try {
+        const response = await fetch(API + '/summary', { headers: readHeaders(false) });
+        if (!response.ok) return;
+        const data = await response.json();
+        document.getElementById('metric-week').textContent = '$' + Number(data.total_usd_this_week || 0).toFixed(4);
+      } catch {}
+    }
+
+    async function loadTasks() {
+      try {
+        const response = await fetch(API + '/tasks?limit=50&offset=0', { headers: readHeaders(false) });
+        if (!response.ok) {
+          document.getElementById('conn-status').textContent = 'Offline';
+          renderTasks();
+          return;
+        }
+        const data = await response.json();
+        tasks = data.tasks || [];
+        budgetCap = data.max_task_usd == null ? budgetCap : data.max_task_usd;
+        selectedTaskId = tasks[0] ? tasks[0].id : null;
+        for (const task of tasks) {
+          if (['pending', 'running'].includes(task.status)) subscribeSSE(task.id);
+        }
+        document.getElementById('conn-status').textContent = tasks.length + ' tasks loaded';
+        renderTasks();
+      } catch {
+        document.getElementById('conn-status').textContent = 'Offline';
+        renderTasks();
+      }
+    }
+
+    function loadAll() {
+      loadTasks();
+      loadSummary();
+    }
+
+    loadAll();
+  </script>
 </body>
 </html>
