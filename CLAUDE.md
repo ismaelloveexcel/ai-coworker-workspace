@@ -35,6 +35,10 @@ REASONING: Why this action, what you expect to happen.
 - secret_scan
 - humanize_error
 - cost_status
+- web_search
+- fetch_url
+- source_summarize
+- research_compare
 
 ## ACTIONS
 
