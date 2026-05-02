@@ -60,13 +60,15 @@ class BudgetPreflightError(BudgetExceeded):
         self.estimated = estimated
         self.remaining = remaining
         self.cap = cap
-        # Set spent=cap+estimated so parent fields are always valid floats
-        super(BudgetExceeded, self).__init__(
+        # Call Exception.__init__ directly to avoid BudgetExceeded's different signature.
+        # We still set self.spent for compatibility with handlers that access it.
+        Exception.__init__(
+            self,
             f"Task {task_id} budget preflight refused: "
             f"estimated ${estimated:.4f} > remaining ${remaining:.4f} "
             f"(cap ${cap:.2f})"
         )
-        # Keep parent attrs consistent
+        # Keep parent attrs consistent for handlers that read exc.spent / exc.cap
         self.spent = cap - remaining + estimated
 
 
