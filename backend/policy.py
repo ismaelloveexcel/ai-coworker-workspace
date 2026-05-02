@@ -29,6 +29,10 @@ _SAFE_NONLOCAL_TOOLS = {
     "secret_scan",
     "humanize_error",
     "cost_status",
+    "web_search",
+    "fetch_url",
+    "source_summarize",
+    "research_compare",
 }
 
 _SENSITIVE_PATH_SEGMENTS = {".ssh", ".gnupg", ".aws", ".azure", ".config", "AppData"}
