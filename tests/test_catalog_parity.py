@@ -51,8 +51,10 @@ def _claude_md_tool_ids() -> set:
 
 
 def test_catalog_has_no_duplicate_ids():
+    from collections import Counter
     ids = [entry.id for entry in TOOL_CATALOG]
-    assert len(ids) == len(set(ids)), f"Duplicate tool IDs in catalog: {[x for x in ids if ids.count(x) > 1]}"
+    duplicates = [k for k, v in Counter(ids).items() if v > 1]
+    assert not duplicates, f"Duplicate tool IDs in catalog: {duplicates}"
 
 
 def test_catalog_ids_match_derived_set():
