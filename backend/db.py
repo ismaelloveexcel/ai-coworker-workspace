@@ -391,6 +391,58 @@ async def get_running_tasks() -> List[Dict]:
     return [dict(r) for r in rows]
 
 
+_OPERATOR_TASK_FIELDS = (
+    "id", "title", "repo_url", "status", "branch", "current_step", "last_action",
+    "last_tool", "heartbeat_at", "recovery_note", "pr_url", "error", "created_at", "updated_at",
+)
+
+
+def _operator_task_row(row: aiosqlite.Row) -> Dict:
+    task = {field: row[field] for field in _OPERATOR_TASK_FIELDS if field in row.keys()}
+    task["repo"] = task.pop("repo_url", None)
+    for field in ("error", "recovery_note"):
+        if task.get(field):
+            task[field] = _redact_text(task[field])
+    return task
+
+
+async def get_task_counts_by_status() -> Dict[str, int]:
+    """Return task counts grouped by status for operator dashboards."""
+    async with _get_db() as db:
+        rows = await (await db.execute(
+            "SELECT status, COUNT(*) as count FROM tasks GROUP BY status ORDER BY status ASC"
+        )).fetchall()
+    return {row["status"]: int(row["count"]) for row in rows}
+
+
+async def get_running_task_summaries() -> List[Dict]:
+    """Return allowlisted operational fields for running tasks."""
+    async with _get_db() as db:
+        rows = await (await db.execute(
+            """SELECT id, title, repo_url, status, branch, current_step, last_action,
+                      last_tool, heartbeat_at, recovery_note, pr_url, error, created_at, updated_at
+               FROM tasks
+               WHERE status='running'
+               ORDER BY created_at ASC"""
+        )).fetchall()
+    return [_operator_task_row(row) for row in rows]
+
+
+async def get_recent_failed_task_summaries(limit: int = 10) -> List[Dict]:
+    """Return allowlisted operational fields for recent failed/interrupted tasks."""
+    async with _get_db() as db:
+        rows = await (await db.execute(
+            """SELECT id, title, repo_url, status, branch, current_step, last_action,
+                      last_tool, heartbeat_at, recovery_note, pr_url, error, created_at, updated_at
+               FROM tasks
+               WHERE status IN ('failed', 'cancelled')
+               ORDER BY updated_at DESC
+               LIMIT ?""",
+            (limit,),
+        )).fetchall()
+    return [_operator_task_row(row) for row in rows]
+
+
 # ---------------------------------------------------------------------------
 # Artifacts
 # ---------------------------------------------------------------------------
@@ -535,10 +587,10 @@ async def get_summary() -> Dict:
     return {
         "tasks_today":        int(t_row["n"])        if t_row else 0,
         "tasks_this_week":    int(w_row["n"])        if w_row else 0,
-        "succeeded_today":    int(t_row["succeeded"]) if t_row else 0,
-        "failed_today":       int(t_row["failed"])    if t_row else 0,
-        "succeeded_this_week": int(w_row["succeeded"]) if w_row else 0,
-        "failed_this_week":   int(w_row["failed"])    if w_row else 0,
+        "succeeded_today":    int(t_row["succeeded"] or 0) if t_row else 0,
+        "failed_today":       int(t_row["failed"] or 0)    if t_row else 0,
+        "succeeded_this_week": int(w_row["succeeded"] or 0) if w_row else 0,
+        "failed_this_week":   int(w_row["failed"] or 0)    if w_row else 0,
         "total_usd_today":    round(float(t_row["usd"]) if t_row else 0.0, 4),
         "total_usd_this_week": round(float(w_row["usd"]) if w_row else 0.0, 4),
     }
@@ -604,3 +656,37 @@ async def backup_database(retention_days: Optional[int] = None) -> Optional[str]
             except OSError:
                 pass
     return backup_path
+
+
+async def backup_status() -> Dict:
+    """Return local SQLite backup status without exposing environment variables."""
+    db_path = os.path.abspath(settings.db_path)
+    backup_dir = os.path.join(os.path.dirname(db_path), "backups")
+    status = {
+        "enabled": settings.backup_enabled,
+        "retention_days": settings.backup_retention_days,
+        "backup_dir_exists": os.path.isdir(backup_dir),
+        "latest_backup": None,
+        "backup_count": 0,
+    }
+    if not os.path.isdir(backup_dir):
+        return status
+
+    backups = []
+    for name in os.listdir(backup_dir):
+        if not name.startswith("agent-") or not name.endswith(".db"):
+            continue
+        path = os.path.join(backup_dir, name)
+        try:
+            backups.append((os.path.getmtime(path), name, os.path.getsize(path)))
+        except OSError:
+            continue
+    status["backup_count"] = len(backups)
+    if backups:
+        mtime, name, size = max(backups)
+        status["latest_backup"] = {
+            "name": name,
+            "created_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(),
+            "size_bytes": size,
+        }
+    return status
