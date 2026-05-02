@@ -11,6 +11,8 @@ v2 fixes:
 - F52:    structlog configured once at startup
 """
 import asyncio
+import hashlib
+import hmac as _hmac
 import json
 import os as _os
 import re
@@ -78,11 +80,18 @@ async def lifespan(app: FastAPI):
     log.info("startup", db_path=settings.db_path)
     if settings.environment == "production" and not settings.api_key:
         raise RuntimeError("API_KEY is required when ENV=production or APP_ENV=production")
-    if not settings.api_key:
+    if not settings.api_key and not settings.insecure_local_auth:
         log.warning(
-            "api_key_not_set",
-            message="API_KEY is empty — all mutating endpoints are unauthenticated. "
-                    "Set API_KEY in any networked deployment.",
+            "api_key_not_set_fail_closed",
+            message="API_KEY is empty and INSECURE_LOCAL_AUTH is not set — "
+                    "all protected endpoints will return 401. "
+                    "Set INSECURE_LOCAL_AUTH=1 to allow unauthenticated access (localhost dev only).",
+        )
+    elif not settings.api_key and settings.insecure_local_auth:
+        log.warning(
+            "insecure_local_auth_enabled",
+            message="INSECURE_LOCAL_AUTH=1 — all endpoints are unauthenticated. "
+                    "NEVER use this in any networked deployment.",
         )
     await db.init_db()
     await _reconcile_interrupted_tasks()
@@ -214,7 +223,7 @@ async def enforce_task_request_size(request: Request, call_next):
 
 
 # ---------------------------------------------------------------------------
-# Auth dependency (F3/E1)
+# Auth dependency (F3/E1 / PR-B1)
 # ---------------------------------------------------------------------------
 
 _SSE_STREAM_PATH_RE = re.compile(r"^/tasks/[^/]+/stream$")
@@ -224,26 +233,98 @@ def _is_sse_stream_request(request: Request) -> bool:
     return request.method == "GET" and bool(_SSE_STREAM_PATH_RE.fullmatch(request.url.path))
 
 
-async def require_auth(request: Request) -> None:
-    """If API_KEY is set, validate Bearer token or ?token= query param.
+# ---------------------------------------------------------------------------
+# Short-lived SSE stream tokens (PR-B1)
+# ---------------------------------------------------------------------------
 
-    The ?token= fallback exists solely for the SSE endpoint: the browser
-    EventSource API cannot set custom headers, so the token must be passed
-    as a query parameter there.  All other endpoints should use the
-    Authorization header.
+def _generate_stream_token(task_id: str) -> str:
+    """Generate a short-lived HMAC-SHA256 signed stream token scoped to *task_id*.
+
+    Token format: ``{task_id}.{expiry_unix_int}.{hmac_hex}``
+    Task IDs are UUIDs (hyphens only); expiry and HMAC hex contain no dots,
+    so a 3-part split on ``"."`` is unambiguous.
+    """
+    expiry = int(time.time()) + settings.stream_token_ttl_seconds
+    payload = f"{task_id}.{expiry}"
+    sig = _hmac.new(settings.api_key.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{sig}"
+
+
+def _verify_stream_token(token: str, task_id: str) -> bool:
+    """Return True iff *token* is a valid, unexpired stream token for *task_id*."""
+    try:
+        parts = token.split(".", 2)
+        if len(parts) != 3:
+            return False
+        token_task_id, expiry_str, provided_sig = parts
+        if token_task_id != task_id:
+            return False
+        expiry = int(expiry_str)
+        if time.time() > expiry:
+            return False
+        payload = f"{task_id}.{expiry_str}"
+        expected_sig = _hmac.new(
+            settings.api_key.encode(), payload.encode(), hashlib.sha256
+        ).hexdigest()
+        return _hmac.compare_digest(expected_sig, provided_sig)
+    except Exception:
+        return False
+
+
+def _fail_closed() -> None:
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing Bearer token",
+    )
+
+
+async def require_auth(request: Request) -> None:
+    """Validate master API key via Bearer header.
+
+    Behaviour:
+    - API_KEY set → require ``Authorization: Bearer <key>`` on every call.
+    - API_KEY empty + INSECURE_LOCAL_AUTH=1 → allow all (localhost dev only).
+    - API_KEY empty + INSECURE_LOCAL_AUTH unset → **fail-closed** (401).
+
+    The ``?token=`` query-param path is intentionally NOT accepted here; use
+    ``require_stream_auth`` on the SSE endpoint instead.
     """
     if not settings.api_key:
-        return  # unauthenticated mode (localhost dev)
-    # 1. Check Authorization header (preferred)
+        if settings.insecure_local_auth:
+            return
+        _fail_closed()
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer ") and auth[7:] == settings.api_key:
         return
-    # 2. Fall back to ?token= query param (SSE-only workaround)
-    token_param = request.query_params.get("token", "")
-    if token_param and token_param == settings.api_key and _is_sse_stream_request(request):
+    _fail_closed()
+
+
+async def require_stream_auth(request: Request) -> None:
+    """Auth for the SSE stream endpoint.
+
+    Accepted credentials (in priority order):
+    1. ``Authorization: Bearer <master-api-key>`` header.
+    2. ``?token=<stream-token>`` query param — short-lived token issued by
+       ``POST /tasks/{task_id}/stream-token``.
+
+    The master API key is *not* accepted as a ``?token=`` value; callers must
+    obtain a stream token from the dedicated endpoint.
+    """
+    if not settings.api_key:
+        if settings.insecure_local_auth:
+            return
+        _fail_closed()
+    # 1. Master key via Authorization header (curl / server-side callers).
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and auth[7:] == settings.api_key:
         return
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Invalid or missing Bearer token")
+    # 2. Short-lived stream token via ?token= (EventSource cannot send headers).
+    token_param = request.query_params.get("token", "")
+    if token_param and _is_sse_stream_request(request):
+        task_id = request.path_params.get("task_id", "")
+        if task_id and _verify_stream_token(token_param, task_id):
+            return
+    _fail_closed()
 
 
 def _task_create_rate_limit_key(request: Request) -> str:
@@ -711,7 +792,25 @@ async def retry_task(task_id: str, request: Request, workspace: str = Depends(_w
     return task
 
 
-@app.get("/tasks/{task_id}/stream", dependencies=[Depends(require_auth)])
+@app.post("/tasks/{task_id}/stream-token", dependencies=[Depends(require_auth)])
+async def create_stream_token(task_id: str, workspace: str = Depends(_workspace_query)):
+    """Issue a short-lived SSE stream token scoped to *task_id* (PR-B1).
+
+    The token is signed with HMAC-SHA256 and expires after
+    ``settings.stream_token_ttl_seconds`` seconds.  Pass it to
+    ``GET /tasks/{task_id}/stream?token=<token>`` from an EventSource that
+    cannot send custom headers.
+
+    Requires master API key via ``Authorization: Bearer`` header.
+    """
+    task = await db.get_task(task_id, workspace=workspace)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    token = _generate_stream_token(task_id)
+    return {"token": token, "task_id": task_id, "expires_in": settings.stream_token_ttl_seconds}
+
+
+@app.get("/tasks/{task_id}/stream", dependencies=[Depends(require_stream_auth)])
 async def stream_task(task_id: str, request: Request, workspace: str = Depends(_workspace_query)):
     """SSE stream with client-disconnect detection (F30)."""
     task = await db.get_task(task_id, workspace=workspace)

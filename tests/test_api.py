@@ -9,9 +9,17 @@ from unittest.mock import patch, AsyncMock
 
 
 @pytest.fixture
-async def client():
-    """Async test client that bypasses lifespan (DB already init'd by isolated_db)."""
+async def client(monkeypatch):
+    """Async test client that bypasses lifespan (DB already init'd by isolated_db).
+
+    Uses INSECURE_LOCAL_AUTH=True (empty API_KEY) so tests can exercise application
+    logic without authentication.  Auth-specific behaviour is covered by
+    test_auth_read_endpoints.py and test_stream_token.py.
+    """
+    from backend import config
     from backend.main import _reset_task_create_rate_limiter, _running, app
+    monkeypatch.setattr(config.settings, "api_key", "")
+    monkeypatch.setattr(config.settings, "insecure_local_auth", True)
     _reset_task_create_rate_limiter()
     _running.clear()
     async with AsyncClient(
@@ -43,7 +51,7 @@ async def test_health_degraded(client):
 
 @pytest.mark.asyncio
 async def test_create_task_no_auth(client):
-    """When API_KEY is empty (default in CI), no auth required."""
+    """With INSECURE_LOCAL_AUTH=True (empty API_KEY), no auth is required."""
     with patch("backend.main.run_task", new=AsyncMock()):
         r = await client.post("/tasks", json={"title": "t", "prompt": "p"})
     assert r.status_code == 201
