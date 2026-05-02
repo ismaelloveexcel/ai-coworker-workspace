@@ -126,6 +126,25 @@ CREATE INDEX IF NOT EXISTS idx_tasks_workspace_status ON tasks (workspace, statu
 """
 _MIGRATIONS.append(_SCHEMA_V4)
 
+_SCHEMA_V5 = """
+ALTER TABLE tasks ADD COLUMN started_at TEXT NULL;
+ALTER TABLE tasks ADD COLUMN ended_at TEXT NULL;
+ALTER TABLE tasks ADD COLUMN failure_category TEXT NULL;
+"""
+_MIGRATIONS.append(_SCHEMA_V5)
+
+# Valid failure categories — explicit set prevents fragile free-text parsing (A1)
+VALID_FAILURE_CATEGORIES = frozenset({
+    "branch_creation_failed",
+    "budget_exceeded",
+    "timeout",
+    "malformed_output",
+    "no_changes",
+    "validation_failed",
+    "pr_creation_failed",
+    "agent_error",
+})
+
 # ---------------------------------------------------------------------------
 # Column allowlists (F19)
 # ---------------------------------------------------------------------------
@@ -133,7 +152,7 @@ _MIGRATIONS.append(_SCHEMA_V4)
 _TASK_UPDATABLE = frozenset({
     "status", "pr_url", "error", "updated_at", "heartbeat_at", "usd_spent",
     "branch", "current_step", "last_action", "last_tool", "recovery_note", "reconciled_at",
-    "workspace",
+    "workspace", "started_at", "ended_at", "failure_category",
 })
 _STEP_UPDATABLE = frozenset({"status", "tool_name", "tool_input", "tool_output", "reasoning", "updated_at"})
 _ARTIFACT_TYPES = frozenset({
@@ -319,6 +338,15 @@ async def get_steps(task_id: str) -> List[Dict]:
             "SELECT * FROM steps WHERE task_id=? ORDER BY step_num ASC", (task_id,)
         )).fetchall()
     return [dict(r) for r in rows]
+
+
+async def get_step(task_id: str, step_id: str) -> Optional[Dict]:
+    """Fetch a single step scoped to task_id (prevents cross-task access)."""
+    async with _get_db() as db:
+        row = await (await db.execute(
+            "SELECT * FROM steps WHERE id=? AND task_id=?", (step_id, task_id)
+        )).fetchone()
+    return dict(row) if row else None
 
 
 # ---------------------------------------------------------------------------
@@ -701,3 +729,99 @@ async def backup_status() -> Dict:
             "size_bytes": size,
         }
     return status
+
+
+# ---------------------------------------------------------------------------
+# Metrics aggregation (A1)
+# ---------------------------------------------------------------------------
+
+def _latency_stats(durations_s: List[float]) -> Dict:
+    """Return median and p95 latency in seconds from a list of durations.
+
+    Uses the nearest-rank method: p95 index = ceil(n * 0.95) - 1, clamped to [0, n-1].
+    """
+    if not durations_s:
+        return {"median_s": None, "p95_s": None, "count": 0}
+    import math
+    sorted_d = sorted(durations_s)
+    n = len(sorted_d)
+    median = sorted_d[n // 2] if n % 2 == 1 else (sorted_d[n // 2 - 1] + sorted_d[n // 2]) / 2.0
+    p95_idx = min(n - 1, max(0, math.ceil(n * 0.95) - 1))
+    p95 = sorted_d[p95_idx]
+    return {"median_s": round(median, 3), "p95_s": round(p95, 3), "count": n}
+
+
+async def get_metrics(window_hours: int = 24) -> Dict:
+    """Return aggregated reliability and cost metrics for the given time window (A1).
+
+    Metrics derived from explicit schema fields (started_at, ended_at,
+    failure_category, usd_spent) — not from free-text parsing.
+
+    Args:
+        window_hours: lookback window in hours (24 or 168 for 7 days).
+
+    Returns a dict with:
+        - success_rate: fraction of non-cancelled finished tasks that succeeded
+        - failure_rate: fraction of non-cancelled finished tasks that failed
+        - latency: median/p95 latency for completed tasks (started_at → ended_at)
+        - failure_categories: distribution of failure_category values
+        - cost_summary: total and per-task-average USD spend
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_hours)).isoformat()
+    async with _get_db() as conn:
+        rows = await (await conn.execute(
+            """SELECT status, failure_category, started_at, ended_at,
+                      COALESCE(usd_spent, 0) as usd_spent
+               FROM tasks
+               WHERE created_at >= ?""",
+            (cutoff,),
+        )).fetchall()
+
+    total = len(rows)
+    succeeded = sum(1 for r in rows if r["status"] == "done")
+    failed = sum(1 for r in rows if r["status"] == "failed")
+    cancelled = sum(1 for r in rows if r["status"] == "cancelled")
+    # Rates exclude cancelled tasks from the denominator
+    finished_non_cancelled = succeeded + failed
+    success_rate = round(succeeded / finished_non_cancelled, 4) if finished_non_cancelled else None
+    failure_rate = round(failed / finished_non_cancelled, 4) if finished_non_cancelled else None
+
+    # Latency: only tasks with both started_at and ended_at
+    durations: List[float] = []
+    for r in rows:
+        if r["started_at"] and r["ended_at"]:
+            try:
+                start = datetime.fromisoformat(r["started_at"])
+                end = datetime.fromisoformat(r["ended_at"])
+                delta = (end - start).total_seconds()
+                if delta >= 0:
+                    durations.append(delta)
+            except (ValueError, TypeError):
+                pass
+
+    # Failure category distribution (only for failed tasks)
+    category_counts: Dict[str, int] = {}
+    for r in rows:
+        if r["status"] == "failed":
+            cat = r["failure_category"] or "unknown"
+            category_counts[cat] = category_counts.get(cat, 0) + 1
+
+    # Cost summary
+    total_usd = round(sum(float(r["usd_spent"]) for r in rows), 6)
+    avg_usd = round(total_usd / total, 6) if total else None
+
+    return {
+        "window_hours": window_hours,
+        "total_tasks": total,
+        "succeeded": succeeded,
+        "failed": failed,
+        "cancelled": cancelled,
+        "success_rate": success_rate,
+        "failure_rate": failure_rate,
+        "latency": _latency_stats(durations),
+        "failure_categories": category_counts,
+        "cost_summary": {
+            "total_usd": total_usd,
+            "avg_usd_per_task": avg_usd,
+        },
+    }

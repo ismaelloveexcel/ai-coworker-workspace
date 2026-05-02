@@ -9,9 +9,12 @@ from backend import db
 
 
 @pytest.fixture
-async def client():
+async def client(monkeypatch):
+    from backend import config
     from backend.main import _reset_task_create_rate_limiter, _running, app
 
+    monkeypatch.setattr(config.settings, "api_key", "")
+    monkeypatch.setattr(config.settings, "insecure_local_auth", True)
     _reset_task_create_rate_limiter()
     _running.clear()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as async_client:
@@ -161,3 +164,78 @@ async def test_invalid_workspace_is_rejected(client):
     response = await client.post("/tasks", json={"title": "Bad", "prompt": "p", "workspace": "shared"})
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_api_cancel_task_blocks_cross_workspace(client):
+    work = await db.create_task("Work", "prompt", workspace="work")
+
+    wrong_workspace = await client.delete(f"/tasks/{work['id']}")
+    assert wrong_workspace.status_code == 404
+    # Task should still exist after failed deletion attempt
+    still_exists = await db.get_task(work["id"], workspace="work")
+    assert still_exists is not None
+
+    right_workspace = await client.delete(f"/tasks/{work['id']}?workspace=work")
+    assert right_workspace.status_code == 200
+    assert right_workspace.json()["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_api_operator_run_history_filters_by_workspace(client):
+    with patch("backend.main.run_task", new=AsyncMock()):
+        await client.post("/tasks", json={"title": "Personal", "prompt": "p"})
+        await client.post("/tasks", json={"title": "Work", "prompt": "p", "workspace": "work"})
+
+    personal_res = await client.get("/operator/run-history?workspace=personal")
+    work_res = await client.get("/operator/run-history?workspace=work")
+
+    assert personal_res.status_code == 200
+    assert work_res.status_code == 200
+    personal_titles = {r["title"] for r in personal_res.json()["runs"]}
+    work_titles = {r["title"] for r in work_res.json()["runs"]}
+    assert "Personal" in personal_titles
+    assert "Work" not in personal_titles
+    assert "Work" in work_titles
+    assert "Personal" not in work_titles
+
+
+@pytest.mark.asyncio
+async def test_api_operator_artifacts_filters_by_workspace(client):
+    with patch("backend.main.run_task", new=AsyncMock()):
+        await client.post("/tasks", json={"title": "Personal", "prompt": "p"})
+        await client.post("/tasks", json={"title": "Work", "prompt": "p", "workspace": "work"})
+
+    personal_res = await client.get("/operator/artifacts?workspace=personal")
+    work_res = await client.get("/operator/artifacts?workspace=work")
+
+    assert personal_res.status_code == 200
+    assert work_res.status_code == 200
+    personal_titles = {a["title"] for a in personal_res.json()["artifacts"]}
+    work_titles = {a["title"] for a in work_res.json()["artifacts"]}
+    assert "Personal" in personal_titles
+    assert "Work" not in personal_titles
+    assert "Work" in work_titles
+    assert "Personal" not in work_titles
+
+
+@pytest.mark.asyncio
+async def test_api_operator_handoff_requires_matching_workspace(client):
+    work = await db.create_task("Work", "prompt", workspace="work")
+
+    wrong_workspace = await client.get(f"/operator/handoff/{work['id']}")
+    right_workspace = await client.get(f"/operator/handoff/{work['id']}?workspace=work")
+
+    assert wrong_workspace.status_code == 404
+    assert right_workspace.status_code == 200
+    body = right_workspace.json()
+    assert body["task_id"] == work["id"]
+    assert body["title"] == "Work"
+
+
+@pytest.mark.asyncio
+async def test_api_stream_blocks_cross_workspace(client):
+    work = await db.create_task("Work", "prompt", workspace="work")
+
+    wrong_workspace = await client.get(f"/tasks/{work['id']}/stream")
+    assert wrong_workspace.status_code == 404
