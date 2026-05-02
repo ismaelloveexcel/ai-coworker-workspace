@@ -3,8 +3,8 @@ import asyncio
 from typing import Dict, Set
 
 _subscribers: Dict[str, Set[asyncio.Queue]] = {}
-_sequence: Dict[str, int] = {}          # per-task monotonic sequence counter
-_dropped: Dict[int, int] = {}           # per-queue drop counter keyed by id(queue)
+_sequence: Dict[str, int] = {}   # per-task monotonic sequence counter (A2a)
+_dropped: Dict[int, int] = {}    # per-subscriber dropped-event counter keyed by id(queue) (A2a)
 
 MAX_QUEUE = 500   # events; slow consumer gets drops, not OOM (F8)
 
@@ -24,51 +24,56 @@ def unsubscribe(task_id: str, queue: asyncio.Queue) -> None:
     _dropped.pop(id(queue), None)
     if not subscribers:
         _subscribers.pop(task_id, None)
-        _sequence.pop(task_id, None)
 
 
 def destroy_bus(task_id: str) -> None:
     """Remove all subscriber queues for a task after terminal-event grace period."""
-    queues = _subscribers.pop(task_id, set())
-    for q in queues:
-        _dropped.pop(id(q), None)
+    for queue in _subscribers.pop(task_id, set()):
+        _dropped.pop(id(queue), None)
     _sequence.pop(task_id, None)
 
 
-async def emit(task_id: str, event_type: str, data: dict) -> None:
+def _next_seq(task_id: str) -> int:
+    """Return the next monotonically increasing sequence number for *task_id*."""
     seq = _sequence.get(task_id, 0) + 1
     _sequence[task_id] = seq
-    event = {"type": event_type, "seq": seq, "data": data}
+    return seq
+
+
+async def emit(task_id: str, event_type: str, data: dict) -> None:
+    seq = _next_seq(task_id)
+    event = {"type": event_type, "data": data, "seq": seq}
     for queue in tuple(_subscribers.get(task_id, set())):
         try:
             queue.put_nowait(event)
         except asyncio.QueueFull:
-            # Drop oldest event and track the loss
-            try:
-                queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-            _dropped[id(queue)] = _dropped.get(id(queue), 0) + 1
+            # Drop 2 oldest events to make room for the new event and the warning.
+            # The counter tracks every item physically removed from the queue.
+            evicted = 0
+            for _ in range(2):
+                try:
+                    queue.get_nowait()
+                    evicted += 1
+                except asyncio.QueueEmpty:
+                    break
+            _dropped[id(queue)] = _dropped.get(id(queue), 0) + evicted
             dropped_count = _dropped[id(queue)]
-            # Drop one more event to reserve a slot for the stream_warning
-            try:
-                queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
+            # Insert the triggering event.
             try:
                 queue.put_nowait(event)
             except asyncio.QueueFull:
                 pass
-            # Emit a stream_warning so the consumer knows events were lost
-            warning_seq = _sequence.get(task_id, seq) + 1
-            _sequence[task_id] = warning_seq
-            warning = {
+            # Insert a stream_warning to signal loss (non-blocking; may itself be
+            # dropped under extreme back-pressure, but the dropped counter persists).
+            # warn_seq is allocated here; a gap in seq indicates the warning was lost.
+            warn_seq = _next_seq(task_id)
+            warning_event = {
                 "type": "stream_warning",
-                "seq": warning_seq,
-                "data": {"dropped": dropped_count, "last_seq": seq},
+                "data": {"dropped": dropped_count, "task_id": task_id},
+                "seq": warn_seq,
             }
             try:
-                queue.put_nowait(warning)
+                queue.put_nowait(warning_event)
             except asyncio.QueueFull:
                 pass
 

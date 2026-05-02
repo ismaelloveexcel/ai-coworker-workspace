@@ -502,6 +502,19 @@ async def summary(workspace: str = Depends(_workspace_query)):
     return await db.get_summary(workspace=workspace)
 
 
+@app.get("/metrics", dependencies=[Depends(require_auth)])
+async def metrics(
+    window: int = Query(default=24, ge=1, le=168, description="Lookback window in hours (1-168)"),
+):
+    """Return aggregated reliability and cost metrics for the given time window (A1).
+
+    Supports any window from 1h to 168h (7 days).
+    Returns success_rate, failure_rate, latency stats, failure_category distribution,
+    and cost summary derived from explicit schema fields.
+    """
+    return await db.get_metrics(window_hours=window)
+
+
 @app.post("/artifacts", status_code=201, dependencies=[Depends(require_auth)])
 async def create_artifact(req: ArtifactCreateRequest):
     if req.task_id:
@@ -735,9 +748,8 @@ async def stream_task(task_id: str, request: Request, workspace: str = Depends(_
                     continue
 
                 import json
-                seq = event.get("seq")
-                id_line = f"id: {seq}\n" if seq is not None else ""
-                yield f"{id_line}event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
+                seq_line = f"id: {event['seq']}\n" if "seq" in event else ""
+                yield f"{seq_line}event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
 
                 # Terminal events — close stream
                 if event["type"] in ("task_done", "task_failed", "task_cancelled"):
