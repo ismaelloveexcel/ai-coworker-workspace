@@ -788,6 +788,10 @@
   function _renderStepField(step, field) {
     const val = step[field];
     if (!val) return '';
+    // `truncated` reflects server-side size-bound truncation (_STEP_MAX_FIELD_CHARS = 50 KB).
+    // `preview` is a separate client-side display limit (STEP_PREVIEW_CHARS) for initial render
+    // performance; "Raw" / "Collapse" expands it — it does not add server data beyond what was
+    // returned.
     const truncated = (step._truncated_fields || []).includes(field);
     const preview = val.length > STEP_PREVIEW_CHARS ? val.slice(0, STEP_PREVIEW_CHARS) + '\u2026' : val;
     const label = field.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());

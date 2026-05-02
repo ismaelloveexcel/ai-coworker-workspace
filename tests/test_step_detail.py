@@ -183,3 +183,55 @@ async def test_get_step_detail_auth_required_when_key_set(client, monkeypatch):
 
     r = await client.get(f"/tasks/{task['id']}/steps/{step_id}")
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_bound_step_exactly_at_limit_not_truncated(client, monkeypatch):
+    """A field exactly at the limit must NOT be listed in _truncated_fields."""
+    from backend import db
+    import backend.main as main_mod
+
+    limit = 50
+    monkeypatch.setattr(main_mod, "_STEP_MAX_FIELD_CHARS", limit)
+
+    task = await db.create_task("At limit", "prompt")
+    step_id = await db.create_step(task["id"], 0, tool_name="run_tests")
+    # Exactly `limit` chars — should not trigger truncation
+    at_limit_output = "All tests passed. Step completed normally." * 2
+    at_limit_output = at_limit_output[:limit]
+    assert len(at_limit_output) == limit
+    await db.update_step(step_id, status="done", tool_output=at_limit_output)
+
+    r = await client.get(f"/tasks/{task['id']}/steps/{step_id}")
+
+    assert r.status_code == 200
+    data = r.json()
+    assert data["tool_output"] == at_limit_output
+    assert "_truncated_fields" not in data
+
+
+@pytest.mark.asyncio
+async def test_bound_step_all_three_fields_truncated(client, monkeypatch):
+    """When tool_input, tool_output, AND reasoning all exceed the limit, all are listed."""
+    from backend import db
+    import backend.main as main_mod
+
+    monkeypatch.setattr(main_mod, "_STEP_MAX_FIELD_CHARS", 20)
+
+    task = await db.create_task("All fields truncated", "prompt")
+    long_val = "All tests passed. Step completed normally. " * 5
+    step_id = await db.create_step(task["id"], 0, tool_name="run_tests",
+                                   tool_input=long_val)
+    await db.update_step(step_id, status="done", tool_output=long_val, reasoning=long_val)
+
+    r = await client.get(f"/tasks/{task['id']}/steps/{step_id}")
+
+    assert r.status_code == 200
+    data = r.json()
+    truncated = set(data.get("_truncated_fields", []))
+    assert "tool_input" in truncated
+    assert "tool_output" in truncated
+    assert "reasoning" in truncated
+    assert len(data["tool_input"]) == 20
+    assert len(data["tool_output"]) == 20
+    assert len(data["reasoning"]) == 20
