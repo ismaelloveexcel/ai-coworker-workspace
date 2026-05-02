@@ -328,8 +328,8 @@ async def test_two_sse_streams_for_same_task_receive_event():
             return False
 
     task = await db.create_task("SSE fanout", "prompt")
-    first = await stream_task(task["id"], ConnectedRequest())
-    second = await stream_task(task["id"], ConnectedRequest())
+    first = await stream_task(task["id"], ConnectedRequest(), workspace="personal")
+    second = await stream_task(task["id"], ConnectedRequest(), workspace="personal")
 
     await emit(task["id"], "task_done", {"ok": True})
 
