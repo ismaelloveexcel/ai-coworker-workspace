@@ -143,7 +143,6 @@ VALID_FAILURE_CATEGORIES = frozenset({
     "validation_failed",
     "pr_creation_failed",
     "agent_error",
-    "cancelled",
 })
 
 # ---------------------------------------------------------------------------
@@ -728,14 +727,18 @@ async def backup_status() -> Dict:
 # ---------------------------------------------------------------------------
 
 def _latency_stats(durations_s: List[float]) -> Dict:
-    """Return median and p95 latency in seconds from a list of durations."""
+    """Return median and p95 latency in seconds from a list of durations.
+
+    Uses the nearest-rank method: p95 index = ceil(n * 0.95) - 1, clamped to [0, n-1].
+    """
     if not durations_s:
         return {"median_s": None, "p95_s": None, "count": 0}
+    import math
     sorted_d = sorted(durations_s)
     n = len(sorted_d)
     median = sorted_d[n // 2] if n % 2 == 1 else (sorted_d[n // 2 - 1] + sorted_d[n // 2]) / 2.0
-    p95_idx = max(0, int(n * 0.95) - 1) if n > 1 else 0
-    p95 = sorted_d[p95_idx] if n > 1 else sorted_d[0]
+    p95_idx = min(n - 1, max(0, math.ceil(n * 0.95) - 1))
+    p95 = sorted_d[p95_idx]
     return {"median_s": round(median, 3), "p95_s": round(p95, 3), "count": n}
 
 

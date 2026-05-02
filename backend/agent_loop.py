@@ -384,8 +384,7 @@ async def run_task(task_id: str) -> None:
         await notify_task_failure(task_id, repo, human_err)
 
     except asyncio.CancelledError:
-        await db.update_task(task_id, status="cancelled",
-                             ended_at=_utcnow(), failure_category="cancelled")
+        await db.update_task(task_id, status="cancelled", ended_at=_utcnow())
         await emit_log(task_id, "info", "Task cancelled")
         await emit(task_id, "task_cancelled", {})
         raise

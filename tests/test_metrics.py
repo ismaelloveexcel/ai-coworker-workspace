@@ -103,7 +103,7 @@ async def test_metrics_success_rate_math():
     await _seed_task("done")
     await _seed_task("done")
     await _seed_task("failed", failure_category="agent_error")
-    await _seed_task("cancelled", failure_category="cancelled")
+    await _seed_task("cancelled")  # no failure_category for cancelled tasks
 
     result = await db.get_metrics(window_hours=24)
     assert result["total_tasks"] == 4
@@ -119,7 +119,7 @@ async def test_metrics_success_rate_math():
 @pytest.mark.asyncio
 async def test_metrics_only_cancelled_tasks():
     """When all tasks are cancelled, rates should be None (no non-cancelled finished tasks)."""
-    await _seed_task("cancelled", failure_category="cancelled")
+    await _seed_task("cancelled")  # no failure_category for cancelled
     result = await db.get_metrics(window_hours=24)
     assert result["success_rate"] is None
     assert result["failure_rate"] is None
@@ -300,9 +300,10 @@ def test_latency_stats_single():
 
 def test_latency_stats_even_count():
     from backend.db import _latency_stats
-    # [10, 20] → median = (10+20)/2 = 15
+    # [10, 20] → median = (10+20)/2 = 15; p95 = 20 (nearest-rank: ceil(2*0.95)-1 = 1 → sorted[1])
     result = _latency_stats([10.0, 20.0])
     assert result["median_s"] == 15.0
+    assert result["p95_s"] == 20.0
 
 
 def test_latency_stats_p95():
