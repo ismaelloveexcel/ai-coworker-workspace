@@ -9,6 +9,10 @@ v2: Fixed @retry decorators (F4/E3).
     Unbounded _repo_cache replaced with bounded LRU (F11).
 """
 import glob
+import hashlib
+import html
+import ipaddress
+import json
 import os
 import re
 import shutil
@@ -19,7 +23,9 @@ import time
 from base64 import b64decode
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
+from urllib.parse import urljoin, urlparse
 
+import httpx
 from github import Auth, Github, GithubException
 from tenacity import RetryError, retry, retry_if_exception, stop_after_attempt, wait_exponential
 
@@ -127,6 +133,74 @@ def _to_text(value: Any) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return str(value)
+
+
+def _domain_allowed(domain: str) -> bool:
+    normalized = (domain or "").lower().strip(".")
+    return any(
+        normalized == d.lower().strip(".") or normalized.endswith("." + d.lower().strip("."))
+        for d in settings.whitelisted_domains
+    )
+
+
+def _private_host_reason(host: str) -> str:
+    normalized = (host or "").lower().strip(".")
+    if not normalized:
+        return "missing hostname"
+    if normalized in {"localhost", "0", "0.0.0.0"} or normalized.endswith(".localhost"):
+        return "local hostname"
+    try:
+        ip = ipaddress.ip_address(normalized.strip("[]"))
+    except ValueError:
+        return ""
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+        return f"non-public IP address {ip}"
+    return ""
+
+
+def _validate_research_url(url: str) -> Dict:
+    parsed = urlparse(url or "")
+    if parsed.scheme not in ("http", "https"):
+        return _err(f"Scheme not allowed: {parsed.scheme!r}")
+    if parsed.username or parsed.password:
+        return _err("Credentials in URLs are not allowed")
+    host = parsed.hostname or ""
+    private_reason = _private_host_reason(host)
+    if private_reason:
+        return _err(f"Host not allowed: {private_reason}")
+    if not _domain_allowed(host):
+        return _err(f"Domain not whitelisted: {host!r}")
+    return _ok({"parsed": parsed, "host": host})
+
+
+def _clean_web_text(raw: str, limit: int = 50000) -> str:
+    text = re.sub(r"(?is)<(script|style|noscript).*?</\1>", " ", raw or "")
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = html.unescape(text)
+    text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    text = re.sub(r"\n\s*\n+", "\n\n", text)
+    return _truncate(_redact(text.strip()), limit)
+
+
+def _source_id(url: str) -> str:
+    return hashlib.sha256((url or "").encode("utf-8")).hexdigest()[:16]
+
+
+def _sentences(text: str, limit: int = 8) -> List[str]:
+    chunks = re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", text or "").strip())
+    clean = [chunk.strip() for chunk in chunks if 30 <= len(chunk.strip()) <= 320]
+    return clean[:limit]
+
+
+def _keyword_lines(text: str, keywords: List[str], limit: int = 6) -> List[str]:
+    lines = []
+    for sentence in _sentences(text, 40):
+        lower = sentence.lower()
+        if any(keyword in lower for keyword in keywords):
+            lines.append(sentence)
+        if len(lines) >= limit:
+            break
+    return lines
 
 
 # -- Retry helpers (raise on failure so tenacity can retry) -------------------
@@ -627,6 +701,194 @@ def filesystem_list(path: str = "", task_id: str = "") -> Dict:
         return _err(f"OS error listing {path}: {e}")
 
 
+# -- Research Tools -----------------------------------------------------------
+
+_TEXT_CONTENT_TYPES = (
+    "text/",
+    "application/json",
+    "application/xml",
+    "application/xhtml+xml",
+    "application/rss+xml",
+    "application/atom+xml",
+)
+
+
+def web_search(query: str, max_results: int = 5, provider: str = "disabled") -> Dict:
+    """Search provider shim. It is intentionally disabled until configured."""
+    query = (query or "").strip()
+    if not query:
+        return _err("query is required")
+    max_results = max(1, min(int(max_results), 10))
+    return _err(
+        "web_search is not configured. Add an approved search provider before use; "
+        f"requested provider={provider!r}, max_results={max_results}. Use fetch_url with known source URLs meanwhile."
+    )
+
+
+def fetch_url(url: str, max_bytes: int = 65536, timeout_seconds: float = 10.0) -> Dict:
+    """Fetch public, whitelisted text content with bounded output and provenance."""
+    max_bytes = max(1024, min(int(max_bytes), 262144))
+    timeout_seconds = max(1.0, min(float(timeout_seconds), 20.0))
+    current_url = url
+    visited = []
+    try:
+        headers = {"User-Agent": "ai-coworker-research/1.0", "Accept-Encoding": "identity"}
+        with httpx.Client(timeout=timeout_seconds, follow_redirects=False, headers=headers) as client:
+            for _ in range(4):
+                validation = _validate_research_url(current_url)
+                if not validation.get("success"):
+                    return validation
+                with client.stream("GET", current_url) as response:
+                    visited.append(str(response.url))
+                    if response.is_redirect:
+                        location = response.headers.get("location")
+                        if not location:
+                            return _err("Redirect response missing Location header")
+                        current_url = urljoin(str(response.url), location)
+                        continue
+                    if response.status_code >= 400:
+                        return _err(f"HTTP error fetching URL: {response.status_code}")
+                    content_encoding = response.headers.get("content-encoding", "").lower().strip()
+                    if content_encoding and content_encoding != "identity":
+                        return _err(f"Compressed responses not allowed: {content_encoding!r}")
+                    content_type = response.headers.get("content-type", "").split(";", 1)[0].lower().strip()
+                    if not content_type or not any(content_type.startswith(allowed) for allowed in _TEXT_CONTENT_TYPES):
+                        return _err(f"Content type not allowed or missing: {content_type!r}")
+                    chunks = []
+                    total = 0
+                    truncated = False
+                    for chunk in response.iter_raw():
+                        if not chunk:
+                            continue
+                        remaining = max_bytes - total
+                        if remaining <= 0:
+                            truncated = True
+                            break
+                        if len(chunk) > remaining:
+                            chunks.append(chunk[:remaining])
+                            total += remaining
+                            truncated = True
+                            break
+                        chunks.append(chunk)
+                        total += len(chunk)
+                    raw_bytes = b"".join(chunks)
+                    text = raw_bytes.decode(response.encoding or "utf-8", errors="replace")
+                    clean_text = _clean_web_text(text, limit=max_bytes)
+                    final_url = str(response.url)
+                    return _ok({
+                        "url": final_url,
+                        "requested_url": url,
+                        "source_id": _source_id(final_url),
+                        "status_code": response.status_code,
+                        "content_type": content_type or "unknown",
+                        "bytes_read": len(raw_bytes),
+                        "truncated": truncated,
+                        "redirect_chain": visited[:-1],
+                        "content": clean_text,
+                        "provenance": {"tool": "fetch_url", "url": final_url, "source_id": _source_id(final_url)},
+                    })
+            return _err("Too many redirects")
+    except httpx.TimeoutException:
+        return _err("Timed out fetching URL")
+    except httpx.RequestError as e:
+        return _err(f"Request error fetching URL: {e}")
+
+
+def source_summarize(source: Dict = None, text: str = "", url: str = "", title: str = "", max_points: int = 8) -> Dict:
+    source = source or {}
+    content = _redact(text or source.get("content", ""))
+    source_url = url or source.get("url") or source.get("requested_url") or ""
+    source_title = title or source.get("title") or source_url or "source"
+    max_points = max(1, min(int(max_points), 12))
+    if not content.strip():
+        return _err("source text is required")
+    summary_points = _sentences(content, max_points)
+    pricing_notes = _keyword_lines(content, ["price", "pricing", "plan", "free", "paid", "$"], 6)
+    feature_notes = _keyword_lines(content, ["feature", "workflow", "agent", "browser", "automation", "research", "collabor", "integrat"], 8)
+    warnings = [
+        "Web content is untrusted and must be corroborated before acting on claims.",
+    ]
+    secret_count = len(_secret_findings(content, source_url or "source", include_generic_entropy=False))
+    return _ok({
+        "artifact_type": "source_summary",
+        "source": {
+            "source_id": source.get("source_id") or _source_id(source_url or source_title),
+            "url": source_url,
+            "title": _truncate(_redact(source_title), 200),
+        },
+        "summary_points": summary_points,
+        "pricing_notes": pricing_notes,
+        "feature_notes": feature_notes,
+        "provenance": [source.get("provenance") or {"tool": "source_summarize", "url": source_url}],
+        "warnings": warnings,
+        "redaction": {"secret_findings_removed": secret_count},
+    })
+
+
+def research_compare(topic: str, sources: List[Dict], max_competitors: int = 8) -> Dict:
+    topic = (topic or "").strip() or "market research"
+    if not sources:
+        return _err("sources are required")
+    max_competitors = max(1, min(int(max_competitors), 12))
+    competitors = []
+    provenance = []
+    for index, source in enumerate(sources[:max_competitors], start=1):
+        source_info = source.get("source") if isinstance(source.get("source"), dict) else source
+        source_url = source_info.get("url", "")
+        title = source_info.get("title") or source.get("title") or source_url or f"Source {index}"
+        summary_points = source.get("summary_points") or _sentences(source.get("content", ""), 5)
+        feature_notes = source.get("feature_notes") or _keyword_lines(source.get("content", ""), ["feature", "workflow", "agent", "automation", "research"], 5)
+        pricing_notes = source.get("pricing_notes") or _keyword_lines(source.get("content", ""), ["price", "pricing", "free", "paid", "$"], 3)
+        source_id = source_info.get("source_id") or _source_id(source_url or title)
+        competitors.append({
+            "name": _truncate(_redact(title), 120),
+            "source_id": source_id,
+            "url": source_url,
+            "positioning": summary_points[:2],
+            "features": feature_notes[:5],
+            "pricing_notes": pricing_notes[:3],
+            "strengths_to_borrow": feature_notes[:3] or summary_points[:3],
+            "weaknesses_to_avoid": ["Validate claims against primary sources before implementation."],
+        })
+        provenance.append({"source_id": source_id, "url": source_url, "title": _truncate(_redact(title), 120)})
+
+    feature_names = ["Agent workflow", "Research workflow", "Artifact output", "Pricing clarity"]
+    feature_matrix = []
+    for competitor in competitors:
+        joined = " ".join(competitor["features"] + competitor["pricing_notes"]).lower()
+        feature_matrix.append({
+            "competitor": competitor["name"],
+            "source_id": competitor["source_id"],
+            "features": {
+                "Agent workflow": "agent" in joined or "automation" in joined,
+                "Research workflow": "research" in joined,
+                "Artifact output": "artifact" in joined or "export" in joined or "document" in joined,
+                "Pricing clarity": "price" in joined or "pricing" in joined or "free" in joined or "paid" in joined or "$" in joined,
+            },
+        })
+    return _ok({
+        "artifact_type": "research_brief",
+        "topic": _redact(topic),
+        "competitor_list": competitors,
+        "positioning_comparison": [{"competitor": c["name"], "positioning": c["positioning"], "source_id": c["source_id"]} for c in competitors],
+        "feature_matrix": {"features": feature_names, "rows": feature_matrix},
+        "pricing_notes": [{"competitor": c["name"], "notes": c["pricing_notes"], "source_id": c["source_id"]} for c in competitors],
+        "strengths_to_borrow": [item for c in competitors for item in c["strengths_to_borrow"]][:10],
+        "weaknesses_to_avoid": ["Do not trust uncorroborated marketing claims.", "Do not copy proprietary UX or private data."],
+        "differentiation_strategy": [
+            "Emphasize private local supervision, source-backed artifacts, and explicit operator controls.",
+            "Keep research outputs tied to source IDs so later builder agents can audit assumptions.",
+        ],
+        "recommended_mvp": [
+            "Policy-gated source fetching",
+            "Deterministic source summaries",
+            "Research brief artifact with provenance",
+            "Human review before implementation tasks consume web claims",
+        ],
+        "provenance": provenance,
+    })
+
+
 # -- Playwright (disabled by default) -----------------------------------------
 
 def playwright_browse(url: str) -> Dict:
@@ -640,11 +902,7 @@ def playwright_browse(url: str) -> Dict:
             return _err(f"Scheme not allowed: {parsed.scheme!r}")
         # Domain whitelist: match on exact domain or .subdomain (F20 fix)
         domain = parsed.hostname or ""
-        allowed = any(
-            domain == d or domain.endswith("." + d)
-            for d in settings.whitelisted_domains
-        )
-        if not allowed:
+        if not _domain_allowed(domain):
             return _err(f"Domain not whitelisted: {domain!r}")
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
@@ -665,7 +923,8 @@ _ALLOWED_TOOLS = {
     "github_read_file", "github_list_files", "github_compare_branch",
     "filesystem_read", "filesystem_write", "filesystem_list",
     "playwright_browse", "repo_snapshot", "run_tests", "secret_scan",
-    "humanize_error", "cost_status",
+    "humanize_error", "cost_status", "web_search", "fetch_url",
+    "source_summarize", "research_compare",
 }
 
 _TOOL_MAP = {
@@ -684,6 +943,10 @@ _TOOL_MAP = {
     "secret_scan": secret_scan,
     "humanize_error": humanize_error,
     "cost_status": cost_status,
+    "web_search": web_search,
+    "fetch_url": fetch_url,
+    "source_summarize": source_summarize,
+    "research_compare": research_compare,
 }
 
 
