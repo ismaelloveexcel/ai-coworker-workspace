@@ -284,12 +284,22 @@ def _prune_running_tasks() -> Dict[str, asyncio.Task]:
     return active
 
 
-async def _create_and_start_task(req) -> Dict:
+async def _active_task_count_for_workspace(workspace: str) -> int:
     active = _prune_running_tasks()
-    if len(active) >= settings.max_concurrent_tasks:
+    count = 0
+    for task_id in active:
+        task = await db.get_task(task_id)
+        if task and task.get("workspace") == workspace:
+            count += 1
+    return count
+
+
+async def _create_and_start_task(req) -> Dict:
+    active_count = await _active_task_count_for_workspace(req.workspace)
+    if active_count >= settings.max_concurrent_tasks:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Too many active tasks ({len(active)}/{settings.max_concurrent_tasks}). Retry when one finishes.",
+            detail=f"Too many active tasks in workspace {req.workspace!r} ({active_count}/{settings.max_concurrent_tasks}). Retry when one finishes.",
         )
     task = await db.create_task(req.title, req.prompt, req.repo_url, workspace=req.workspace)
     task_id = task["id"]
@@ -416,6 +426,13 @@ class ArtifactVersionRequest(BaseModel):
     change_note: Optional[str] = None
 
 
+def _workspace_query(workspace: str = Query(default="personal")) -> str:
+    try:
+        return db.normalize_workspace(workspace)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -461,7 +478,7 @@ async def supervisor_plan(req: SupervisorPlanRequest):
 async def create_task(req: CreateTaskRequest, request: Request):
     # Daily budget cap (A8)
     if settings.daily_max_usd > 0:
-        daily_spend = await db.get_daily_spend()
+        daily_spend = await db.get_daily_spend(workspace=req.workspace)
         if daily_spend >= settings.daily_max_usd:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -479,9 +496,9 @@ async def create_task(req: CreateTaskRequest, request: Request):
 
 
 @app.get("/summary", dependencies=[Depends(require_auth)])
-async def summary():
+async def summary(workspace: str = Depends(_workspace_query)):
     """Return task counts and USD spend for today and the last 7 days (A9)."""
-    return await db.get_summary()
+    return await db.get_summary(workspace=workspace)
 
 
 @app.post("/artifacts", status_code=201, dependencies=[Depends(require_auth)])
@@ -601,15 +618,16 @@ async def operator_backup():
 async def list_tasks(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    workspace: str = Depends(_workspace_query),
 ):
     """Paginated task list (F29)."""
-    tasks = await db.list_tasks(limit=limit, offset=offset)
-    return {"tasks": tasks, "limit": limit, "offset": offset, "count": len(tasks), "max_task_usd": settings.max_task_usd}
+    tasks = await db.list_tasks(limit=limit, offset=offset, workspace=workspace)
+    return {"tasks": tasks, "workspace": workspace, "limit": limit, "offset": offset, "count": len(tasks), "max_task_usd": settings.max_task_usd}
 
 
 @app.get("/tasks/{task_id}", dependencies=[Depends(require_auth)])
-async def get_task(task_id: str):
-    task = await db.get_task(task_id)
+async def get_task(task_id: str, workspace: str = Depends(_workspace_query)):
+    task = await db.get_task(task_id, workspace=workspace)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     steps = await db.get_steps(task_id)
@@ -618,19 +636,22 @@ async def get_task(task_id: str):
 
 
 @app.delete("/tasks/{task_id}", dependencies=[Depends(require_auth)])
-async def cancel_task(task_id: str):
-    t = _running.get(task_id)
-    if t and not t.done():
-        t.cancel()
+async def cancel_task(task_id: str, workspace: str = Depends(_workspace_query)):
+    task = await db.get_task(task_id, workspace=workspace)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    running_task = _running.get(task_id)
+    if running_task and not running_task.done():
+        running_task.cancel()
     await db.update_task(task_id, status="cancelled")
     log.info("task_cancelled", task_id=task_id)
     return {"status": "cancelled"}
 
 
 @app.post("/tasks/{task_id}/retry", status_code=201, dependencies=[Depends(require_auth)])
-async def retry_task(task_id: str, request: Request):
+async def retry_task(task_id: str, request: Request, workspace: str = Depends(_workspace_query)):
     """Retry a failed/cancelled task. Retries share the task creation rate limit."""
-    original = await db.get_task(task_id)
+    original = await db.get_task(task_id, workspace=workspace)
     if not original:
         raise HTTPException(status_code=404, detail="Task not found")
     if original["status"] not in {"failed", "cancelled"}:
@@ -639,6 +660,7 @@ async def retry_task(task_id: str, request: Request):
         title=f"Retry: {original['title']}",
         prompt=original["prompt"],
         repo_url=original.get("repo_url"),
+        workspace=original["workspace"],
     )
     await _check_task_create_rate_limit(request)
     async with _task_creation_lock:
@@ -648,9 +670,9 @@ async def retry_task(task_id: str, request: Request):
 
 
 @app.get("/tasks/{task_id}/stream", dependencies=[Depends(require_auth)])
-async def stream_task(task_id: str, request: Request):
+async def stream_task(task_id: str, request: Request, workspace: str = Depends(_workspace_query)):
     """SSE stream with client-disconnect detection (F30)."""
-    task = await db.get_task(task_id)
+    task = await db.get_task(task_id, workspace=workspace)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 

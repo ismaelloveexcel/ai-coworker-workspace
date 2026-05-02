@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS artifact_links (
 CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts (task_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_artifacts_workspace ON artifacts (workspace, created_at);
 CREATE INDEX IF NOT EXISTS idx_artifact_versions_artifact ON artifact_versions (artifact_id, version_num);
+CREATE INDEX IF NOT EXISTS idx_tasks_workspace_status ON tasks (workspace, status, created_at);
 """
 _MIGRATIONS.append(_SCHEMA_V4)
 
@@ -139,6 +140,21 @@ _ARTIFACT_TYPES = frozenset({
     "app", "document", "slide_deck", "spreadsheet", "research_brief", "campaign_pack",
     "workflow", "code_diff", "dashboard", "design_mockup", "automation_blueprint", "knowledge_base",
 })
+VALID_WORKSPACES = frozenset({"personal", "work"})
+
+
+def normalize_workspace(workspace: Optional[str] = None) -> str:
+    value = (workspace or "personal").strip().lower()
+    if value not in VALID_WORKSPACES:
+        raise ValueError(f"workspace must be one of: {', '.join(sorted(VALID_WORKSPACES))}")
+    return value
+
+
+def _validate_artifact_type(artifact_type: str) -> str:
+    value = (artifact_type or "").strip().lower()
+    if value not in _ARTIFACT_TYPES:
+        raise ValueError(f"artifact_type must be one of: {', '.join(sorted(_ARTIFACT_TYPES))}")
+    return value
 
 
 def _safe_cols(allowed: frozenset, kwargs: dict) -> dict:
@@ -212,52 +228,44 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _validate_workspace(workspace: str) -> str:
-    value = (workspace or "personal").strip().lower()
-    if value not in {"personal", "work"}:
-        raise ValueError("workspace must be one of: personal, work")
-    return value
-
-
-def _validate_artifact_type(artifact_type: str) -> str:
-    value = (artifact_type or "").strip().lower()
-    if value not in _ARTIFACT_TYPES:
-        raise ValueError(f"artifact_type must be one of: {', '.join(sorted(_ARTIFACT_TYPES))}")
-    return value
-
 
 async def create_task(title: str, prompt: str, repo_url: Optional[str] = None, workspace: str = "personal") -> Dict:
     task_id = str(uuid.uuid4())
     safe_title = _redact_text(title) or title
     safe_prompt = _redact_text(prompt) or prompt
-    safe_workspace = _validate_workspace(workspace)
+    workspace = normalize_workspace(workspace)
     async with _get_db() as db:
         await db.execute(
             "INSERT INTO tasks (id, title, prompt, repo_url, status, workspace) VALUES (?,?,?,?, 'pending', ?)",
-            (task_id, safe_title, safe_prompt, repo_url, safe_workspace),
+            (task_id, safe_title, safe_prompt, repo_url, workspace),
         )
     return {
         "id": task_id,
         "title": safe_title,
         "prompt": safe_prompt,
         "repo_url": repo_url,
-        "workspace": safe_workspace,
+        "workspace": workspace,
         "status": "pending",
         "created_at": _now(),
     }
 
 
-async def get_task(task_id: str) -> Optional[Dict]:
+async def get_task(task_id: str, workspace: Optional[str] = None) -> Optional[Dict]:
     async with _get_db() as db:
-        row = await (await db.execute("SELECT * FROM tasks WHERE id=?", (task_id,))).fetchone()
+        if workspace is None:
+            row = await (await db.execute("SELECT * FROM tasks WHERE id=?", (task_id,))).fetchone()
+        else:
+            normalized = normalize_workspace(workspace)
+            row = await (await db.execute("SELECT * FROM tasks WHERE id=? AND workspace=?", (task_id, normalized))).fetchone()
     return dict(row) if row else None
 
 
-async def list_tasks(limit: int = 50, offset: int = 0) -> List[Dict]:
+async def list_tasks(limit: int = 50, offset: int = 0, workspace: str = "personal") -> List[Dict]:
     """Paginated — F29."""
+    workspace = normalize_workspace(workspace)
     async with _get_db() as db:
         rows = await (await db.execute(
-            "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ? OFFSET ?", (limit, offset)
+            "SELECT * FROM tasks WHERE workspace=? ORDER BY created_at DESC LIMIT ? OFFSET ?", (workspace, limit, offset)
         )).fetchall()
     return [dict(r) for r in rows]
 
@@ -458,7 +466,7 @@ async def create_artifact(
 ) -> Dict:
     artifact_id = str(uuid.uuid4())
     version_id = str(uuid.uuid4())
-    safe_workspace = _validate_workspace(workspace)
+    safe_workspace = normalize_workspace(workspace)
     safe_type = _validate_artifact_type(artifact_type)
     safe_title = _redact_text(title) or title
     safe_content = _redact_text(content_json) or "{}"
@@ -523,7 +531,7 @@ async def list_artifacts(task_id: Optional[str] = None, workspace: Optional[str]
         params.append(task_id)
     if workspace:
         filters.append("workspace=?")
-        params.append(_validate_workspace(workspace))
+        params.append(normalize_workspace(workspace))
     where = f"WHERE {' AND '.join(filters)}" if filters else ""
     async with _get_db() as db:
         rows = await (await db.execute(
@@ -551,19 +559,21 @@ async def get_artifact(artifact_id: str) -> Optional[Dict]:
 # Spend aggregates (A8, A9)
 # ---------------------------------------------------------------------------
 
-async def get_daily_spend() -> float:
-    """Sum usd_spent for all tasks created since UTC midnight today (A8)."""
+async def get_daily_spend(workspace: str = "personal") -> float:
+    """Sum usd_spent for one workspace since UTC midnight today (A8)."""
+    workspace = normalize_workspace(workspace)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     async with _get_db() as db:
         row = await (await db.execute(
-            "SELECT COALESCE(SUM(usd_spent), 0) FROM tasks WHERE created_at >= ?",
-            (today,),
+            "SELECT COALESCE(SUM(usd_spent), 0) FROM tasks WHERE workspace=? AND created_at >= ?",
+            (workspace, today),
         )).fetchone()
     return float(row[0]) if row else 0.0
 
 
-async def get_summary() -> Dict:
+async def get_summary(workspace: str = "personal") -> Dict:
     """Return task count and spend for today and the last 7 days (A9)."""
+    workspace = normalize_workspace(workspace)
     now = datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
     week_ago = (now - timedelta(days=7)).strftime("%Y-%m-%d")
@@ -573,18 +583,19 @@ async def get_summary() -> Dict:
                       COALESCE(SUM(usd_spent), 0) as usd,
                       SUM(CASE WHEN status='done'   THEN 1 ELSE 0 END) as succeeded,
                       SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as failed
-               FROM tasks WHERE created_at >= ?""",
-            (today,),
+               FROM tasks WHERE workspace=? AND created_at >= ?""",
+            (workspace, today),
         )).fetchone()
         w_row = await (await db.execute(
             """SELECT COUNT(*) as n,
                       COALESCE(SUM(usd_spent), 0) as usd,
                       SUM(CASE WHEN status='done'   THEN 1 ELSE 0 END) as succeeded,
                       SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as failed
-               FROM tasks WHERE created_at >= ?""",
-            (week_ago,),
+               FROM tasks WHERE workspace=? AND created_at >= ?""",
+            (workspace, week_ago),
         )).fetchone()
     return {
+        "workspace": workspace,
         "tasks_today":        int(t_row["n"])        if t_row else 0,
         "tasks_this_week":    int(w_row["n"])        if w_row else 0,
         "succeeded_today":    int(t_row["succeeded"] or 0) if t_row else 0,
