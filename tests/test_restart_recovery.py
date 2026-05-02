@@ -81,21 +81,24 @@ async def test_reconcile_idempotent_second_call_skips_already_failed_task():
     task = await db.create_task("Interrupted", "prompt")
     await db.update_task(task["id"], status="running", branch="task/interrupted")
 
-    with patch("backend.main.notify_task_failure", new=AsyncMock()):
+    mock_notify = AsyncMock()
+    with patch("backend.main.notify_task_failure", new=mock_notify):
         await _reconcile_interrupted_tasks()
 
     first = await db.get_task(task["id"])
     first_reconciled_at = first["reconciled_at"]
     assert first["status"] == "failed"
+    assert mock_notify.call_count == 0  # reconciler does not call notify
 
     # Second call — task is now failed, must not touch it
-    with patch("backend.main.notify_task_failure", new=AsyncMock()):
+    with patch("backend.main.notify_task_failure", new=mock_notify):
         await _reconcile_interrupted_tasks()
 
     second = await db.get_task(task["id"])
     # reconciled_at must not change on second call
     assert second["reconciled_at"] == first_reconciled_at
     assert second["status"] == "failed"
+    assert mock_notify.call_count == 0  # still not called on second run
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +130,7 @@ async def test_agent_loop_sets_checkpoint_post_branch_after_branch_creation(monk
         await run_task(task["id"])
 
     final = await db.get_task(task["id"])
+    assert final["status"] == "failed"
     assert final["branch"] == "task/checkpoint-test"
     assert final["checkpoint_phase"] == "post_branch"
 
