@@ -33,6 +33,12 @@ MAX_TOKENS = 4096
 # Bounded dict; eviction is not needed for typical single-worker deployments.
 _ctx_cache: Dict[tuple, str] = {}
 
+# Context assembly limits — keep these consistent with token budget (A11)
+_MAX_PRELUDE_FILE_CHARS = 2500   # per-file limit in full step-0 prelude
+_MAX_README_COMPACT_CHARS = 500  # README summary for step>0 compact context
+_MAX_SNAPSHOT_FILES = 160        # max entries in repo file tree
+_TRUNCATION_MARKER = "\n...[truncated]"
+
 
 def _is_retryable_anthropic(exc: Exception) -> bool:
     if isinstance(exc, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
@@ -111,18 +117,18 @@ def _build_repo_prelude_from_github(repo: str, branch: str = "main") -> str:
         if result.get("success"):
             raw = result["data"].get("content", "")
             if raw:
-                if len(raw) > 2500:
-                    raw = raw[:2500] + "\n...[truncated]"
+                if len(raw) > _MAX_PRELUDE_FILE_CHARS:
+                    raw = raw[:_MAX_PRELUDE_FILE_CHARS] + _TRUNCATION_MARKER
                 parts.append(f"--- {path} ---\n{raw}")
 
     # Fetch file tree via snapshot (tree-only; individual file content not needed here)
     try:
-        snap = _snap(repo=repo, branch=branch, max_files=160, max_file_chars=0)
+        snap = _snap(repo=repo, branch=branch, max_files=_MAX_SNAPSHOT_FILES, max_file_chars=0)
     except Exception:
         snap = {"success": False}
     if snap.get("success"):
         tree_items = snap["data"].get("tree", [])
-        tree_lines = [item["path"] for item in tree_items[:160]]
+        tree_lines = [item["path"] for item in tree_items[:_MAX_SNAPSHOT_FILES]]
         if tree_lines:
             parts.append("--- file tree ---\n" + "\n".join(tree_lines))
 
@@ -151,17 +157,17 @@ def _build_compact_context_from_github(repo: str, branch: str = "main") -> str:
     if result.get("success"):
         raw = result["data"].get("content", "")
         if raw:
-            if len(raw) > 500:
-                raw = raw[:500] + "\n...[truncated]"
+            if len(raw) > _MAX_README_COMPACT_CHARS:
+                raw = raw[:_MAX_README_COMPACT_CHARS] + _TRUNCATION_MARKER
             parts.append(f"--- README.md (summary) ---\n{raw}")
 
     try:
-        snap = _snap(repo=repo, branch=branch, max_files=160, max_file_chars=0)
+        snap = _snap(repo=repo, branch=branch, max_files=_MAX_SNAPSHOT_FILES, max_file_chars=0)
     except Exception:
         snap = {"success": False}
     if snap.get("success"):
         tree_items = snap["data"].get("tree", [])
-        tree_lines = [item["path"] for item in tree_items[:160]]
+        tree_lines = [item["path"] for item in tree_items[:_MAX_SNAPSHOT_FILES]]
         if tree_lines:
             parts.append("--- file tree ---\n" + "\n".join(tree_lines))
 

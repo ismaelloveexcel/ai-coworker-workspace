@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import backend.claude_wrapper as cw
 from backend.claude_wrapper import (
+    _MAX_README_COMPACT_CHARS,
     _repo_slug,
     _get_task_prelude,
     _get_task_compact,
@@ -151,8 +152,8 @@ def test_compact_from_github_uses_target_repo():
 
 
 def test_compact_readme_truncated_to_500_chars():
-    """README content in compact context must be ≤500 chars."""
-    long_content = "A" * 1000
+    """README content in compact context must be ≤_MAX_README_COMPACT_CHARS chars."""
+    long_content = "A" * (_MAX_README_COMPACT_CHARS * 2)
 
     def fake_ghrf(path, repo=None, branch="main"):
         if path == "README.md":
@@ -166,8 +167,8 @@ def test_compact_readme_truncated_to_500_chars():
          patch("backend.tool_adapters.repo_snapshot", side_effect=fake_snap):
         result = cw._build_compact_context_from_github("owner/repo")
 
-    # 500 chars of A's + truncation marker
-    assert "A" * 500 in result
+    # _MAX_README_COMPACT_CHARS A's followed by truncation marker
+    assert "A" * _MAX_README_COMPACT_CHARS in result
     assert "[truncated]" in result
 
 
