@@ -38,10 +38,16 @@ class Settings:
     # Database
     db_path: str             = field(default_factory=lambda: _optional("DB_PATH", "data/agent.db"))
 
-    # API authentication (F3/E1)
-    # Set API_KEY env var to require Bearer token on all mutating endpoints.
-    # Leave empty only for localhost dev — NEVER empty in any networked deployment.
+    # API authentication (F3/E1 / PR-B1)
+    # Set API_KEY to require Bearer token on all endpoints.
+    # With API_KEY empty, ALL requests are rejected unless INSECURE_LOCAL_AUTH=1 is also set.
+    # INSECURE_LOCAL_AUTH=1 is only safe for localhost dev — never set it in any networked deployment.
     api_key: str             = field(default_factory=lambda: _optional("API_KEY", ""))
+    insecure_local_auth: bool = field(default_factory=lambda: _optional("INSECURE_LOCAL_AUTH", "false").lower() in ("1", "true", "yes"))
+
+    # Short-lived SSE stream tokens (PR-B1)
+    # POST /tasks/{id}/stream-token issues a token valid for this many seconds.
+    stream_token_ttl_seconds: int = field(default_factory=lambda: int(_optional("STREAM_TOKEN_TTL_SECONDS", "120")))
 
     # Agent behaviour
     max_steps: int           = field(default_factory=lambda: int(_optional("MAX_STEPS", "25")))
@@ -52,6 +58,7 @@ class Settings:
     task_create_rate_limit_window_seconds: int = field(default_factory=lambda: int(_optional("TASK_CREATE_RATE_LIMIT_WINDOW_SECONDS", "60")))
     task_request_max_bytes: int = field(default_factory=lambda: int(_optional("TASK_REQUEST_MAX_BYTES", "65536")))
     zombie_reaper_interval_seconds: int = field(default_factory=lambda: int(_optional("ZOMBIE_REAPER_INTERVAL_SECONDS", "60")))
+    heartbeat_interval_seconds: int     = field(default_factory=lambda: int(_optional("HEARTBEAT_INTERVAL_SECONDS", "30")))
 
     # Playwright
     playwright_enabled: bool  = field(default_factory=lambda: _optional("PLAYWRIGHT_ENABLED", "false").lower() == "true")
