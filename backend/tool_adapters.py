@@ -978,8 +978,9 @@ def execute_tool(
     fn = _TOOL_MAP[tool_name]
     try:
         result = fn(**tool_input)
-        # Record gate-relevant side-effects so stage transitions are tracked.
-        if context is not None and isinstance(result, dict) and result.get("success"):
+        # All registered tools return {"success": True/False, ...} dicts.
+        # Only advance gate state when the underlying call actually succeeded.
+        if context is not None and isinstance(result, dict) and result.get("success") is True:
             context.record_tool_succeeded(tool_name)
         return result
     except TypeError as e:

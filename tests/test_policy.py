@@ -149,10 +149,11 @@ def test_stage_context_denies_browser_when_not_enabled():
 
 def test_stage_context_allows_browser_when_explicitly_enabled():
     ctx = AgentStageContext(browser_enabled=True)
-    # playwright_browse still hits REQUIRE_APPROVAL from the category check
-    # (that's the correct layered behaviour after the stage gate passes)
+    # playwright_browse passes the stage gate but still hits REQUIRE_APPROVAL
+    # from the existing category-level check (correct layered behaviour).
     decision = evaluate_tool_call("playwright_browse", {"url": "https://example.com"}, context=ctx)
-    assert decision.outcome != DENY or "browser_enabled" not in decision.reason
+    assert decision.outcome == REQUIRE_APPROVAL
+    assert "approval" in decision.reason.lower()
 
     # web_search and fetch_url are SAFE_NONLOCAL_TOOLS → ALLOW after stage gate passes
     for tool in ("web_search", "fetch_url"):
@@ -322,3 +323,44 @@ def test_no_context_pr_allowed_without_validation():
     """Without a context PR creation is not gated (old behaviour unchanged)."""
     decision = evaluate_tool_call("github_create_pr", {})
     assert decision.outcome == ALLOW
+
+
+# ---------------------------------------------------------------------------
+# execute_tool auto-records gate state after successful execution
+# ---------------------------------------------------------------------------
+
+
+def test_execute_tool_records_branch_created_on_success():
+    """execute_tool advances branch_created gate after github_create_branch succeeds."""
+    ctx = AgentStageContext()
+    assert not ctx.branch_created
+
+    success_stub = Mock(return_value={"success": True, "branch": "task/foo"})
+    with patch.dict("backend.tool_adapters._TOOL_MAP", {"github_create_branch": success_stub}):
+        result = execute_tool("github_create_branch", {"branch": "task/foo"}, context=ctx)
+
+    assert result["success"] is True
+    assert ctx.branch_created, "branch_created should be set after successful github_create_branch"
+
+
+def test_execute_tool_does_not_record_branch_on_failure():
+    """execute_tool does NOT advance branch_created if the tool returns success=False."""
+    ctx = AgentStageContext()
+
+    failure_stub = Mock(return_value={"success": False, "error": "already exists"})
+    with patch.dict("backend.tool_adapters._TOOL_MAP", {"github_create_branch": failure_stub}):
+        execute_tool("github_create_branch", {"branch": "task/foo"}, context=ctx)
+
+    assert not ctx.branch_created, "branch_created must not advance when the tool failed"
+
+
+def test_execute_tool_records_validation_done_on_success():
+    """execute_tool advances validation_done gate after run_tests succeeds."""
+    ctx = AgentStageContext()
+    assert not ctx.validation_done
+
+    success_stub = Mock(return_value={"success": True, "output": "all tests passed"})
+    with patch.dict("backend.tool_adapters._TOOL_MAP", {"run_tests": success_stub}):
+        execute_tool("run_tests", {"suite": "quick"}, context=ctx)
+
+    assert ctx.validation_done, "validation_done should be set after successful run_tests"

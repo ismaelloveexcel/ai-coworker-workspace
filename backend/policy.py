@@ -107,7 +107,7 @@ class AgentStageContext:
         """Update gate state after a successful tool execution."""
         if tool_name == "github_create_branch":
             self._branch_created = True
-        if tool_name == "run_tests":
+        elif tool_name == "run_tests":
             self._validation_done = True
 
     def enable_browser(self) -> None:
@@ -171,6 +171,12 @@ def _stage_context_policy(
     tool_name: str, context: "AgentStageContext"
 ) -> PolicyDecision | None:
     """Apply stage-context gates; return a denial decision or *None* to continue.
+
+    When an ``AgentStageContext`` is active the caller opts in to *strict mode*:
+    every tool must be listed in ``STAGE_TOOL_MATRIX``.  Tools known to the
+    legacy ``_SAFE_NONLOCAL_TOOLS`` / ``_LOCAL_TOOL_CATEGORIES`` sets but absent
+    from the matrix are therefore also denied – callers that require the legacy
+    permissive behaviour should omit the context argument.
 
     Gates checked (in order):
     1. Tool must be present in STAGE_TOOL_MATRIX – deny unknown tools.
