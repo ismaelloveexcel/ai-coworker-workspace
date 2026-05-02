@@ -169,6 +169,9 @@ async def test_api_cancel_task_blocks_cross_workspace(client):
 
     wrong_workspace = await client.delete(f"/tasks/{work['id']}")
     assert wrong_workspace.status_code == 404
+    # Task should still exist after failed deletion attempt
+    still_exists = await db.get_task(work["id"], workspace="work")
+    assert still_exists is not None
 
     right_workspace = await client.delete(f"/tasks/{work['id']}?workspace=work")
     assert right_workspace.status_code == 200
@@ -222,6 +225,9 @@ async def test_api_operator_handoff_requires_matching_workspace(client):
 
     assert wrong_workspace.status_code == 404
     assert right_workspace.status_code == 200
+    body = right_workspace.json()
+    assert body["task_id"] == work["id"]
+    assert body["title"] == "Work"
 
 
 @pytest.mark.asyncio
