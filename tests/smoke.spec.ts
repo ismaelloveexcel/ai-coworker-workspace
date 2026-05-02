@@ -3,6 +3,9 @@ import { test, expect } from '@playwright/test';
 test('homepage loads with app title', async ({ page }) => {
   await page.goto('/');
   await expect(page).toHaveTitle(/AI Coworker/);
+  await expect(page.getByRole('heading', { name: 'AI Coworker Command Center' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Factory Line' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Run Agent' })).toBeVisible();
 });
 
 test('/success?test=1 returns task complete message', async ({ page }) => {

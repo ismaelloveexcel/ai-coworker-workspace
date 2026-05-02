@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { URL } from 'url';
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT ?? 3000);
 
 function escapeHtml(s: string): string {
   return s
