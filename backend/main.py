@@ -34,6 +34,7 @@ from backend.events import subscribe, unsubscribe
 from backend.notifier import notify_task_failure
 from backend.recipes import list_recipes, normalize_workspace
 from backend.supervisor import plan_task
+from backend.operator_studio import artifact_index, handoff_summary, recipe_catalog, run_history
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +624,47 @@ async def list_tasks(
     """Paginated task list (F29)."""
     tasks = await db.list_tasks(limit=limit, offset=offset, workspace=workspace)
     return {"tasks": tasks, "workspace": workspace, "limit": limit, "offset": offset, "count": len(tasks), "max_task_usd": settings.max_task_usd}
+
+
+@app.get("/operator/recipes", dependencies=[Depends(require_auth)])
+async def operator_recipes(category: str = Query(default="")):
+    """Built-in recipe previews for the operator studio."""
+    return recipe_catalog(category=category)
+
+
+@app.get("/operator/run-history", dependencies=[Depends(require_auth)])
+async def operator_run_history(
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """Recent task runs summarized for fast operator review."""
+    tasks = await db.list_tasks(limit=limit, offset=offset)
+    data = run_history(tasks)
+    data.update({"limit": limit, "offset": offset})
+    return data
+
+
+@app.get("/operator/artifacts", dependencies=[Depends(require_auth)])
+async def operator_artifacts(
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """Derived artifact index backed by task runs until artifact tables land."""
+    tasks = await db.list_tasks(limit=limit, offset=offset)
+    data = artifact_index(tasks)
+    data.update({"limit": limit, "offset": offset})
+    return data
+
+
+@app.get("/operator/handoff/{task_id}", dependencies=[Depends(require_auth)])
+async def operator_handoff(task_id: str):
+    """Traceable handoff summary for a single task."""
+    task = await db.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    steps = await db.get_steps(task_id)
+    logs = await db.get_logs(task_id)
+    return handoff_summary(task, steps, logs)
 
 
 @app.get("/tasks/{task_id}", dependencies=[Depends(require_auth)])
