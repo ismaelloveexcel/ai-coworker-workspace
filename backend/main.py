@@ -143,14 +143,17 @@ async def _reap_zombie_tasks() -> None:
 def _recovery_note_for_interrupted_task(task: Dict) -> str:
     branch = task.get("branch")
     pr_url = task.get("pr_url")
-    if pr_url:
+    checkpoint = task.get("checkpoint_phase")
+    if pr_url or checkpoint == "post_pr":
+        url_str = f": {pr_url}" if pr_url else " (URL not saved; check GitHub)"
         return (
-            f"Backend restarted while this task was running. A PR already exists: {pr_url}. "
+            f"Backend restarted while this task was running. A PR already exists{url_str}. "
             "Review that PR before retrying."
         )
-    if branch:
+    if branch or checkpoint == "post_branch":
+        branch_str = branch if branch else "(branch name not saved; check GitHub)"
         return (
-            f"Backend restarted before this task completed. Branch {branch!r} may contain partial work; "
+            f"Backend restarted before this task completed. Branch {branch_str!r} may contain partial work; "
             "review the branch before retrying."
         )
     return "Backend restarted before branch creation completed. No task branch is known; retry the task if needed."
@@ -175,7 +178,14 @@ async def _reconcile_interrupted_tasks() -> None:
             reconciled_at=db._now(),
         )
         await db.add_log(task_id, "warning", f"{reason}: {note}")
-        log.warning("task_reconciled_after_restart", task_id=task_id, repo=repo, branch=task.get("branch"), pr_url=task.get("pr_url"))
+        log.warning(
+            "task_reconciled_after_restart",
+            task_id=task_id,
+            repo=repo,
+            branch=task.get("branch"),
+            pr_url=task.get("pr_url"),
+            checkpoint_phase=task.get("checkpoint_phase"),
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -127,6 +127,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_workspace_status ON tasks (workspace, statu
 _MIGRATIONS.append(_SCHEMA_V4)
 
 _SCHEMA_V5 = """
+ALTER TABLE tasks ADD COLUMN checkpoint_phase TEXT NULL;
 ALTER TABLE tasks ADD COLUMN started_at TEXT NULL;
 ALTER TABLE tasks ADD COLUMN ended_at TEXT NULL;
 ALTER TABLE tasks ADD COLUMN failure_category TEXT NULL;
@@ -152,7 +153,7 @@ VALID_FAILURE_CATEGORIES = frozenset({
 _TASK_UPDATABLE = frozenset({
     "status", "pr_url", "error", "updated_at", "heartbeat_at", "usd_spent",
     "branch", "current_step", "last_action", "last_tool", "recovery_note", "reconciled_at",
-    "workspace", "started_at", "ended_at", "failure_category",
+    "workspace", "checkpoint_phase", "started_at", "ended_at", "failure_category",
 })
 _STEP_UPDATABLE = frozenset({"status", "tool_name", "tool_input", "tool_output", "reasoning", "updated_at"})
 _ARTIFACT_TYPES = frozenset({
