@@ -104,8 +104,8 @@ class TestHardCodedStateCheck:
         # The agent-supervisor element must start in 'idle', not 'active'
         match = re.search(r'id="agent-supervisor"', html)
         assert match, "agent-supervisor element not found"
-        # Check the surrounding context (within 200 chars) for the class value
-        context = html[max(0, match.start() - 100): match.start() + 100]
+        # Check context around the id for the class value
+        context = html[max(0, match.start() - 100): match.end() + 100]
         assert 'agent-char idle' in context, (
             "agent-supervisor must start in 'idle' class, not 'active'. "
             f"Context: {context!r}"

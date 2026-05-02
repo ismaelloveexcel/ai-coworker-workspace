@@ -697,7 +697,10 @@
     if (running.length > 0) {
       // Use the first running task; prefer the one being actively streamed
       const task = running[0];
-      // live SSE tool beats persisted last_tool
+      // activeToolByTask is updated in real-time from SSE tool_start/tool_done events
+      // and takes precedence over the DB-persisted last_tool field (which lags by one
+      // round-trip). This ensures the agent highlight reflects the live execution state,
+      // not a snapshot from the last API poll.
       const currentTool = activeToolByTask[task.id] || task.last_tool || '';
       const workingAgent = toolToAgent(currentTool);
 
