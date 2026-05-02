@@ -502,6 +502,19 @@ async def summary(workspace: str = Depends(_workspace_query)):
     return await db.get_summary(workspace=workspace)
 
 
+@app.get("/metrics", dependencies=[Depends(require_auth)])
+async def metrics(
+    window: int = Query(default=24, ge=1, le=168, description="Lookback window in hours (1-168)"),
+):
+    """Return aggregated reliability and cost metrics for the given time window (A1).
+
+    Supports any window from 1h to 168h (7 days).
+    Returns success_rate, failure_rate, latency stats, failure_category distribution,
+    and cost summary derived from explicit schema fields.
+    """
+    return await db.get_metrics(window_hours=window)
+
+
 @app.post("/artifacts", status_code=201, dependencies=[Depends(require_auth)])
 async def create_artifact(req: ArtifactCreateRequest):
     if req.task_id:
