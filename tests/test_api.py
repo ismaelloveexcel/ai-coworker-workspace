@@ -121,7 +121,7 @@ async def test_create_task_rate_limit_rejects_second_request(client, monkeypatch
 
     assert first.status_code == 201
     assert second.status_code == 429
-    assert "rate limit" in second.json()["detail"].lower()
+    assert "too quickly" in second.json()["detail"].lower() or "wait" in second.json()["detail"].lower()
 
 
 @pytest.mark.asyncio
@@ -393,7 +393,6 @@ async def test_sse_stream_includes_seq_id_line():
             break
 
     body = "".join(chunks)
-    # SSE id: line should be present with a numeric sequence
     assert "id: " in body, "SSE stream must include id: line with sequence number"
     await resp.body_iterator.aclose()
     destroy_bus(task["id"])
@@ -413,12 +412,10 @@ async def test_sse_stream_warning_event_appears_on_overflow():
     task = await db.create_task("SSE overflow test", "prompt")
     resp = await stream_task(task["id"], ConnectedRequest(), workspace="personal")
 
-    # Flood the queue to trigger overflow
     for i in range(MAX_QUEUE + 2):
         await emit(task["id"], "log", {"i": i})
     await emit(task["id"], "task_done", {})
 
-    # Drain all chunks until task_done to get the full picture
     chunks = []
     async for chunk in resp.body_iterator:
         if isinstance(chunk, bytes):
@@ -432,4 +429,75 @@ async def test_sse_stream_warning_event_appears_on_overflow():
     assert "dropped" in body, "stream_warning data must include dropped count"
     await resp.body_iterator.aclose()
     destroy_bus(task["id"])
+
+
+# ---------------------------------------------------------------------------
+# PR-C2: solo flow — error message wording tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_auth_error_message_is_actionable(client, monkeypatch):
+    """401 message guides the user to set their API key."""
+    monkeypatch.setattr("backend.main.settings.api_key", "secret-token")
+    r = await client.post("/tasks", json={"title": "t", "prompt": "p"})
+    assert r.status_code == 401
+    detail = r.json()["detail"].lower()
+    assert "api key" in detail
+
+
+@pytest.mark.asyncio
+async def test_concurrency_conflict_message_is_actionable(client, monkeypatch):
+    """409 message tells the user to wait for the current task to finish."""
+    started = asyncio.Event()
+
+    async def long_running(_task_id):
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("backend.main.settings.max_concurrent_tasks", 1)
+    with patch("backend.main.run_task", side_effect=long_running):
+        first = await client.post("/tasks", json={"title": "one", "prompt": "p"})
+        await started.wait()
+        second = await client.post("/tasks", json={"title": "two", "prompt": "p"})
+
+    assert first.status_code == 201
+    assert second.status_code == 409
+    detail = second.json()["detail"].lower()
+    assert "finish" in detail or "wait" in detail or "active" in detail
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_message_is_actionable(client, monkeypatch):
+    """429 rate-limit message tells the user to wait before retrying."""
+    monkeypatch.setattr("backend.main.settings.max_concurrent_tasks", 10)
+    monkeypatch.setattr("backend.main.settings.task_create_rate_limit_count", 1)
+    monkeypatch.setattr("backend.main.settings.task_create_rate_limit_window_seconds", 30)
+
+    with patch("backend.main.run_task", new=AsyncMock()):
+        first = await client.post("/tasks", json={"title": "one", "prompt": "p"})
+        second = await client.post("/tasks", json={"title": "two", "prompt": "p"})
+
+    assert first.status_code == 201
+    assert second.status_code == 429
+    detail = second.json()["detail"].lower()
+    assert "wait" in detail
+
+
+@pytest.mark.asyncio
+async def test_oversized_request_message_is_actionable(client, monkeypatch):
+    """413 message tells the user to shorten their brief."""
+    monkeypatch.setattr("backend.main.settings.task_request_max_bytes", 20)
+    r = await client.post("/tasks", json={"title": "large", "prompt": "payload"})
+    assert r.status_code == 413
+    detail = r.json()["detail"].lower()
+    assert "shorten" in detail or "too long" in detail
+
+
+@pytest.mark.asyncio
+async def test_create_task_title_defaults_to_prompt_first_line_when_omitted(client):
+    """When title field is blank, sanitize_title returns '(untitled)' so the task is still created."""
+    with patch("backend.main.run_task", new=AsyncMock()):
+        r = await client.post("/tasks", json={"title": "", "prompt": "my task description"})
+    assert r.status_code == 201
+    assert r.json()["title"] == "(untitled)"
 
