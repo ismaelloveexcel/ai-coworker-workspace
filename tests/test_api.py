@@ -121,7 +121,7 @@ async def test_create_task_rate_limit_rejects_second_request(client, monkeypatch
 
     assert first.status_code == 201
     assert second.status_code == 429
-    assert "rate limit" in second.json()["detail"].lower()
+    assert "too quickly" in second.json()["detail"].lower() or "wait" in second.json()["detail"].lower()
 
 
 @pytest.mark.asyncio
@@ -362,3 +362,76 @@ async def test_get_task_not_found(client):
 async def test_prompt_too_long(client):
     r = await client.post("/tasks", json={"title": "t", "prompt": "x" * 8001})
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# PR-C2: solo flow — error message wording tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_auth_error_message_is_actionable(client, monkeypatch):
+    """401 message guides the user to set their API key."""
+    monkeypatch.setattr("backend.main.settings.api_key", "secret-token")
+    r = await client.post("/tasks", json={"title": "t", "prompt": "p"})
+    assert r.status_code == 401
+    detail = r.json()["detail"].lower()
+    assert "api key" in detail
+
+
+@pytest.mark.asyncio
+async def test_concurrency_conflict_message_is_actionable(client, monkeypatch):
+    """409 message tells the user to wait for the current task to finish."""
+    started = asyncio.Event()
+
+    async def long_running(_task_id):
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("backend.main.settings.max_concurrent_tasks", 1)
+    with patch("backend.main.run_task", side_effect=long_running):
+        first = await client.post("/tasks", json={"title": "one", "prompt": "p"})
+        await started.wait()
+        second = await client.post("/tasks", json={"title": "two", "prompt": "p"})
+
+    assert first.status_code == 201
+    assert second.status_code == 409
+    detail = second.json()["detail"].lower()
+    assert "finish" in detail or "wait" in detail or "active" in detail
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_message_is_actionable(client, monkeypatch):
+    """429 rate-limit message tells the user to wait before retrying."""
+    monkeypatch.setattr("backend.main.settings.max_concurrent_tasks", 10)
+    monkeypatch.setattr("backend.main.settings.task_create_rate_limit_count", 1)
+    monkeypatch.setattr("backend.main.settings.task_create_rate_limit_window_seconds", 30)
+
+    with patch("backend.main.run_task", new=AsyncMock()):
+        first = await client.post("/tasks", json={"title": "one", "prompt": "p"})
+        second = await client.post("/tasks", json={"title": "two", "prompt": "p"})
+
+    assert first.status_code == 201
+    assert second.status_code == 429
+    detail = second.json()["detail"].lower()
+    # Message should mention a wait period and guide the user to retry
+    assert "wait" in detail or "30" in detail
+
+
+@pytest.mark.asyncio
+async def test_oversized_request_message_is_actionable(client, monkeypatch):
+    """413 message tells the user to shorten their brief."""
+    monkeypatch.setattr("backend.main.settings.task_request_max_bytes", 20)
+    r = await client.post("/tasks", json={"title": "large", "prompt": "payload"})
+    assert r.status_code == 413
+    detail = r.json()["detail"].lower()
+    assert "shorten" in detail or "too long" in detail
+
+
+@pytest.mark.asyncio
+async def test_create_task_title_defaults_to_prompt_first_line_when_omitted(client):
+    """When title field is blank, sanitize_title returns '(untitled)' so the task is still created."""
+    with patch("backend.main.run_task", new=AsyncMock()):
+        r = await client.post("/tasks", json={"title": "", "prompt": "my task description"})
+    assert r.status_code == 201
+    assert r.json()["title"] == "(untitled)"
+

@@ -206,9 +206,11 @@ async def enforce_task_request_size(request: Request, call_next):
             except ValueError:
                 size = 0
             if size > settings.task_request_max_bytes:
+                kb = settings.task_request_max_bytes // 1024 or settings.task_request_max_bytes
+                unit = "KB" if settings.task_request_max_bytes >= 1024 else "bytes"
                 return JSONResponse(
                     status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                    content={"detail": f"Task request body must be <= {settings.task_request_max_bytes} bytes"},
+                    content={"detail": f"Mission brief is too long (over {kb} {unit}). Please shorten it and try again."},
                 )
     return await call_next(request)
 
@@ -243,7 +245,7 @@ async def require_auth(request: Request) -> None:
     if token_param and token_param == settings.api_key and _is_sse_stream_request(request):
         return
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Invalid or missing Bearer token")
+                        detail="API key required — enter your key in the settings panel to continue.")
 
 
 def _task_create_rate_limit_key(request: Request) -> str:
@@ -269,7 +271,7 @@ async def _check_task_create_rate_limit(request: Request) -> None:
         if len(entries) >= limit:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Task creation rate limit exceeded: {limit} per {window} seconds",
+                detail=f"Tasks are being created too quickly — please wait {window} seconds and try again.",
             )
         entries.append(now)
 
@@ -300,7 +302,7 @@ async def _create_and_start_task(req) -> Dict:
     if active_count >= settings.max_concurrent_tasks:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Too many active tasks in workspace {req.workspace!r} ({active_count}/{settings.max_concurrent_tasks}). Retry when one finishes.",
+            detail=f"A task is already active in this workspace ({active_count}/{settings.max_concurrent_tasks}). Wait for it to finish, then try again.",
         )
     task = await db.create_task(req.title, req.prompt, req.repo_url, workspace=req.workspace)
     task_id = task["id"]
