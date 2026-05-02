@@ -321,6 +321,15 @@ async def get_steps(task_id: str) -> List[Dict]:
     return [dict(r) for r in rows]
 
 
+async def get_step(task_id: str, step_id: str) -> Optional[Dict]:
+    """Fetch a single step scoped to task_id (prevents cross-task access)."""
+    async with _get_db() as db:
+        row = await (await db.execute(
+            "SELECT * FROM steps WHERE id=? AND task_id=?", (step_id, task_id)
+        )).fetchone()
+    return dict(row) if row else None
+
+
 # ---------------------------------------------------------------------------
 # Logs
 # ---------------------------------------------------------------------------

@@ -281,6 +281,59 @@
       .char-sprite { font-size: 2.4rem; }
       .rune-floor { min-height: 260px; }
     }
+
+    /* PR-C1: Step inspection panel */
+    .step-panel-hdr {
+      font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--muted); padding: 0 0 4px;
+    }
+    .step-list { display: grid; gap: 5px; }
+    .step-row {
+      border: 1px solid var(--border); border-radius: 7px;
+      background: #0f0d0a; overflow: hidden;
+    }
+    .step-hdr {
+      display: flex; align-items: center; gap: 7px;
+      padding: 5px 8px; cursor: pointer;
+      transition: background .15s;
+      font-family: 'Share Tech Mono', monospace; font-size: 0.7rem;
+    }
+    .step-hdr:hover { background: rgba(255,255,255,0.04); }
+    .step-num { color: var(--muted); min-width: 22px; flex-shrink: 0; }
+    .step-tool { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .step-status { font-size: 0.62rem; padding: 2px 6px; flex-shrink: 0; }
+    .btn-expand {
+      border: 1px solid var(--border); border-radius: 4px; padding: 0 5px;
+      background: var(--stone-2); color: var(--muted); font-size: 0.65rem;
+      cursor: pointer; flex-shrink: 0; transition: border-color .15s, color .15s;
+      font-family: 'Share Tech Mono', monospace;
+    }
+    .btn-expand:hover { border-color: var(--border-light); color: var(--text); }
+    .step-detail {
+      display: none; border-top: 1px solid var(--border);
+      padding: 8px 9px; flex-direction: column; gap: 7px;
+    }
+    .step-detail.open { display: flex; }
+    .step-detail-section { display: flex; flex-direction: column; gap: 4px; }
+    .step-detail-label {
+      font-size: 0.63rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.07em; color: var(--muted);
+      display: flex; align-items: center; justify-content: space-between; gap: 4px;
+    }
+    .step-raw {
+      background: #080604; border: 1px solid var(--border); border-radius: 5px;
+      padding: 7px 8px; max-height: 220px; overflow-y: auto;
+      font-family: 'Share Tech Mono', monospace; font-size: 0.67rem; color: #c5c5d3;
+      white-space: pre-wrap; word-break: break-all; line-height: 1.4;
+      transition: max-height .2s;
+    }
+    .btn-raw {
+      border: 1px solid var(--border); border-radius: 4px; padding: 1px 7px;
+      background: var(--stone-2); color: var(--muted); font-size: 0.6rem;
+      transition: border-color .15s, color .15s; cursor: pointer;
+    }
+    .btn-raw:hover { border-color: var(--border-light); color: var(--text); }
+    .btn-raw.active { border-color: var(--amber-dim); color: var(--amber); }
   </style>
 </head>
 <body>
@@ -552,6 +605,8 @@
           <p id="selected-id" class="task-id">Select a quest from the board.</p>
         </div>
         <div class="artifact-list" id="artifact-list"></div>
+        <div class="step-panel-hdr" id="step-panel-hdr" style="display:none">&#x2692;&#xFE0F; Steps</div>
+        <div id="step-panel" class="step-list"></div>
         <div id="log-panel" class="log-box" aria-live="polite"></div>
       </div>
     </aside>
@@ -601,7 +656,8 @@
 
   const API = '/api';
   const terminalStatuses = new Set(['done','failed','cancelled']);
-  let tasks = [], logsByTask = {}, activeStreams = {}, budgetCap = null, selectedTaskId = null, workspace = 'personal';
+  let tasks = [], logsByTask = {}, stepsByTask = {}, activeStreams = {}, budgetCap = null, selectedTaskId = null, workspace = 'personal';
+  const STEP_PREVIEW_CHARS = 400;
 
   function setWorkspace(next) {
     workspace = next;
@@ -674,11 +730,15 @@
     const idEl     = document.getElementById('selected-id');
     const logsEl   = document.getElementById('log-panel');
     const artEl    = document.getElementById('artifact-list');
+    const stepHdr  = document.getElementById('step-panel-hdr');
+    const stepPanel= document.getElementById('step-panel');
     if (!task) {
       statusEl.className = 'status status-pending'; statusEl.textContent = 'None';
       titleEl.textContent = 'No quest selected'; idEl.textContent = 'Select a quest from the board.';
       logsEl.innerHTML = '<p class="log-line">Awaiting the party&#x2026;</p>';
       artEl.innerHTML  = '<div class="artifact-chip">Treasures appear after handoff.</div>';
+      if (stepHdr)  stepHdr.style.display  = 'none';
+      if (stepPanel) stepPanel.innerHTML = '';
       return;
     }
     statusEl.className = statusClass(task.status); statusEl.textContent = task.status;
@@ -690,9 +750,97 @@
       ? '<a class="artifact-chip" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">&#x1F5E1;&#xFE0F; Pull Request Ready</a>'
       : '<div class="artifact-chip">PR handoff pending&#x2026;</div>';
     logsEl.scrollTop = logsEl.scrollHeight;
+    renderStepList(task.id);
+    if (stepHdr) stepHdr.style.display = '';
   }
 
-  function selectTask(id) { selectedTaskId = id; renderTasks(); }
+  /* PR-C1: tool I/O inspectability helpers */
+  const _TOOL_EMOJI = {
+    github_create_branch:'🌿', github_commit_files:'📦', github_create_pr:'📝',
+    github_read_file:'📖', github_list_files:'📂', github_compare_branch:'🔀',
+    filesystem_read:'📖', filesystem_write:'✏️', filesystem_list:'📂',
+    run_tests:'🧪', repo_snapshot:'📸', secret_scan:'🔒',
+    humanize_error:'💬', cost_status:'💰', playwright_browse:'🌐',
+    final_answer:'🏁', web_search:'🔍', fetch_url:'🌐',
+  };
+  function toolEmoji(name) { return _TOOL_EMOJI[name] || '⚙️'; }
+
+  function toggleRaw(btnId, blockId) {
+    const btn   = document.getElementById(btnId);
+    const block = document.getElementById(blockId);
+    if (!btn || !block) return;
+    const expanded = btn.classList.toggle('active');
+    btn.setAttribute('aria-pressed', expanded ? 'true' : 'false');
+    block.style.maxHeight = expanded ? '600px' : '220px';
+    btn.textContent = expanded ? 'Collapse' : 'Raw';
+  }
+
+  function toggleStepDetail(rowId) {
+    const row = document.getElementById(rowId);
+    if (!row) return;
+    const det = row.querySelector('.step-detail');
+    if (!det) return;
+    const open = det.classList.toggle('open');
+    const btn = row.querySelector('.btn-expand');
+    if (btn) btn.textContent = open ? '▾' : '▸';
+  }
+
+  function _renderStepField(step, field) {
+    const val = step[field];
+    if (!val) return '';
+    const truncated = (step._truncated_fields || []).includes(field);
+    const preview = val.length > STEP_PREVIEW_CHARS ? val.slice(0, STEP_PREVIEW_CHARS) + '\u2026' : val;
+    const label = field.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+    const blockId = 'sblk-' + escHtml(step.id) + '-' + field;
+    const btnId   = 'sbtn-' + escHtml(step.id) + '-' + field;
+    return '<div class="step-detail-section">'
+      + '<div class="step-detail-label">'
+      + '<span>' + escHtml(label) + (truncated ? ' \u26a0\ufe0f truncated' : '') + '</span>'
+      + '<button class="btn-raw" id="' + btnId + '" type="button"'
+      + ' onclick="toggleRaw(\'' + btnId + '\',\'' + blockId + '\')" aria-pressed="false">Raw</button>'
+      + '</div>'
+      + '<pre id="' + blockId + '" class="step-raw">' + escHtml(preview) + '</pre>'
+      + '</div>';
+  }
+
+  function renderStepList(taskId) {
+    const panel = document.getElementById('step-panel');
+    if (!panel) return;
+    const steps = stepsByTask[taskId] || [];
+    if (!steps.length) {
+      panel.innerHTML = '<p class="log-line" style="font-family:\'Share Tech Mono\',monospace;font-size:0.72rem">No steps recorded yet.</p>';
+      return;
+    }
+    panel.innerHTML = steps.map(step => {
+      const rowId = 'srow-' + escHtml(step.id);
+      const fields = ['tool_input','tool_output','reasoning'].filter(f => step[f]);
+      const hasDetail = fields.length > 0;
+      const emoji = toolEmoji(step.tool_name);
+      return '<div class="step-row" id="' + rowId + '">'
+        + '<div class="step-hdr" onclick="toggleStepDetail(\'' + rowId + '\')">'
+        + '<span class="step-num">#' + escHtml(String(step.step_num + 1)) + '</span>'
+        + '<span class="step-tool">' + escHtml(emoji + '\u00a0' + (step.tool_name || '\u2014')) + '</span>'
+        + '<span class="' + statusClass(step.status) + ' step-status">' + escHtml(step.status) + '</span>'
+        + (hasDetail ? '<button class="btn-expand" aria-label="Toggle step detail">▸</button>' : '')
+        + '</div>'
+        + (hasDetail
+          ? '<div class="step-detail">' + fields.map(f => _renderStepField(step, f)).join('') + '</div>'
+          : '')
+        + '</div>';
+    }).join('');
+  }
+
+  async function loadTaskDetail(taskId) {
+    try {
+      const res = await fetch(API + '/tasks/' + encodeURIComponent(taskId), {headers: readHeaders(false)});
+      if (!res.ok) return;
+      const d = await res.json();
+      stepsByTask[taskId] = d.steps || [];
+      if (selectedTaskId === taskId) renderStepList(taskId);
+    } catch {}
+  }
+
+  function selectTask(id) { selectedTaskId = id; renderTasks(); loadTaskDetail(id); }
 
   function mergeTask(task) {
     const i = tasks.findIndex(t => t.id === task.id);
@@ -757,7 +905,7 @@
         let d = {}; try { d = JSON.parse(ev.data); } catch {}
         if (type === 'log')        addLog(taskId, d.message||'', d.level||'info');
         if (type === 'tool_start') addLog(taskId, '\u2692 Tool: ' + (d.tool||''), 'info');
-        if (type === 'tool_done')  addLog(taskId, '\u2713 Done: ' + (d.tool||'') + ' [' + (d.success ? 'ok' : 'fail') + ']', d.success ? 'info' : 'error');
+        if (type === 'tool_done')  { addLog(taskId, '\u2713 Done: ' + (d.tool||'') + ' [' + (d.success ? 'ok' : 'fail') + ']', d.success ? 'info' : 'error'); if (selectedTaskId === taskId) loadTaskDetail(taskId); }
         if (type === 'task_done')      patchTask(taskId, {status:'done',      pr_url:d.pr_url});
         if (type === 'task_failed')    patchTask(taskId, {status:'failed',    error:d.error, pr_url:d.pr_url});
         if (type === 'task_cancelled') patchTask(taskId, {status:'cancelled'});
@@ -791,6 +939,7 @@
         ? tasks.length + ' quest' + (tasks.length === 1 ? '' : 's') + ' on the board'
         : 'Tavern is open \u2014 no quests yet';
       renderTasks();
+      if (selectedTaskId) loadTaskDetail(selectedTaskId);
     } catch { document.getElementById('conn-status').textContent = 'Tavern is closed\u2026'; renderTasks(); }
   }
 
