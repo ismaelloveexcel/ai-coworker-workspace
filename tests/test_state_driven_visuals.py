@@ -102,9 +102,6 @@ class TestHardCodedStateCheck:
         import pathlib, re
         html = pathlib.Path("frontend/index.html").read_text()
         # The agent-supervisor element must start in 'idle', not 'active'
-        pattern = re.compile(r'id="agent-supervisor"[^>]*class="agent-char ([^"]+)"'
-                             r'|class="agent-char ([^"]+)"[^>]*id="agent-supervisor"')
-        # Search around the id
         match = re.search(r'id="agent-supervisor"', html)
         assert match, "agent-supervisor element not found"
         # Check the surrounding context (within 200 chars) for the class value
@@ -261,7 +258,6 @@ async def test_tool_events_emitted_on_sse_stream(client):
 @pytest.mark.asyncio
 async def test_heartbeat_emitted_as_keepalive(client):
     """SSE stream emits heartbeat events on idle intervals."""
-    import asyncio
     from backend import db
     from backend.events import subscribe, destroy_bus
 

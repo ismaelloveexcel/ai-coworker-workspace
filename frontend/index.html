@@ -237,7 +237,7 @@
     .stream-dot.stale  { background: var(--rose); }
     .stream-dot.closed { background: var(--muted); }
 
-    /* Detail rail
+    /* Detail rail */
     .details { display: grid; gap: 11px; padding: 13px; }
     .log-box {
       min-height: 240px; max-height: 380px; overflow-y: auto;
@@ -302,7 +302,7 @@
       .agent-char.active  .char-sprite,
       .agent-char.active  .char-orb,
       .agent-char.active  .char-status-dot,
-      .agent-char         ,
+      .agent-char:hover,
       .lantern-ambient,
       .stream-dot.live,
       .budget-bar-fill { animation: none !important; transition: none !important; }
@@ -767,20 +767,6 @@
     updateMetrics(); renderSelectedTask();
   }
 
-  function renderSelectedTask() {
-    const task = tasks.find(t => t.id === selectedTaskId) || null;
-    const statusEl = document.getElementById('selected-status');
-    const titleEl  = document.getElementById('selected-title');
-    const idEl     = document.getElementById('selected-id');
-    const logsEl   = document.getElementById('log-panel');
-    const artEl    = document.getElementById('artifact-list');
-    if (!task) {
-      statusEl.className = 'status status-pending'; statusEl.textContent = 'None';
-      titleEl.textContent = 'No quest selected'; idEl.textContent = 'Select a quest from the board.';
-      logsEl.innerHTML = '<p class="log-line">Awaiting the party&#x2026;</p>';
-      artEl.innerHTML  = '<div class="artifact-chip">Treasures appear after handoff.</div>';
-      return;
-    }
   function _updateStreamStatusRow(task) {
     const row  = document.getElementById('stream-status-row');
     const dot  = document.getElementById('stream-dot');
