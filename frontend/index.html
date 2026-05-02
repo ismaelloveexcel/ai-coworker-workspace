@@ -1,765 +1,835 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Coworker</title>
+  <title>The Coworker Tavern</title>
   <style>
-    :root {
-      --bg: #101114;
-      --panel: #181a1f;
-      --panel-2: #202329;
-      --line: #333842;
-      --text: #f4f1ea;
-      --muted: #a9adb7;
-      --teal: #4fd1c5;
-      --amber: #f6c453;
-      --rose: #f08484;
-      --green: #77d68d;
-      --ink: #0d0f12;
-      --shadow: 0 18px 45px rgba(0, 0, 0, 0.32);
-    }
+    @import url('https://fonts.googleapis.com/css2?family=MedievalSharp&family=IM+Fell+English:ital@0;1&family=Share+Tech+Mono&display=swap');
 
-    * { box-sizing: border-box; }
-    html { color-scheme: dark; }
+    :root {
+      /* nocturnal-revival palette — gameforge-mobile/src/design-tokens/theme.ts */
+      --bg: #0D0D1A;
+      --stone: #1A1A2E;
+      --stone-2: #16213E;
+      --stone-3: #2A2556;
+      --border: #4A3F6B;
+      --border-light: #6B5A9E;
+      --text: #F5F5F5;
+      --muted: #7A7A8C;
+      --amber: #F4B942;
+      --amber-dim: #C47D10;
+      --ember: #FF6B2C;
+      --green: #7ec88a;
+      --rose: #d96060;
+      --teal: #7FDBDA;
+      --gold: #F4B942;
+      --gold-dim: #9A6E10;
+      --ink: #0A0A14;
+      --shadow: 0 24px 60px rgba(0,0,0,0.8);
+      --glow-amber: 0 0 24px rgba(244,185,66,0.45);
+      --glow-teal: 0 0 20px rgba(127,219,218,0.4);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { color-scheme: dark; scroll-behavior: smooth; }
+
     body {
       margin: 0;
       min-height: 100vh;
       background: var(--bg);
       color: var(--text);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      letter-spacing: 0;
+      font-family: 'IM Fell English', Georgia, serif;
+      background-image:
+        radial-gradient(ellipse 80% 60% at 50% 0%, rgba(180,100,20,0.10) 0%, transparent 70%),
+        repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(74,63,47,0.15) 40px),
+        repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(74,63,47,0.15) 40px);
     }
 
-    button, input, textarea { font: inherit; letter-spacing: 0; }
+    button, input, textarea { font-family: inherit; }
     button { cursor: pointer; }
+    h1, h2, h3, h4, p { margin: 0; }
 
-    .shell {
-      min-height: 100vh;
-      display: grid;
-      grid-template-rows: auto 1fr;
-    }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--stone); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
+    .shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+
+    /* Topbar */
     .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 18px;
-      padding: 18px clamp(16px, 3vw, 34px);
-      border-bottom: 1px solid var(--line);
-      background: rgba(16, 17, 20, 0.94);
-      position: sticky;
-      top: 0;
-      z-index: 5;
-      backdrop-filter: blur(12px);
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 14px clamp(14px, 3vw, 32px);
+      background: linear-gradient(180deg, #1a100a 0%, #110e09 100%);
+      border-bottom: 3px solid var(--border);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(212,168,67,0.2);
+      position: sticky; top: 0; z-index: 10;
     }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      min-width: 0;
+    .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+    .tavern-sign {
+      width: 44px; height: 44px; display: grid; place-items: center;
+      background: radial-gradient(circle at 35% 35%, #6b4a1c, #2e1e08);
+      border: 2px solid var(--gold-dim); border-radius: 8px; font-size: 1.4rem;
+      box-shadow: var(--glow-amber), inset 0 0 12px rgba(0,0,0,0.5);
     }
-
-    .mark {
-      width: 34px;
-      height: 34px;
-      display: grid;
-      place-items: center;
-      border: 1px solid var(--line);
-      background: var(--panel-2);
-      border-radius: 8px;
-      color: var(--teal);
-      font-weight: 800;
+    .brand-text h1 {
+      font-family: 'MedievalSharp','IM Fell English',serif;
+      font-size: clamp(1rem, 2.2vw, 1.5rem);
+      color: var(--gold); text-shadow: 0 0 12px rgba(212,168,67,0.5); letter-spacing: 0.03em;
     }
-
-    h1, h2, h3, p { margin: 0; }
-    h1 { font-size: clamp(1.1rem, 2.4vw, 1.65rem); line-height: 1.15; }
-    h2 { font-size: 0.92rem; color: var(--text); }
-    h3 { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
-
-    .top-actions {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 10px;
-      flex-wrap: wrap;
+    .brand-sub { font-size: 0.75rem; color: var(--muted); font-style: italic; }
+    .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .inn-stat {
+      display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px;
+      background: var(--stone-2); border: 1px solid var(--border); border-radius: 6px;
+      font-size: 0.75rem; color: var(--muted); white-space: nowrap;
     }
-
-    .metric {
-      min-height: 34px;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 10px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel);
-      color: var(--muted);
-      font-size: 0.78rem;
-      white-space: nowrap;
+    .inn-stat strong { color: var(--amber); font-weight: 700; }
+    .btn-refresh {
+      min-height: 34px; padding: 6px 12px; background: var(--stone-3);
+      border: 1px solid var(--border-light); border-radius: 6px; color: var(--text);
+      font-size: 0.8rem; letter-spacing: 0.03em; transition: background .15s, border-color .15s;
     }
+    .btn-refresh:hover { background: var(--border); border-color: var(--gold-dim); }
 
-    .metric strong { color: var(--text); font-weight: 700; }
-
+    /* Layout */
     .layout {
       display: grid;
-      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) minmax(260px, 340px);
-      gap: 16px;
-      padding: clamp(16px, 3vw, 34px);
-      align-items: start;
+      grid-template-columns: minmax(270px, 340px) minmax(0, 1fr) minmax(260px, 330px);
+      gap: 16px; padding: clamp(14px, 2.5vw, 28px); align-items: start;
     }
 
+    /* Stone panel */
     .panel {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      box-shadow: var(--shadow);
-      min-width: 0;
+      background: linear-gradient(160deg, #1e1b16 0%, #161310 100%);
+      border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.03); overflow: hidden;
+    }
+    .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 14px 0; }
+    .panel-title {
+      font-family: 'MedievalSharp',serif; font-size: 0.88rem; color: var(--gold);
+      letter-spacing: 0.04em; text-shadow: 0 0 8px rgba(212,168,67,0.3);
     }
 
-    .panel-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 14px 14px 0;
-    }
-
-    .intake { padding: 14px; display: grid; gap: 12px; }
-    .field { display: grid; gap: 6px; }
-    .field label { color: var(--muted); font-size: 0.74rem; font-weight: 700; text-transform: uppercase; }
-
+    /* Intake */
+    .intake { padding: 14px; display: grid; gap: 13px; }
+    .field { display: grid; gap: 5px; }
+    .field label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
     input, textarea {
-      width: 100%;
-      border: 1px solid var(--line);
-      background: #111318;
-      color: var(--text);
-      border-radius: 8px;
-      padding: 10px 11px;
-      outline: none;
+      width: 100%; border: 1px solid var(--border); background: #0f0d0b; color: var(--text);
+      border-radius: 7px; padding: 9px 11px; outline: none; font-family: inherit;
+      font-size: 0.88rem; transition: border-color .15s, box-shadow .15s;
+    }
+    textarea { resize: vertical; min-height: 120px; }
+    input:focus, textarea:focus { border-color: var(--amber-dim); box-shadow: 0 0 0 3px rgba(232,168,50,0.12); }
+    .workspace-tabs {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px;
+      border: 1px solid var(--border); border-radius: 8px; background: #0f0d0b;
+    }
+    .ws-tab { min-height: 32px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: 0.82rem; letter-spacing: 0.04em; transition: background .15s, color .15s; }
+    .ws-tab.active { background: linear-gradient(135deg,#5c3d10,#3d2808); color: var(--amber); box-shadow: var(--glow-amber); font-weight: 700; }
+    .btn-primary {
+      min-height: 40px; border-radius: 8px; border: 1px solid var(--amber-dim); padding: 9px 14px;
+      font-family: 'MedievalSharp',serif; font-size: 0.9rem; letter-spacing: 0.06em;
+      color: var(--ink); background: linear-gradient(135deg,#e8a832,#c47d18);
+      box-shadow: var(--glow-amber); transition: filter .15s;
+    }
+    .btn-primary:hover { filter: brightness(1.12); }
+    .btn-ghost, .btn-danger {
+      min-height: 34px; border-radius: 7px; border: 1px solid var(--border); padding: 6px 11px;
+      color: var(--text); background: var(--stone-2); font-size: 0.78rem; transition: border-color .15s;
+    }
+    .btn-ghost:hover { border-color: var(--border-light); }
+    .btn-danger { color: #ffcaca; border-color: rgba(217,96,96,0.4); }
+    .btn-danger:hover { border-color: var(--rose); }
+
+    /* Tavern center */
+    .tavern-center { display: grid; gap: 16px; min-width: 0; }
+    .tavern-floor { position: relative; padding: 14px; display: grid; gap: 14px; }
+
+    /* Tavern scene */
+    .rune-floor {
+      position: relative; min-height: 320px; border-radius: 10px; overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .rune-floor::before, .rune-floor::after { content: none; }
+    .scene-bg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+    /* Agents stand on scene — absolutely positioned */
+    .agents-row {
+      position: absolute; z-index: 2;
+      bottom: 20px; left: 0; right: 0;
+      display: flex; justify-content: center;
+      gap: clamp(14px, 4vw, 54px); padding: 0 32px;
+      align-items: flex-end;
     }
 
-    textarea { resize: vertical; min-height: 132px; }
-    input:focus, textarea:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(79, 209, 197, 0.12); }
+    /* Agent character — free-standing, no card box */
+    .agent-char { display: flex; flex-direction: column; align-items: center; gap: 2px; transition: transform .25s; }
+    .agent-char:hover { transform: translateY(-7px); }
 
-    .segmented {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 4px;
-      padding: 4px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #111318;
+    /* Name plate floats above sprite via order */
+    .char-nameplate {
+      order: -1;
+      padding: 1px 8px; background: rgba(10,9,26,0.82); backdrop-filter: blur(6px);
+      border: 1px solid rgba(244,185,66,0.35); border-radius: 3px; font-size: 0.58rem;
+      font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--amber); white-space: nowrap;
     }
 
-    .segment {
-      min-height: 34px;
-      border: 0;
-      border-radius: 6px;
-      color: var(--muted);
-      background: transparent;
+    .char-sprite {
+      font-size: 3.2rem; line-height: 1; display: block;
+      filter: drop-shadow(0 5px 12px rgba(0,0,0,0.85));
+      transition: filter .25s;
     }
+    .agent-char.idle    .char-sprite { animation: breathe 3.5s ease-in-out infinite; }
+    .agent-char.active  .char-sprite { animation: bobbing 1.2s ease-in-out infinite;
+      filter: drop-shadow(0 5px 12px rgba(0,0,0,0.85)) drop-shadow(0 0 16px rgba(127,219,218,0.6)); }
+    .agent-char.warning .char-sprite {
+      filter: drop-shadow(0 5px 12px rgba(0,0,0,0.85)) drop-shadow(0 0 12px rgba(244,185,66,0.55)); }
+    .agent-char.done    .char-sprite {
+      filter: drop-shadow(0 5px 12px rgba(0,0,0,0.85)) drop-shadow(0 0 10px rgba(126,200,138,0.45)); }
 
-    .segment.active { color: var(--ink); background: var(--teal); font-weight: 800; }
+    .char-orb { width: 34px; height: 8px; border-radius: 50%; filter: blur(3px); background: rgba(0,0,0,0.45); }
+    .agent-char.active  .char-orb { background: rgba(127,219,218,0.55); animation: orb-pulse 1.4s ease-in-out infinite; }
+    .agent-char.warning .char-orb { background: rgba(244,185,66,0.45); }
 
-    .primary, .ghost, .danger {
-      min-height: 38px;
-      border-radius: 8px;
-      border: 1px solid var(--line);
-      padding: 8px 12px;
-      color: var(--text);
-      background: var(--panel-2);
-      font-weight: 700;
-    }
+    .char-role { font-size: 0.6rem; color: var(--muted); font-style: italic; }
+    .char-status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+    .agent-char.active  .char-status-dot { background: var(--teal);  animation: glow-dot 1.4s ease-in-out infinite; }
+    .agent-char.warning .char-status-dot { background: var(--amber); }
+    .agent-char.done    .char-status-dot { background: var(--green); }
 
-    .primary { background: var(--teal); color: var(--ink); border-color: var(--teal); }
-    .danger { color: #ffdede; border-color: rgba(240, 132, 132, 0.45); }
-    .ghost:hover, .danger:hover { border-color: var(--muted); }
-    .primary:hover { filter: brightness(1.05); }
-
-    .factory {
-      display: grid;
-      gap: 16px;
-      min-width: 0;
-    }
-
-    .factory-stage {
-      padding: 14px;
-      display: grid;
-      gap: 14px;
-    }
-
-    .conveyor {
-      position: relative;
-      min-height: 154px;
-      display: grid;
-      grid-template-columns: repeat(4, minmax(120px, 1fr));
-      gap: 10px;
-      align-items: stretch;
-      overflow: hidden;
-    }
-
-    .conveyor::before {
-      content: '';
-      position: absolute;
-      left: 7%;
-      right: 7%;
-      top: 50%;
-      height: 2px;
-      background: var(--line);
-      transform: translateY(-50%);
-    }
-
-    .agent-node {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      grid-template-rows: auto 1fr auto;
-      gap: 10px;
-      min-height: 154px;
-      padding: 12px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #15171c;
-    }
-
-    .agent-node.active { border-color: rgba(79, 209, 197, 0.7); }
-    .agent-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-    .node-dot { width: 10px; height: 10px; border-radius: 999px; background: var(--muted); }
-    .agent-node.active .node-dot { background: var(--teal); animation: pulse 1.4s ease-in-out infinite; }
-    .agent-node.warning .node-dot { background: var(--amber); }
-    .agent-node.done .node-dot { background: var(--green); }
-    .agent-role { color: var(--muted); font-size: 0.76rem; line-height: 1.4; }
-    .node-load { height: 6px; border-radius: 999px; overflow: hidden; background: #2b3038; }
-    .node-load span { display: block; height: 100%; width: 45%; background: var(--teal); animation: sweep 2.8s linear infinite; }
-
-    .queue { display: grid; gap: 10px; }
+    /* Quest queue */
+    .queue { display: grid; gap: 8px; }
     .task-card {
-      display: grid;
-      gap: 10px;
-      padding: 12px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel);
+      display: grid; gap: 8px; padding: 11px 12px;
+      border: 1px solid var(--border); border-radius: 8px;
+      background: linear-gradient(135deg,#1c1914 0%,#14120f 100%);
+      cursor: pointer; transition: border-color .15s, background .15s;
     }
+    .task-card:hover { border-color: var(--border-light); }
+    .task-card.selected { border-color: var(--amber-dim); background: linear-gradient(135deg,#241e14 0%,#1a160f 100%); }
+    .task-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+    .task-title { color: var(--text); font-weight: 700; font-size: 0.9rem; overflow-wrap: anywhere; }
+    .task-id { color: var(--muted); font-size: 0.7rem; font-family: 'Share Tech Mono',monospace; overflow-wrap: anywhere; }
+    .subtle { color: var(--muted); font-size: 0.72rem; }
 
-    .task-card.selected { border-color: var(--teal); }
-    .task-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-    .task-title { color: var(--text); font-weight: 800; overflow-wrap: anywhere; }
-    .task-id, .subtle { color: var(--muted); font-size: 0.74rem; overflow-wrap: anywhere; }
-    .status { display: inline-flex; align-items: center; min-height: 26px; border-radius: 999px; padding: 4px 9px; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; }
-    .status-pending { background: #2c3038; color: #d3d7df; }
-    .status-running { background: rgba(79, 209, 197, 0.16); color: var(--teal); }
-    .status-done { background: rgba(119, 214, 141, 0.16); color: var(--green); }
-    .status-failed { background: rgba(240, 132, 132, 0.16); color: var(--rose); }
-    .status-cancelled { background: rgba(246, 196, 83, 0.18); color: var(--amber); }
-    .card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-    .empty { padding: 22px; color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; text-align: center; }
+    .status { display: inline-flex; align-items: center; min-height: 24px; border-radius: 999px; padding: 3px 9px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; white-space: nowrap; }
+    .status-pending   { background: rgba(58,50,38,0.8); color: #c4b38a; }
+    .status-running   { background: rgba(92,196,184,0.14); color: var(--teal); }
+    .status-done      { background: rgba(126,200,138,0.14); color: var(--green); }
+    .status-failed    { background: rgba(217,96,96,0.14); color: var(--rose); }
+    .status-cancelled { background: rgba(232,168,50,0.14); color: var(--amber); }
 
-    .details { display: grid; gap: 12px; padding: 14px; }
+    .card-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+    .empty { padding: 24px; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; text-align: center; font-style: italic; }
+
+    /* Detail rail */
+    .details { display: grid; gap: 11px; padding: 13px; }
     .log-box {
-      min-height: 260px;
-      max-height: 420px;
-      overflow: auto;
-      border: 1px solid var(--line);
-      background: #0d0f12;
-      border-radius: 8px;
-      padding: 10px;
-      display: grid;
-      align-content: start;
-      gap: 6px;
-      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-      font-size: 0.76rem;
+      min-height: 240px; max-height: 380px; overflow-y: auto;
+      border: 1px solid var(--border); background: #0a0806; border-radius: 8px;
+      padding: 10px; display: grid; align-content: start; gap: 5px;
+      font-family: 'Share Tech Mono',monospace; font-size: 0.72rem;
     }
-
-    .log-line { color: var(--muted); overflow-wrap: anywhere; }
-    .log-error { color: var(--rose); }
+    .log-line    { color: var(--muted); overflow-wrap: anywhere; }
+    .log-error   { color: var(--rose); }
     .log-warning { color: var(--amber); }
-    .artifact-list { display: grid; grid-template-columns: 1fr; gap: 8px; }
-    .artifact-chip { border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; background: #15171c; color: var(--muted); font-size: 0.78rem; }
-
-    .error { color: #ffd4d4; font-size: 0.82rem; min-height: 20px; }
+    .artifact-list { display: grid; gap: 7px; }
+    .artifact-chip { border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; background: #12100e; color: var(--muted); font-size: 0.77rem; font-style: italic; }
+    a.artifact-chip { color: var(--teal); text-decoration: none; }
+    a.artifact-chip:hover { border-color: var(--teal); }
+    .error { color: #ffc4c4; font-size: 0.8rem; min-height: 18px; }
     .hidden { display: none !important; }
 
-    @keyframes pulse {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(79, 209, 197, 0.4); }
-      50% { box-shadow: 0 0 0 8px rgba(79, 209, 197, 0); }
+    /* Operator Studio */
+    .operator-studio { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; padding: 0 clamp(14px,2.5vw,28px) clamp(14px,2.5vw,28px); }
+    .studio-panel { background: linear-gradient(160deg,#1e1b16 0%,#161310 100%); border: 1px solid var(--border); border-radius: 10px; padding: 13px; box-shadow: 0 8px 28px rgba(0,0,0,0.5); }
+    .studio-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .studio-title { font-family: 'MedievalSharp',serif; font-size: 0.8rem; color: var(--gold); letter-spacing: 0.04em; }
+    .studio-count { font-size: 0.7rem; color: var(--muted); background: var(--stone-2); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; }
+    .studio-body { color: var(--muted); font-size: 0.78rem; font-style: italic; }
+    .studio-body p { margin-bottom: 5px; line-height: 1.4; }
+
+    .rune-divider { text-align: center; color: rgba(212,168,67,0.25); font-size: 0.7rem; letter-spacing: 0.6em; padding: 4px 0; pointer-events: none; user-select: none; }
+
+    .lantern-ambient {
+      position: fixed; top:0; left:0; right:0; bottom:0; pointer-events: none; z-index: 0;
+      background:
+        radial-gradient(ellipse 30% 40% at 8% 12%, rgba(200,100,20,0.06) 0%, transparent 70%),
+        radial-gradient(ellipse 25% 35% at 92% 18%, rgba(200,100,20,0.05) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 30% at 50% 100%, rgba(0,0,0,0.4) 0%, transparent 60%);
+      animation: flicker 6s ease-in-out infinite;
     }
 
-    @keyframes sweep {
-      0% { transform: translateX(-110%); }
-      100% { transform: translateX(230%); }
-    }
+    @keyframes breathe  { 0%,100%{transform:scaleY(1)} 50%{transform:scaleY(0.97)} }
+    @keyframes bobbing  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-5px)} }
+    @keyframes orb-pulse{ 0%,100%{opacity:.6;transform:translateX(-50%) scaleX(1)} 50%{opacity:1;transform:translateX(-50%) scaleX(1.2)} }
+    @keyframes glow-dot { 0%,100%{box-shadow:0 0 0 0 rgba(92,196,184,0.5)} 50%{box-shadow:0 0 0 5px rgba(92,196,184,0)} }
+    @keyframes flicker  { 0%,100%{opacity:1} 25%{opacity:.93} 50%{opacity:1} 75%{opacity:.96} }
 
-    @media (max-width: 1120px) {
-      .layout { grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr); }
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: minmax(260px,.9fr) minmax(0,1.1fr); }
       .right-rail { grid-column: 1 / -1; }
     }
-
     @media (max-width: 760px) {
       .topbar { align-items: flex-start; flex-direction: column; }
-      .top-actions { justify-content: flex-start; }
-      .layout { grid-template-columns: 1fr; padding: 14px; }
-      .conveyor { grid-template-columns: 1fr 1fr; }
-      .agent-node { min-height: 132px; }
-      .task-main { flex-direction: column; }
+      .layout { grid-template-columns: 1fr; padding: 12px; }
+      .agents-row { gap: 10px; padding: 0 12px; }
+      .operator-studio { grid-template-columns: 1fr; }
     }
-
-    @media (max-width: 460px) {
-      .conveyor { grid-template-columns: 1fr; }
-      .metric { white-space: normal; }
+    @media (max-width: 480px) {
+      .char-sprite { font-size: 2.4rem; }
+      .rune-floor { min-height: 260px; }
     }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <header class="topbar">
-      <div class="brand">
-        <div class="mark" aria-hidden="true">AI</div>
+<div class="lantern-ambient" aria-hidden="true"></div>
+<div class="shell">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="tavern-sign" aria-hidden="true">&#x1F37A;</div>
+      <div class="brand-text">
+        <h1>The Coworker Tavern</h1>
+        <p id="conn-status" class="brand-sub">Seeking adventurers&#x2026;</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div class="inn-stat"><span>&#x1F4DC;</span><span>Quests</span><strong id="metric-total">0</strong></div>
+      <div class="inn-stat"><span>&#x2694;&#xFE0F;</span><span>Active</span><strong id="metric-active">0</strong></div>
+      <div class="inn-stat"><span>&#x1FA99;</span><span>Week</span><strong id="metric-week">$0.0000</strong></div>
+      <button class="btn-refresh" type="button" onclick="loadAll()">&#x21BB; Refresh</button>
+    </div>
+  </header>
+
+  <main class="layout">
+
+    <!-- Quest Board -->
+    <section class="panel" aria-labelledby="intake-title">
+      <div class="panel-header">
+        <h2 id="intake-title" class="panel-title">&#x1F4CB; Quest Board</h2>
+      </div>
+      <div class="intake">
+        <div class="workspace-tabs" aria-label="Workspace">
+          <button id="workspace-personal" class="ws-tab active" type="button" onclick="setWorkspace('personal')">&#x1F3E0; Personal</button>
+          <button id="workspace-work" class="ws-tab" type="button" onclick="setWorkspace('work')">&#x2694;&#xFE0F; Work</button>
+        </div>
+        <div class="field">
+          <label for="title-input">Quest Title</label>
+          <input id="title-input" type="text" placeholder="Slay the onboarding bug&#x2026;" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="prompt-input">Mission Brief</label>
+          <textarea id="prompt-input" rows="6" placeholder="Describe the outcome, constraints, and acceptance criteria&#x2026;"></textarea>
+        </div>
+        <div class="field">
+          <label for="repo-input">Repository (owner/repo)</label>
+          <input id="repo-input" type="text" placeholder="owner/repo" autocomplete="off" />
+        </div>
+        <button class="btn-primary" type="button" onclick="createTask()">&#x2694;&#xFE0F; Dispatch Party</button>
+        <p id="form-error" class="error hidden"></p>
+      </div>
+    </section>
+
+    <!-- Tavern Floor + Quest list -->
+    <section class="tavern-center">
+      <div class="panel">
+        <div class="tavern-floor">
+          <div class="panel-header" style="padding:0 0 8px">
+            <h2 class="panel-title">&#x1F3F0; Tavern Floor</h2>
+            <span id="factory-state" class="status status-pending">At Rest</span>
+          </div>
+          <div class="rune-floor">
+            <!-- Inline SVG tavern scene — gameforge nocturnal-revival palette -->
+            <svg class="scene-bg" viewBox="0 0 800 320" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+              <defs>
+                <linearGradient id="sg-wall" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#080813"/>
+                  <stop offset="55%" stop-color="#12112A"/>
+                  <stop offset="100%" stop-color="#1C1A38"/>
+                </linearGradient>
+                <linearGradient id="sg-floor" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#1A183A"/>
+                  <stop offset="100%" stop-color="#0E0D20"/>
+                </linearGradient>
+                <radialGradient id="sg-glow-l" cx="14%" cy="22%" r="38%" gradientUnits="objectBoundingBox">
+                  <stop offset="0%" stop-color="#F4B942" stop-opacity="0.24"/>
+                  <stop offset="100%" stop-color="#F4B942" stop-opacity="0"/>
+                </radialGradient>
+                <radialGradient id="sg-glow-r" cx="86%" cy="22%" r="38%" gradientUnits="objectBoundingBox">
+                  <stop offset="0%" stop-color="#F4B942" stop-opacity="0.2"/>
+                  <stop offset="100%" stop-color="#F4B942" stop-opacity="0"/>
+                </radialGradient>
+                <radialGradient id="sg-rune-glow" cx="50%" cy="88%" r="45%" gradientUnits="objectBoundingBox">
+                  <stop offset="0%" stop-color="#7FDBDA" stop-opacity="0.18"/>
+                  <stop offset="100%" stop-color="#7FDBDA" stop-opacity="0"/>
+                </radialGradient>
+                <filter id="sg-blur-sm"><feGaussianBlur stdDeviation="2"/></filter>
+              </defs>
+
+              <!-- Wall background -->
+              <rect width="800" height="210" fill="url(#sg-wall)"/>
+              <!-- Stone mortar lines on wall -->
+              <g stroke="rgba(255,255,255,0.028)" stroke-width="0.6">
+                <line x1="0" y1="22" x2="800" y2="22"/><line x1="0" y1="44" x2="800" y2="44"/>
+                <line x1="0" y1="66" x2="800" y2="66"/><line x1="0" y1="88" x2="800" y2="88"/>
+                <line x1="0" y1="110" x2="800" y2="110"/><line x1="0" y1="132" x2="800" y2="132"/>
+                <line x1="0" y1="154" x2="800" y2="154"/><line x1="0" y1="176" x2="800" y2="176"/>
+                <line x1="0" y1="198" x2="800" y2="198"/>
+                <!-- odd row verticals -->
+                <line x1="80" y1="0" x2="80" y2="22"/><line x1="200" y1="0" x2="200" y2="22"/><line x1="320" y1="0" x2="320" y2="22"/><line x1="440" y1="0" x2="440" y2="22"/><line x1="560" y1="0" x2="560" y2="22"/><line x1="680" y1="0" x2="680" y2="22"/>
+                <line x1="40" y1="22" x2="40" y2="44"/><line x1="160" y1="22" x2="160" y2="44"/><line x1="280" y1="22" x2="280" y2="44"/><line x1="400" y1="22" x2="400" y2="44"/><line x1="520" y1="22" x2="520" y2="44"/><line x1="640" y1="22" x2="640" y2="44"/><line x1="760" y1="22" x2="760" y2="44"/>
+                <line x1="80" y1="44" x2="80" y2="66"/><line x1="200" y1="44" x2="200" y2="66"/><line x1="320" y1="44" x2="320" y2="66"/><line x1="440" y1="44" x2="440" y2="66"/><line x1="560" y1="44" x2="560" y2="66"/><line x1="680" y1="44" x2="680" y2="66"/>
+                <line x1="40" y1="66" x2="40" y2="88"/><line x1="160" y1="66" x2="160" y2="88"/><line x1="280" y1="66" x2="280" y2="88"/><line x1="400" y1="66" x2="400" y2="88"/><line x1="520" y1="66" x2="520" y2="88"/><line x1="640" y1="66" x2="640" y2="88"/>
+                <line x1="80" y1="88" x2="80" y2="110"/><line x1="200" y1="88" x2="200" y2="110"/><line x1="320" y1="88" x2="320" y2="110"/><line x1="440" y1="88" x2="440" y2="110"/><line x1="560" y1="88" x2="560" y2="110"/><line x1="680" y1="88" x2="680" y2="110"/>
+                <line x1="40" y1="110" x2="40" y2="132"/><line x1="160" y1="110" x2="160" y2="132"/><line x1="280" y1="110" x2="280" y2="132"/><line x1="400" y1="110" x2="400" y2="132"/><line x1="520" y1="110" x2="520" y2="132"/><line x1="640" y1="110" x2="640" y2="132"/>
+                <line x1="80" y1="132" x2="80" y2="154"/><line x1="200" y1="132" x2="200" y2="154"/><line x1="320" y1="132" x2="320" y2="154"/><line x1="440" y1="132" x2="440" y2="154"/><line x1="560" y1="132" x2="560" y2="154"/><line x1="680" y1="132" x2="680" y2="154"/>
+                <line x1="40" y1="154" x2="40" y2="176"/><line x1="160" y1="154" x2="160" y2="176"/><line x1="280" y1="154" x2="280" y2="176"/><line x1="400" y1="154" x2="400" y2="176"/><line x1="520" y1="154" x2="520" y2="176"/><line x1="640" y1="154" x2="640" y2="176"/>
+              </g>
+
+              <!-- Floor -->
+              <rect x="0" y="200" width="800" height="120" fill="url(#sg-floor)"/>
+              <!-- Floor — perspective lines converging to vanishing point 400,200 -->
+              <g stroke="rgba(127,219,218,0.08)" stroke-width="0.8">
+                <line x1="0" y1="212" x2="800" y2="212"/>
+                <line x1="0" y1="228" x2="800" y2="228"/>
+                <line x1="0" y1="250" x2="800" y2="250"/>
+                <line x1="0" y1="278" x2="800" y2="278"/>
+                <line x1="0" y1="310" x2="800" y2="310"/>
+                <!-- radial perspective lines from vanishing point -->
+                <line x1="400" y1="200" x2="0" y2="320"/>
+                <line x1="400" y1="200" x2="100" y2="320"/>
+                <line x1="400" y1="200" x2="200" y2="320"/>
+                <line x1="400" y1="200" x2="300" y2="320"/>
+                <line x1="400" y1="200" x2="400" y2="320"/>
+                <line x1="400" y1="200" x2="500" y2="320"/>
+                <line x1="400" y1="200" x2="600" y2="320"/>
+                <line x1="400" y1="200" x2="700" y2="320"/>
+                <line x1="400" y1="200" x2="800" y2="320"/>
+              </g>
+              <!-- Floor/wall edge -->
+              <line x1="0" y1="200" x2="800" y2="200" stroke="rgba(127,219,218,0.1)" stroke-width="1.5"/>
+
+              <!-- Stone arch (centre back wall) -->
+              <path d="M 278,200 L 278,165 Q 400,72 522,165 L 522,200 Z" fill="#070613" stroke="rgba(127,219,218,0.14)" stroke-width="1.5"/>
+              <path d="M 293,200 L 293,170 Q 400,88 507,170 L 507,200 Z" fill="rgba(7,6,19,0.95)"/>
+              <!-- Arch keystone -->
+              <polygon points="392,76 400,64 408,76 405,90 395,90" fill="#1E1C3A" stroke="rgba(244,185,66,0.25)" stroke-width="1"/>
+              <text x="400" y="86" text-anchor="middle" fill="rgba(244,185,66,0.45)" font-size="9" font-family="serif">ᚠ</text>
+              <!-- Arch columns -->
+              <rect x="266" y="158" width="16" height="44" rx="2" fill="#0F0E22" stroke="rgba(127,219,218,0.12)" stroke-width="1"/>
+              <rect x="518" y="158" width="16" height="44" rx="2" fill="#0F0E22" stroke="rgba(127,219,218,0.12)" stroke-width="1"/>
+              <rect x="262" y="196" width="24" height="6" rx="1" fill="#1A1836" stroke="rgba(127,219,218,0.1)" stroke-width="1"/>
+              <rect x="514" y="196" width="24" height="6" rx="1" fill="#1A1836" stroke="rgba(127,219,218,0.1)" stroke-width="1"/>
+
+              <!-- Left hanging lantern -->
+              <line x1="128" y1="0" x2="128" y2="54" stroke="#6B5A3E" stroke-width="1.5" stroke-dasharray="3,3"/>
+              <path d="M 123,54 Q 128,46 133,54" fill="none" stroke="#6B5A3E" stroke-width="1.5"/>
+              <rect x="116" y="54" width="24" height="34" rx="5" fill="#3A2808" stroke="#F4B942" stroke-width="1.3"/>
+              <rect x="120" y="58" width="16" height="26" rx="3" fill="#F4B942" opacity="0.72"/>
+              <circle cx="128" cy="71" r="40" fill="#F4B942" opacity="0.07" filter="url(#sg-blur-sm)"/>
+              <circle cx="128" cy="71" r="18" fill="#F4B942" opacity="0.06"/>
+
+              <!-- Right hanging lantern -->
+              <line x1="672" y1="0" x2="672" y2="54" stroke="#6B5A3E" stroke-width="1.5" stroke-dasharray="3,3"/>
+              <path d="M 667,54 Q 672,46 677,54" fill="none" stroke="#6B5A3E" stroke-width="1.5"/>
+              <rect x="660" y="54" width="24" height="34" rx="5" fill="#3A2808" stroke="#F4B942" stroke-width="1.3"/>
+              <rect x="664" y="58" width="16" height="26" rx="3" fill="#F4B942" opacity="0.72"/>
+              <circle cx="672" cy="71" r="40" fill="#F4B942" opacity="0.07" filter="url(#sg-blur-sm)"/>
+              <circle cx="672" cy="71" r="18" fill="#F4B942" opacity="0.06"/>
+
+              <!-- Wall sconces (mid wall) -->
+              <rect x="58" y="150" width="18" height="7" rx="2" fill="#3A2808" stroke="#5A3A18" stroke-width="0.8"/>
+              <rect x="63" y="128" width="8" height="22" rx="2" fill="#4A3410"/>
+              <ellipse cx="67" cy="126" rx="7" ry="5" fill="#FF8C30" opacity="0.65"/>
+              <circle cx="67" cy="122" r="16" fill="#F4B942" opacity="0.09"/>
+              <rect x="724" y="150" width="18" height="7" rx="2" fill="#3A2808" stroke="#5A3A18" stroke-width="0.8"/>
+              <rect x="729" y="128" width="8" height="22" rx="2" fill="#4A3410"/>
+              <ellipse cx="733" cy="126" rx="7" ry="5" fill="#FF8C30" opacity="0.65"/>
+              <circle cx="733" cy="122" r="16" fill="#F4B942" opacity="0.09"/>
+
+              <!-- Barrels left -->
+              <ellipse cx="52" cy="234" rx="24" ry="6" fill="#2A1C08" stroke="#5A3A18" stroke-width="1"/>
+              <rect x="28" y="234" width="48" height="58" rx="5" fill="#2A1C08" stroke="#5A3A18" stroke-width="1.5"/>
+              <rect x="28" y="251" width="48" height="4" fill="#5A3A18"/>
+              <rect x="28" y="270" width="48" height="4" fill="#5A3A18"/>
+              <ellipse cx="52" cy="292" rx="24" ry="5" fill="#1E1408" stroke="#5A3A18" stroke-width="1"/>
+              <!-- Small barrel on top-left -->
+              <ellipse cx="58" cy="214" rx="18" ry="4" fill="#2A1C08" stroke="#5A3A18" stroke-width="1"/>
+              <rect x="40" y="214" width="36" height="42" rx="4" fill="#2A1C08" stroke="#5A3A18" stroke-width="1.2"/>
+              <rect x="40" y="226" width="36" height="3" fill="#5A3A18"/>
+              <rect x="40" y="240" width="36" height="3" fill="#5A3A18"/>
+
+              <!-- Barrels right -->
+              <ellipse cx="748" cy="238" rx="22" ry="5" fill="#2A1C08" stroke="#5A3A18" stroke-width="1"/>
+              <rect x="726" y="238" width="44" height="54" rx="5" fill="#2A1C08" stroke="#5A3A18" stroke-width="1.5"/>
+              <rect x="726" y="254" width="44" height="4" fill="#5A3A18"/>
+              <rect x="726" y="272" width="44" height="4" fill="#5A3A18"/>
+              <ellipse cx="748" cy="292" rx="22" ry="5" fill="#1E1408" stroke="#5A3A18" stroke-width="1"/>
+
+              <!-- Lantern glow overlays -->
+              <rect width="800" height="320" fill="url(#sg-glow-l)"/>
+              <rect width="800" height="320" fill="url(#sg-glow-r)"/>
+              <rect width="800" height="320" fill="url(#sg-rune-glow)"/>
+
+              <!-- Rune circle on floor (centred at 400, 268) -->
+              <g transform="translate(400,268)">
+                <circle cx="0" cy="0" r="92" fill="none" stroke="rgba(127,219,218,0.2)" stroke-width="1.2"/>
+                <circle cx="0" cy="0" r="84" fill="none" stroke="rgba(127,219,218,0.08)" stroke-width="0.5" stroke-dasharray="5,4"/>
+                <circle cx="0" cy="0" r="62" fill="none" stroke="rgba(127,219,218,0.17)" stroke-width="1"/>
+                <circle cx="0" cy="0" r="22" fill="none" stroke="rgba(127,219,218,0.14)" stroke-width="0.8"/>
+                <circle cx="0" cy="0" r="7" fill="rgba(127,219,218,0.25)"/>
+                <!-- Radial spokes -->
+                <line x1="0" y1="-62" x2="0" y2="-92" stroke="rgba(127,219,218,0.2)" stroke-width="0.9"/>
+                <line x1="62" y1="0" x2="92" y2="0" stroke="rgba(127,219,218,0.2)" stroke-width="0.9"/>
+                <line x1="0" y1="62" x2="0" y2="92" stroke="rgba(127,219,218,0.2)" stroke-width="0.9"/>
+                <line x1="-62" y1="0" x2="-92" y2="0" stroke="rgba(127,219,218,0.2)" stroke-width="0.9"/>
+                <line x1="44" y1="-44" x2="65" y2="-65" stroke="rgba(127,219,218,0.13)" stroke-width="0.7"/>
+                <line x1="44" y1="44" x2="65" y2="65" stroke="rgba(127,219,218,0.13)" stroke-width="0.7"/>
+                <line x1="-44" y1="-44" x2="-65" y2="-65" stroke="rgba(127,219,218,0.13)" stroke-width="0.7"/>
+                <line x1="-44" y1="44" x2="-65" y2="65" stroke="rgba(127,219,218,0.13)" stroke-width="0.7"/>
+                <!-- Rune glyphs at cardinal points -->
+                <text x="-5" y="-72" fill="rgba(127,219,218,0.55)" font-size="11" font-family="serif">ᚠ</text>
+                <text x="66" y="5" fill="rgba(127,219,218,0.55)" font-size="11" font-family="serif">ᚱ</text>
+                <text x="-5" y="84" fill="rgba(127,219,218,0.55)" font-size="11" font-family="serif">ᛏ</text>
+                <text x="-80" y="5" fill="rgba(127,219,218,0.55)" font-size="11" font-family="serif">ᛒ</text>
+                <text x="45" y="-54" fill="rgba(127,219,218,0.38)" font-size="9" font-family="serif">ᚢ</text>
+                <text x="45" y="62" fill="rgba(127,219,218,0.38)" font-size="9" font-family="serif">ᛖ</text>
+                <text x="-58" y="-54" fill="rgba(127,219,218,0.38)" font-size="9" font-family="serif">ᛗ</text>
+                <text x="-58" y="62" fill="rgba(127,219,218,0.38)" font-size="9" font-family="serif">ᚾ</text>
+              </g>
+            </svg>
+
+            <!-- Agents free-standing on scene floor -->
+            <div class="agents-row" aria-label="Agent party">
+              <div class="agent-char active" data-stage="supervisor" id="agent-supervisor">
+                <span class="char-nameplate">Rex</span>
+                <span class="char-sprite">&#x1F9D9;</span>
+                <div class="char-orb"></div>
+                <span class="char-role">Supervisor</span>
+                <div class="char-status-dot"></div>
+              </div>
+              <div class="agent-char idle" data-stage="builder" id="agent-builder">
+                <span class="char-nameplate">Forge</span>
+                <span class="char-sprite">&#x2692;&#xFE0F;</span>
+                <div class="char-orb"></div>
+                <span class="char-role">Builder</span>
+                <div class="char-status-dot"></div>
+              </div>
+              <div class="agent-char idle" data-stage="tester" id="agent-tester">
+                <span class="char-nameplate">Sage</span>
+                <span class="char-sprite">&#x1F9D9;&#x200D;&#x2640;&#xFE0F;</span>
+                <div class="char-orb"></div>
+                <span class="char-role">Tester</span>
+                <div class="char-status-dot"></div>
+              </div>
+              <div class="agent-char idle" data-stage="handoff" id="agent-handoff">
+                <span class="char-nameplate">Myra</span>
+                <span class="char-sprite">&#x1F9DD;</span>
+                <div class="char-orb"></div>
+                <span class="char-role">Handoff</span>
+                <div class="char-status-dot"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rune-divider" aria-hidden="true">&#x2500;&#x2500; &#x16A0; ACTIVE QUESTS &#x16A0; &#x2500;&#x2500;</div>
+      <div class="queue" id="task-list"></div>
+    </section>
+
+    <!-- Quest Detail -->
+    <aside class="panel right-rail" aria-labelledby="details-title">
+      <div class="panel-header">
+        <h2 id="details-title" class="panel-title">&#x1F4DC; Quest Detail</h2>
+        <span id="selected-status" class="status status-pending">None</span>
+      </div>
+      <div class="details">
         <div>
-          <h1>AI Coworker Command Center</h1>
-          <p id="conn-status" class="subtle">Loading</p>
+          <p id="selected-title" class="task-title">No quest selected</p>
+          <p id="selected-id" class="task-id">Select a quest from the board.</p>
         </div>
+        <div class="artifact-list" id="artifact-list"></div>
+        <div id="log-panel" class="log-box" aria-live="polite"></div>
       </div>
-      <div class="top-actions">
-        <div class="metric"><span>Queue</span><strong id="metric-total">0</strong></div>
-        <div class="metric"><span>Active</span><strong id="metric-active">0</strong></div>
-        <div class="metric"><span>Week</span><strong id="metric-week">$0.0000</strong></div>
-        <button class="ghost" type="button" onclick="loadAll()">Refresh</button>
+    </aside>
+
+  </main>
+
+  <div class="operator-studio" role="region" aria-label="Operator Studio">
+    <div class="studio-panel">
+      <div class="studio-header">
+        <span class="studio-title">&#x1F5E1;&#xFE0F; Artifact Vault</span>
+        <span id="artifact-count" class="studio-count">0</span>
       </div>
-    </header>
-
-    <main class="layout">
-      <section class="panel" aria-labelledby="intake-title">
-        <div class="panel-header">
-          <h2 id="intake-title">Task Intake</h2>
-        </div>
-        <div class="intake">
-          <div class="segmented" aria-label="Workspace">
-            <button id="workspace-personal" class="segment active" type="button" onclick="setWorkspace('personal')">Personal</button>
-            <button id="workspace-work" class="segment" type="button" onclick="setWorkspace('work')">Work</button>
-          </div>
-          <div class="field">
-            <label for="title-input">Title</label>
-            <input id="title-input" type="text" placeholder="Ship the onboarding fix" autocomplete="off" />
-          </div>
-          <div class="field">
-            <label for="prompt-input">Prompt</label>
-            <textarea id="prompt-input" rows="6" placeholder="Describe the outcome, constraints, and checks."></textarea>
-          </div>
-          <div class="field">
-            <label for="repo-input">Repository</label>
-            <input id="repo-input" type="text" placeholder="owner/repo" autocomplete="off" />
-          </div>
-          <button class="primary" type="button" onclick="createTask()">Run Agent</button>
-          <p id="form-error" class="error hidden"></p>
-        </div>
-      </section>
-
-      <section class="factory">
-        <div class="panel factory-stage" aria-labelledby="factory-title">
-          <div class="panel-header" style="padding:0">
-            <h2 id="factory-title">Factory Line</h2>
-            <span id="factory-state" class="status status-pending">Idle</span>
-          </div>
-          <div class="conveyor" aria-label="Agent workflow">
-            <div class="agent-node active" data-stage="supervisor">
-              <div class="agent-top"><h3>Supervisor</h3><span class="node-dot"></span></div>
-              <p class="agent-role">Plan, route, guardrails</p>
-              <div class="node-load"><span></span></div>
-            </div>
-            <div class="agent-node" data-stage="builder">
-              <div class="agent-top"><h3>Builder</h3><span class="node-dot"></span></div>
-              <p class="agent-role">Branch, edit, commit</p>
-              <div class="node-load"><span></span></div>
-            </div>
-            <div class="agent-node warning" data-stage="tester">
-              <div class="agent-top"><h3>Tester</h3><span class="node-dot"></span></div>
-              <p class="agent-role">Compile, tests, audit</p>
-              <div class="node-load"><span></span></div>
-            </div>
-            <div class="agent-node done" data-stage="handoff">
-              <div class="agent-top"><h3>Handoff</h3><span class="node-dot"></span></div>
-              <p class="agent-role">PR, notes, recovery</p>
-              <div class="node-load"><span></span></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="queue" id="task-list"></div>
-      </section>
-
-      <aside class="panel right-rail" aria-labelledby="details-title">
-        <div class="panel-header">
-          <h2 id="details-title">Task Detail</h2>
-          <span id="selected-status" class="status status-pending">None</span>
-        </div>
-        <div class="details">
-          <div>
-            <p id="selected-title" class="task-title">No task selected</p>
-            <p id="selected-id" class="task-id">Select a task from the queue.</p>
-          </div>
-          <div class="artifact-list" id="artifact-list"></div>
-          <div id="log-panel" class="log-box" aria-live="polite"></div>
-        </div>
-      </aside>
-    </main>
+      <div id="artifact-preview" class="studio-body"><p>Vault is empty.</p></div>
+    </div>
+    <div class="studio-panel">
+      <div class="studio-header">
+        <span class="studio-title">&#x1F4DA; Recipe Grimoire</span>
+        <span id="recipe-count" class="studio-count">0</span>
+      </div>
+      <div id="recipe-preview" class="studio-body"><p>No recipes inscribed.</p></div>
+    </div>
+    <div class="studio-panel">
+      <div class="studio-header">
+        <span class="studio-title">&#x1F4D6; Chronicle</span>
+        <span id="run-count" class="studio-count">0</span>
+      </div>
+      <div id="run-preview" class="studio-body"><p>The chronicle is blank.</p></div>
+    </div>
   </div>
 
-  <!-- Operator Studio panels — artifact/recipe/run previews -->
-  <div id="operator-studio" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:0 20px 20px">
-    <section class="panel" style="padding:14px">
-      <div class="panel-header" style="padding:0 0 8px"><h2 style="font-size:0.9rem">Artifact Studio</h2><span id="artifact-count" class="subtle">0</span></div>
-      <div id="artifact-preview" class="subtle" style="font-size:0.78rem"><p>No artifacts loaded yet.</p></div>
-    </section>
-    <section class="panel" style="padding:14px">
-      <div class="panel-header" style="padding:0 0 8px"><h2 style="font-size:0.9rem">Recipe Library</h2><span id="recipe-count" class="subtle">0</span></div>
-      <div id="recipe-preview" class="subtle" style="font-size:0.78rem"><p>No recipes loaded yet.</p></div>
-    </section>
-    <section class="panel" style="padding:14px">
-      <div class="panel-header" style="padding:0 0 8px"><h2 style="font-size:0.9rem">Run History</h2><span id="run-count" class="subtle">0</span></div>
-      <div id="run-preview" class="subtle" style="font-size:0.78rem"><p>No runs loaded yet.</p></div>
-    </section>
-  </div>
+</div>
 
-  <script>
-    function escHtml(value) {
-      if (value == null) return '';
-      return String(value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
+<script>
+  function escHtml(v) {
+    if (v == null) return '';
+    return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+  function safePrUrl(url) {
+    if (!url) return null;
+    try {
+      const p = new URL(url);
+      if (p.protocol !== 'https:') return null;
+      if (!p.hostname.endsWith('github.com')) return null;
+      return p.href;
+    } catch { return null; }
+  }
+
+  const API = '/api';
+  const terminalStatuses = new Set(['done','failed','cancelled']);
+  let tasks = [], logsByTask = {}, activeStreams = {}, budgetCap = null, selectedTaskId = null, workspace = 'personal';
+
+  function setWorkspace(next) {
+    workspace = next;
+    document.getElementById('workspace-personal').classList.toggle('active', workspace === 'personal');
+    document.getElementById('workspace-work').classList.toggle('active', workspace === 'work');
+  }
+
+  function readHeaders(json) {
+    const h = json ? {'Content-Type':'application/json'} : {};
+    const k = localStorage.getItem('api_key');
+    if (k) h.Authorization = 'Bearer ' + k;
+    return h;
+  }
+
+  function statusClass(s) { return 'status status-' + escHtml(s || 'pending'); }
+
+  function setAgentState(stage, state) {
+    const el = document.getElementById('agent-' + stage);
+    if (el) el.className = 'agent-char ' + state;
+  }
+
+  function updateAgentsFromTasks() {
+    const running = tasks.filter(t => t.status === 'running');
+    ['supervisor','builder','tester','handoff'].forEach(s => setAgentState(s, 'idle'));
+    if (running.length > 0) {
+      setAgentState('supervisor', 'active');
+      setAgentState('builder', 'active');
     }
+  }
 
-    function safePrUrl(url) {
-      if (!url) return null;
-      try {
-        const parsed = new URL(url);
-        if (parsed.protocol !== 'https:') return null;
-        if (!parsed.hostname.endsWith('github.com')) return null;
-        return parsed.href;
-      } catch { return null; }
+  function updateMetrics() {
+    const active = tasks.filter(t => ['pending','running'].includes(t.status)).length;
+    document.getElementById('metric-total').textContent = String(tasks.length);
+    document.getElementById('metric-active').textContent = String(active);
+    document.getElementById('factory-state').textContent = active ? 'On Quest' : 'At Rest';
+    document.getElementById('factory-state').className = active ? 'status status-running' : 'status status-pending';
+    updateAgentsFromTasks();
+  }
+
+  function renderTaskCard(task) {
+    const prUrl = safePrUrl(task.pr_url);
+    const spent = Number(task.usd_spent || 0);
+    const budgetText = budgetCap == null ? '$' + spent.toFixed(4) : '$' + spent.toFixed(4) + ' / $' + Number(budgetCap).toFixed(2);
+    const sel = task.id === selectedTaskId ? ' selected' : '';
+    const prLink = prUrl ? '<a class="btn-ghost" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">&#x1F4DC; PR</a>' : '';
+    const cancel = ['pending','running'].includes(task.status) ? '<button class="btn-danger" type="button" onclick="cancelTask(\'' + escHtml(task.id) + '\')">&#x2717; Abandon</button>' : '';
+    const retry  = ['failed','cancelled'].includes(task.status)  ? '<button class="btn-ghost"  type="button" onclick="retryTask(\'' + escHtml(task.id) + '\')">&#x21A9; Retry</button>'  : '';
+    return '<article class="task-card' + sel + '" onclick="selectTask(\'' + escHtml(task.id) + '\')">'
+      + '<div class="task-main"><div>'
+      + '<p class="task-title">' + escHtml(task.title) + '</p>'
+      + '<p class="task-id">' + escHtml(task.id) + '</p>'
+      + '<p class="subtle">&#x1FA99; ' + escHtml(budgetText) + '</p>'
+      + '</div><span class="' + statusClass(task.status) + '">' + escHtml(task.status) + '</span></div>'
+      + (task.error ? '<p class="log-line log-error">' + escHtml(task.error) + '</p>' : '')
+      + '<div class="card-actions">' + prLink + cancel + retry + '</div>'
+      + '</article>';
+  }
+
+  function renderTasks() {
+    const list = document.getElementById('task-list');
+    if (!tasks.length) { list.innerHTML = '<div class="empty">No quests posted yet&#x2026;</div>'; updateMetrics(); renderSelectedTask(); return; }
+    list.innerHTML = tasks.map(renderTaskCard).join('');
+    updateMetrics(); renderSelectedTask();
+  }
+
+  function renderSelectedTask() {
+    const task = tasks.find(t => t.id === selectedTaskId) || null;
+    const statusEl = document.getElementById('selected-status');
+    const titleEl  = document.getElementById('selected-title');
+    const idEl     = document.getElementById('selected-id');
+    const logsEl   = document.getElementById('log-panel');
+    const artEl    = document.getElementById('artifact-list');
+    if (!task) {
+      statusEl.className = 'status status-pending'; statusEl.textContent = 'None';
+      titleEl.textContent = 'No quest selected'; idEl.textContent = 'Select a quest from the board.';
+      logsEl.innerHTML = '<p class="log-line">Awaiting the party&#x2026;</p>';
+      artEl.innerHTML  = '<div class="artifact-chip">Treasures appear after handoff.</div>';
+      return;
     }
+    statusEl.className = statusClass(task.status); statusEl.textContent = task.status;
+    titleEl.textContent = task.title || 'Untitled quest'; idEl.textContent = task.id;
+    const tl = logsByTask[task.id] || [];
+    logsEl.innerHTML = tl.length ? tl.map(l => '<p class="log-line log-' + escHtml(l.level||'info') + '">' + escHtml(l.message) + '</p>').join('') : '<p class="log-line">No dispatches yet.</p>';
+    const prUrl = safePrUrl(task.pr_url);
+    artEl.innerHTML = prUrl
+      ? '<a class="artifact-chip" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">&#x1F5E1;&#xFE0F; Pull Request Ready</a>'
+      : '<div class="artifact-chip">PR handoff pending&#x2026;</div>';
+    logsEl.scrollTop = logsEl.scrollHeight;
+  }
 
-    const API = '/api';
-    const terminalStatuses = new Set(['done', 'failed', 'cancelled']);
-    let tasks = [];
-    let logsByTask = {};
-    let activeStreams = {};
-    let budgetCap = null;
-    let selectedTaskId = null;
-    let workspace = 'personal';
+  function selectTask(id) { selectedTaskId = id; renderTasks(); }
 
-    function setWorkspace(next) {
-      workspace = next;
-      document.getElementById('workspace-personal').classList.toggle('active', workspace === 'personal');
-      document.getElementById('workspace-work').classList.toggle('active', workspace === 'work');
-    }
+  function mergeTask(task) {
+    const i = tasks.findIndex(t => t.id === task.id);
+    if (i === -1) tasks.unshift(task); else tasks[i] = {...tasks[i], ...task};
+    if (!selectedTaskId) selectedTaskId = task.id;
+    renderTasks();
+  }
 
-    function readHeaders(json) {
-      const headers = json ? { 'Content-Type': 'application/json' } : {};
-      const apiKey = localStorage.getItem('api_key');
-      if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
-      return headers;
-    }
+  function patchTask(id, updates) {
+    const t = tasks.find(t => t.id === id);
+    if (t) { Object.assign(t, updates); renderTasks(); }
+  }
 
-    function statusClass(status) {
-      return 'status status-' + escHtml(status || 'pending');
-    }
+  function addLog(id, message, level) {
+    if (!logsByTask[id]) logsByTask[id] = [];
+    logsByTask[id].push({message, level: level||'info'});
+    if (logsByTask[id].length > 120) logsByTask[id].shift();
+    if (selectedTaskId === id) renderSelectedTask();
+  }
 
-    function updateMetrics() {
-      const active = tasks.filter(task => ['pending', 'running'].includes(task.status)).length;
-      document.getElementById('metric-total').textContent = String(tasks.length);
-      document.getElementById('metric-active').textContent = String(active);
-      document.getElementById('factory-state').textContent = active ? 'Running' : 'Idle';
-      document.getElementById('factory-state').className = active ? 'status status-running' : 'status status-pending';
-    }
+  async function createTask() {
+    const title = document.getElementById('title-input').value.trim();
+    const promptText = document.getElementById('prompt-input').value.trim();
+    const repo = document.getElementById('repo-input').value.trim() || null;
+    const errEl = document.getElementById('form-error');
+    errEl.classList.add('hidden');
+    if (!title || !promptText) { errEl.textContent = 'Quest title and mission are required.'; errEl.classList.remove('hidden'); return; }
+    if (promptText.length > 8000) { errEl.textContent = 'Mission must be 8000 characters or fewer.'; errEl.classList.remove('hidden'); return; }
+    if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) { errEl.textContent = 'Repository must be owner/repo format.'; errEl.classList.remove('hidden'); return; }
+    try {
+      const res = await fetch(API + '/tasks', {method:'POST', headers:readHeaders(true), body:JSON.stringify({title, prompt:promptText, repo_url:repo, workspace})});
+      if (res.status === 401) { const k = window.prompt('API key required:'); if (k) localStorage.setItem('api_key', k); return; }
+      if (!res.ok) { const b = await res.json().catch(() => ({})); errEl.textContent = 'Error: ' + (b.detail || res.statusText); errEl.classList.remove('hidden'); return; }
+      const task = await res.json();
+      document.getElementById('title-input').value = '';
+      document.getElementById('prompt-input').value = '';
+      document.getElementById('repo-input').value = '';
+      mergeTask(task); subscribeSSE(task.id);
+    } catch (err) { errEl.textContent = 'Network error: ' + String(err); errEl.classList.remove('hidden'); }
+  }
 
-    function renderTaskCard(task) {
-      const prUrl = safePrUrl(task.pr_url);
-      const spent = Number(task.usd_spent || 0);
-      const budgetText = budgetCap == null
-        ? '$' + spent.toFixed(4)
-        : '$' + spent.toFixed(4) + ' / $' + Number(budgetCap).toFixed(2);
-      const selected = task.id === selectedTaskId ? ' selected' : '';
-      const prLink = prUrl
-        ? '<a class="ghost" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">PR</a>'
-        : '';
-      const cancel = ['pending', 'running'].includes(task.status)
-        ? '<button class="danger" type="button" onclick="cancelTask(\'' + escHtml(task.id) + '\')">Cancel</button>'
-        : '';
-      const retry = ['failed', 'cancelled'].includes(task.status)
-        ? '<button class="ghost" type="button" onclick="retryTask(\'' + escHtml(task.id) + '\')">Retry</button>'
-        : '';
-      return '<article class="task-card' + selected + '" onclick="selectTask(\'' + escHtml(task.id) + '\')">' +
-        '<div class="task-main">' +
-          '<div>' +
-            '<p class="task-title">' + escHtml(task.title) + '</p>' +
-            '<p class="task-id">' + escHtml(task.id) + '</p>' +
-            '<p class="subtle">Spend ' + escHtml(budgetText) + '</p>' +
-          '</div>' +
-          '<span class="' + statusClass(task.status) + '">' + escHtml(task.status) + '</span>' +
-        '</div>' +
-        (task.error ? '<p class="log-line log-error">' + escHtml(task.error) + '</p>' : '') +
-        '<div class="card-actions">' + prLink + cancel + retry + '</div>' +
-      '</article>';
-    }
+  async function cancelTask(id) {
+    await fetch(API + '/tasks/' + encodeURIComponent(id), {method:'DELETE', headers:readHeaders(false)});
+    patchTask(id, {status:'cancelled'});
+    if (activeStreams[id]) { activeStreams[id].close(); delete activeStreams[id]; }
+  }
 
-    function renderTasks() {
-      const list = document.getElementById('task-list');
-      if (!tasks.length) {
-        list.innerHTML = '<div class="empty">No tasks yet</div>';
-        updateMetrics();
-        renderSelectedTask();
-        return;
-      }
-      list.innerHTML = tasks.map(renderTaskCard).join('');
-      updateMetrics();
-      renderSelectedTask();
-    }
+  async function retryTask(id) {
+    const res = await fetch(API + '/tasks/' + encodeURIComponent(id) + '/retry', {method:'POST', headers:readHeaders(false)});
+    if (!res.ok) { addLog(id, 'Retry failed: ' + res.statusText, 'error'); return; }
+    const task = await res.json(); mergeTask(task); subscribeSSE(task.id);
+  }
 
-    function renderSelectedTask() {
-      const task = tasks.find(item => item.id === selectedTaskId) || null;
-      const status = document.getElementById('selected-status');
-      const title = document.getElementById('selected-title');
-      const id = document.getElementById('selected-id');
-      const logs = document.getElementById('log-panel');
-      const artifacts = document.getElementById('artifact-list');
-      if (!task) {
-        status.className = 'status status-pending';
-        status.textContent = 'None';
-        title.textContent = 'No task selected';
-        id.textContent = 'Select a task from the queue.';
-        logs.innerHTML = '<p class="log-line">Waiting for task events.</p>';
-        artifacts.innerHTML = '<div class="artifact-chip">Artifacts will appear after handoff.</div>';
-        return;
-      }
-      status.className = statusClass(task.status);
-      status.textContent = task.status;
-      title.textContent = task.title || 'Untitled task';
-      id.textContent = task.id;
-      const taskLogs = logsByTask[task.id] || [];
-      logs.innerHTML = taskLogs.length
-        ? taskLogs.map(line => '<p class="log-line log-' + escHtml(line.level || 'info') + '">' + escHtml(line.message) + '</p>').join('')
-        : '<p class="log-line">No live events captured.</p>';
-      const prUrl = safePrUrl(task.pr_url);
-      artifacts.innerHTML = prUrl
-        ? '<a class="artifact-chip" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">Pull request ready</a>'
-        : '<div class="artifact-chip">PR handoff pending</div>';
-      logs.scrollTop = logs.scrollHeight;
-    }
-
-    function selectTask(taskId) {
-      selectedTaskId = taskId;
-      renderTasks();
-    }
-
-    function mergeTask(task) {
-      const index = tasks.findIndex(item => item.id === task.id);
-      if (index === -1) tasks.unshift(task);
-      else tasks[index] = { ...tasks[index], ...task };
-      if (!selectedTaskId) selectedTaskId = task.id;
-      renderTasks();
-    }
-
-    function patchTask(taskId, updates) {
-      const task = tasks.find(item => item.id === taskId);
-      if (!task) return;
-      Object.assign(task, updates);
-      renderTasks();
-    }
-
-    function addLog(taskId, message, level) {
-      if (!logsByTask[taskId]) logsByTask[taskId] = [];
-      logsByTask[taskId].push({ message, level: level || 'info' });
-      if (logsByTask[taskId].length > 120) logsByTask[taskId].shift();
-      if (selectedTaskId === taskId) renderSelectedTask();
-    }
-
-    async function createTask() {
-      const title = document.getElementById('title-input').value.trim();
-      const promptText = document.getElementById('prompt-input').value.trim();
-      const repo = document.getElementById('repo-input').value.trim() || null;
-      const error = document.getElementById('form-error');
-      error.classList.add('hidden');
-
-      if (!title || !promptText) {
-        error.textContent = 'Title and prompt are required.';
-        error.classList.remove('hidden');
-        return;
-      }
-      if (promptText.length > 8000) {
-        error.textContent = 'Prompt must be 8000 characters or less.';
-        error.classList.remove('hidden');
-        return;
-      }
-      if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
-        error.textContent = 'Repo must be in owner/repo format.';
-        error.classList.remove('hidden');
-        return;
-      }
-
-      try {
-        const response = await fetch(API + '/tasks', {
-          method: 'POST',
-          headers: readHeaders(true),
-          body: JSON.stringify({ title, prompt: promptText, repo_url: repo, workspace })
-        });
-        if (response.status === 401) {
-          const key = promptKey();
-          if (key) localStorage.setItem('api_key', key);
-          return;
-        }
-        if (!response.ok) {
-          const body = await response.json().catch(() => ({}));
-          error.textContent = 'Error: ' + (body.detail || response.statusText);
-          error.classList.remove('hidden');
-          return;
-        }
-        const task = await response.json();
-        document.getElementById('title-input').value = '';
-        document.getElementById('prompt-input').value = '';
-        document.getElementById('repo-input').value = '';
-        mergeTask(task);
-        subscribeSSE(task.id);
-      } catch (err) {
-        error.textContent = 'Network error: ' + String(err);
-        error.classList.remove('hidden');
-      }
-    }
-
-    function promptKey() {
-      return window.prompt('API key required:');
-    }
-
-    async function cancelTask(taskId) {
-      await fetch(API + '/tasks/' + encodeURIComponent(taskId), { method: 'DELETE', headers: readHeaders(false) });
-      patchTask(taskId, { status: 'cancelled' });
-      if (activeStreams[taskId]) { activeStreams[taskId].close(); delete activeStreams[taskId]; }
-    }
-
-    async function retryTask(taskId) {
-      const response = await fetch(API + '/tasks/' + encodeURIComponent(taskId) + '/retry', { method: 'POST', headers: readHeaders(false) });
-      if (!response.ok) {
-        addLog(taskId, 'Retry failed: ' + response.statusText, 'error');
-        return;
-      }
-      const task = await response.json();
-      mergeTask(task);
-      subscribeSSE(task.id);
-    }
-
-    function subscribeSSE(taskId) {
-      if (activeStreams[taskId]) return;
-      const apiKey = localStorage.getItem('api_key');
-      const url = API + '/tasks/' + encodeURIComponent(taskId) + '/stream' + (apiKey ? '?token=' + encodeURIComponent(apiKey) : '');
-      const eventSource = new EventSource(url);
-      activeStreams[taskId] = eventSource;
-
-      ['task_done', 'task_failed', 'task_cancelled', 'tool_start', 'tool_done', 'log', 'heartbeat'].forEach(eventType => {
-        eventSource.addEventListener(eventType, event => {
-          let data = {};
-          try { data = JSON.parse(event.data); } catch {}
-          if (eventType === 'log') addLog(taskId, data.message || '', data.level || 'info');
-          if (eventType === 'tool_start') addLog(taskId, 'Tool: ' + (data.tool || ''), 'info');
-          if (eventType === 'tool_done') addLog(taskId, 'Done: ' + (data.tool || '') + ' [' + (data.success ? 'ok' : 'fail') + ']', data.success ? 'info' : 'error');
-          if (eventType === 'task_done') patchTask(taskId, { status: 'done', pr_url: data.pr_url });
-          if (eventType === 'task_failed') patchTask(taskId, { status: 'failed', error: data.error, pr_url: data.pr_url });
-          if (eventType === 'task_cancelled') patchTask(taskId, { status: 'cancelled' });
-          if (eventType.startsWith('task_')) addLog(taskId, eventType.replace('_', ' '), eventType === 'task_failed' ? 'error' : 'info');
-          const task = tasks.find(item => item.id === taskId);
-          if (task && terminalStatuses.has(task.status)) { eventSource.close(); delete activeStreams[taskId]; }
-        });
+  function subscribeSSE(taskId) {
+    if (activeStreams[taskId]) return;
+    const k = localStorage.getItem('api_key');
+    const url = API + '/tasks/' + encodeURIComponent(taskId) + '/stream' + (k ? '?token=' + encodeURIComponent(k) : '');
+    const es = new EventSource(url);
+    activeStreams[taskId] = es;
+    ['task_done','task_failed','task_cancelled','tool_start','tool_done','log','heartbeat'].forEach(type => {
+      es.addEventListener(type, ev => {
+        let d = {}; try { d = JSON.parse(ev.data); } catch {}
+        if (type === 'log')        addLog(taskId, d.message||'', d.level||'info');
+        if (type === 'tool_start') addLog(taskId, '\u2692 Tool: ' + (d.tool||''), 'info');
+        if (type === 'tool_done')  addLog(taskId, '\u2713 Done: ' + (d.tool||'') + ' [' + (d.success ? 'ok' : 'fail') + ']', d.success ? 'info' : 'error');
+        if (type === 'task_done')      patchTask(taskId, {status:'done',      pr_url:d.pr_url});
+        if (type === 'task_failed')    patchTask(taskId, {status:'failed',    error:d.error, pr_url:d.pr_url});
+        if (type === 'task_cancelled') patchTask(taskId, {status:'cancelled'});
+        if (type.startsWith('task_'))  addLog(taskId, type.replace('_',' '), type === 'task_failed' ? 'error' : 'info');
+        const t = tasks.find(t => t.id === taskId);
+        if (t && terminalStatuses.has(t.status)) { es.close(); delete activeStreams[taskId]; }
       });
+    });
+    es.onerror = () => addLog(taskId, 'Stream disconnected', 'warning');
+  }
 
-      eventSource.onerror = () => addLog(taskId, 'Stream disconnected', 'warning');
-    }
+  async function loadSummary() {
+    try {
+      const res = await fetch(API + '/summary', {headers:readHeaders(false)});
+      if (!res.ok) return;
+      const d = await res.json();
+      document.getElementById('metric-week').textContent = '$' + Number(d.total_usd_this_week||0).toFixed(4);
+    } catch {}
+  }
 
-    async function loadSummary() {
-      try {
-        const response = await fetch(API + '/summary', { headers: readHeaders(false) });
-        if (!response.ok) return;
-        const data = await response.json();
-        document.getElementById('metric-week').textContent = '$' + Number(data.total_usd_this_week || 0).toFixed(4);
-      } catch {}
-    }
+  async function loadTasks() {
+    try {
+      const res = await fetch(API + '/tasks?limit=50&offset=0', {headers:readHeaders(false)});
+      if (!res.ok) { document.getElementById('conn-status').textContent = 'Tavern is closed\u2026'; renderTasks(); return; }
+      const d = await res.json();
+      tasks = d.tasks || [];
+      budgetCap = d.max_task_usd == null ? budgetCap : d.max_task_usd;
+      selectedTaskId = tasks[0] ? tasks[0].id : null;
+      for (const t of tasks) { if (['pending','running'].includes(t.status)) subscribeSSE(t.id); }
+      document.getElementById('conn-status').textContent = tasks.length
+        ? tasks.length + ' quest' + (tasks.length === 1 ? '' : 's') + ' on the board'
+        : 'Tavern is open \u2014 no quests yet';
+      renderTasks();
+    } catch { document.getElementById('conn-status').textContent = 'Tavern is closed\u2026'; renderTasks(); }
+  }
 
-    async function loadTasks() {
-      try {
-        const response = await fetch(API + '/tasks?limit=50&offset=0', { headers: readHeaders(false) });
-        if (!response.ok) {
-          document.getElementById('conn-status').textContent = 'Offline';
-          renderTasks();
-          return;
-        }
-        const data = await response.json();
-        tasks = data.tasks || [];
-        budgetCap = data.max_task_usd == null ? budgetCap : data.max_task_usd;
-        selectedTaskId = tasks[0] ? tasks[0].id : null;
-        for (const task of tasks) {
-          if (['pending', 'running'].includes(task.status)) subscribeSSE(task.id);
-        }
-        document.getElementById('conn-status').textContent = tasks.length + ' tasks loaded';
-        renderTasks();
-      } catch {
-        document.getElementById('conn-status').textContent = 'Offline';
-        renderTasks();
+  function renderPreviewRows(items, emptyText, renderRow) {
+    if (!items || !items.length) return '<p>' + escHtml(emptyText) + '</p>';
+    return items.slice(0,3).map(renderRow).join('');
+  }
+
+  async function loadOperatorStudio() {
+    try {
+      const h = readHeaders(false);
+      const [aRes, rRes, runRes] = await Promise.all([
+        fetch(API + '/operator/artifacts?limit=5', {headers:h}),
+        fetch(API + '/operator/recipes', {headers:h}),
+        fetch(API + '/operator/run-history?limit=5', {headers:h})
+      ]);
+      if (aRes.ok) {
+        const d = await aRes.json();
+        document.getElementById('artifact-count').textContent = String(d.count||0);
+        document.getElementById('artifact-preview').innerHTML = renderPreviewRows(d.artifacts||[], 'Vault is empty.',
+          item => '<p>\uD83D\uDDE1\uFE0F ' + escHtml(item.title) + ' <em>(' + escHtml(item.artifact_type) + ')</em></p>');
       }
-    }
+      if (rRes.ok) {
+        const d = await rRes.json();
+        document.getElementById('recipe-count').textContent = String(d.count||0);
+        document.getElementById('recipe-preview').innerHTML = renderPreviewRows(d.recipes||[], 'No recipes inscribed.',
+          item => '<p>\uD83D\uDCDC ' + escHtml(item.name) + '</p>');
+      }
+      if (runRes.ok) {
+        const d = await runRes.json();
+        document.getElementById('run-count').textContent = String(d.count||0);
+        document.getElementById('run-preview').innerHTML = renderPreviewRows(d.runs||[], 'Chronicle is blank.',
+          item => '<p><span class="' + escHtml('status status-' + item.status) + '">' + escHtml(item.status) + '</span> ' + escHtml(item.title) + '</p>');
+      }
+    } catch {}
+  }
 
-    function renderPreviewRows(items, emptyText, renderRow) {
-      if (!items || !items.length) return '<p>' + escHtml(emptyText) + '</p>';
-      return items.slice(0, 3).map(renderRow).join('');
-    }
-
-    async function loadOperatorStudio() {
-      try {
-        const headers = readHeaders(false);
-        const [artifactResponse, recipeResponse, runResponse] = await Promise.all([
-          fetch(API + '/operator/artifacts?limit=5', { headers }),
-          fetch(API + '/operator/recipes', { headers }),
-          fetch(API + '/operator/run-history?limit=5', { headers })
-        ]);
-        if (artifactResponse.ok) {
-          const data = await artifactResponse.json();
-          document.getElementById('artifact-count').textContent = String(data.count || 0);
-          document.getElementById('artifact-preview').innerHTML = renderPreviewRows(
-            data.artifacts || [],
-            'No task-backed artifacts yet.',
-            item => '<p><span>' + escHtml(item.artifact_type) + '</span> ' + escHtml(item.title) + '</p>'
-          );
-        }
-        if (recipeResponse.ok) {
-          const data = await recipeResponse.json();
-          document.getElementById('recipe-count').textContent = String(data.count || 0);
-          document.getElementById('recipe-preview').innerHTML = renderPreviewRows(
-            data.recipes || [],
-            'No recipes available.',
-            item => '<p><span>' + escHtml(item.name) + '</span> ' + escHtml(item.category) + '</p>'
-          );
-        }
-        if (runResponse.ok) {
-          const data = await runResponse.json();
-          document.getElementById('run-count').textContent = String(data.count || 0);
-          document.getElementById('run-preview').innerHTML = renderPreviewRows(
-            data.runs || [],
-            'No recent runs yet.',
-            item => '<p><span class="' + escHtml('status-' + item.status) + '">' + escHtml(item.status) + '</span> ' + escHtml(item.title) + '</p>'
-          );
-        }
-      } catch { /* non-fatal */ }
-    }
-
-    function loadAll() {
-      loadTasks();
-      loadSummary();
-      loadOperatorStudio();
-    }
-
-    loadAll();
-  </script>
+  function loadAll() { loadTasks(); loadSummary(); loadOperatorStudio(); }
+  loadAll();
+</script>
 </body>
 </html>
