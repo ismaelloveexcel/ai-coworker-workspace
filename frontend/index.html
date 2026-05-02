@@ -423,7 +423,7 @@
       try {
         const parsed = new URL(url);
         if (parsed.protocol !== 'https:') return null;
-        if (!parsed.hostname.endsWith('github.com')) return null;
+        if (parsed.hostname !== 'github.com' && !parsed.hostname.endsWith('.github.com')) return null;
         return parsed.href;
       } catch { return null; }
     }
