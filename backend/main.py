@@ -521,6 +521,25 @@ def _workspace_query(workspace: str = Query(default="personal")) -> str:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+# PR-C1: safe size bound per step field (characters) — prevents huge payloads.
+_STEP_MAX_FIELD_CHARS = 50_000
+
+
+def _bound_step(step: Dict) -> Dict:
+    """Apply safe size bounds to step fields (PR-C1). Truncates oversized fields and
+    records which fields were truncated in the ``_truncated_fields`` key."""
+    out = dict(step)
+    truncated = []
+    for field in ("tool_input", "tool_output", "reasoning"):
+        val = out.get(field)
+        if val and len(val) > _STEP_MAX_FIELD_CHARS:
+            out[field] = val[:_STEP_MAX_FIELD_CHARS]
+            truncated.append(field)
+    if truncated:
+        out["_truncated_fields"] = truncated
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -777,6 +796,24 @@ async def get_task(task_id: str, workspace: str = Depends(_workspace_query)):
     steps = await db.get_steps(task_id)
     logs  = await db.get_logs(task_id)
     return {"task": task, "steps": steps, "logs": logs}
+
+
+@app.get("/tasks/{task_id}/steps/{step_id}", dependencies=[Depends(require_auth)])
+async def get_step_detail(task_id: str, step_id: str, workspace: str = Depends(_workspace_query)):
+    """Return full step detail with safe size bounds (PR-C1).
+
+    Fields larger than _STEP_MAX_FIELD_CHARS are truncated; the response
+    includes a ``_truncated_fields`` list when truncation occurred so the
+    caller can detect partial data and decide whether to paginate further.
+    Redaction applied at write-time is preserved.
+    """
+    task = await db.get_task(task_id, workspace=workspace)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    step = await db.get_step(task_id, step_id)
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    return _bound_step(step)
 
 
 @app.delete("/tasks/{task_id}", dependencies=[Depends(require_auth)])
