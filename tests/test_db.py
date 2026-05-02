@@ -62,6 +62,37 @@ async def test_get_running_tasks_returns_only_running_tasks():
 
 
 @pytest.mark.asyncio
+async def test_operator_task_summary_helpers_return_allowlisted_fields():
+    running = await db.create_task("Running", "private prompt", "owner/repo")
+    failed = await db.create_task("Failed", "private prompt", "owner/repo")
+    await db.update_task(running["id"], status="running", branch="task/running", current_step=2)
+    await db.update_task(failed["id"], status="failed", error="boom")
+
+    counts = await db.get_task_counts_by_status()
+    running_rows = await db.get_running_task_summaries()
+    failed_rows = await db.get_recent_failed_task_summaries()
+
+    assert counts["running"] == 1
+    assert counts["failed"] == 1
+    assert running_rows[0]["id"] == running["id"]
+    assert running_rows[0]["repo"] == "owner/repo"
+    assert running_rows[0]["branch"] == "task/running"
+    assert "prompt" not in running_rows[0]
+    assert failed_rows[0]["id"] == failed["id"]
+    assert "prompt" not in failed_rows[0]
+
+
+@pytest.mark.asyncio
+async def test_summary_handles_empty_status_aggregates():
+    summary = await db.get_summary()
+
+    assert summary["tasks_today"] == 0
+    assert summary["succeeded_today"] == 0
+    assert summary["failed_today"] == 0
+    assert summary["total_usd_today"] == 0.0
+
+
+@pytest.mark.asyncio
 async def test_recovery_note_redacts_secrets():
     task = await db.create_task("Secret recovery", "Prompt")
     await db.update_task(task["id"], recovery_note="token=ghp_abcdefghijklmnopqrstuvwxyz123456")
@@ -146,3 +177,19 @@ async def test_backup_database_creates_backup(tmp_path, monkeypatch):
 
     assert backup_path is not None
     assert backup_path.endswith(".db")
+
+
+@pytest.mark.asyncio
+async def test_backup_status_reports_latest_backup(monkeypatch):
+    from backend import config
+
+    monkeypatch.setattr(config.settings, "backup_enabled", True)
+    monkeypatch.setattr(db.settings, "backup_enabled", True)
+
+    await db.create_task("Backup status", "prompt")
+    await db.backup_database()
+    status = await db.backup_status()
+
+    assert status["enabled"] is True
+    assert status["backup_count"] >= 1
+    assert status["latest_backup"]["name"].startswith("agent-")

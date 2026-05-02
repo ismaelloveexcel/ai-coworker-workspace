@@ -103,6 +103,7 @@ Default model: **`claude-sonnet-4-5`** (set via `CLAUDE_MODEL` env var).
 - `API_CORS_ORIGINS` defaults to localhost; set explicitly for any deployed frontend
 - Task creation and retry endpoints have basic in-process rate limiting and request-size checks; nginx also caps request bodies at 64 KiB and rate-limits `/api/` traffic
 - If the backend restarts mid-task, startup reconciliation marks orphaned running tasks as failed and preserves the branch, PR URL, current step, last action/tool, and recovery note for operator review
+- Authenticated operator endpoints expose internal status at `/operator/status` and allow a local SQLite backup trigger at `/operator/backup`; they return allowlisted operational fields only and never raw API keys or tokens
 - The Watchdog never writes code patches to `main` directly — all fixes go through a PR
 - The Watchdog does write `.watchdog/state.json` to `main` to persist the daily invocation counter; CI is configured to ignore this path (`paths-ignore: .watchdog/**`) so the write does not trigger new CI runs or re-activate the watchdog loop
 

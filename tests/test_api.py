@@ -196,6 +196,101 @@ async def test_list_tasks_pagination(client):
 
 
 @pytest.mark.asyncio
+async def test_operator_status_returns_private_dashboard_shape(client):
+    from backend import db
+
+    running = await db.create_task("Running", "prompt", "owner/repo")
+    failed = await db.create_task("Failed", "prompt", "owner/repo")
+    await db.update_task(
+        running["id"],
+        status="running",
+        branch="task/running",
+        current_step=4,
+        last_action="tool_call",
+        last_tool="github_read_file",
+        recovery_note="Review branch task/running",
+        pr_url="https://github.com/owner/repo/pull/2",
+    )
+    await db.update_task(failed["id"], status="failed", error="boom")
+
+    response = await client.get("/operator/status")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert set(data) == {"app", "db", "tasks", "spend", "backup", "guardrails"}
+    assert data["app"]["name"] == "AI Coworker"
+    assert data["tasks"]["counts_by_status"]["running"] == 1
+    assert data["tasks"]["counts_by_status"]["failed"] == 1
+    assert data["tasks"]["running"][0]["id"] == running["id"]
+    assert data["tasks"]["running"][0]["repo"] == "owner/repo"
+    assert data["tasks"]["running"][0]["branch"] == "task/running"
+    assert data["tasks"]["running"][0]["current_step"] == 4
+    assert data["tasks"]["running"][0]["last_action"] == "tool_call"
+    assert data["tasks"]["running"][0]["last_tool"] == "github_read_file"
+    assert "prompt" not in data["tasks"]["running"][0]
+    assert data["tasks"]["recent_failed"][0]["id"] == failed["id"]
+    assert data["guardrails"]["task_request_max_bytes"] > 0
+
+
+@pytest.mark.asyncio
+async def test_operator_status_redacts_task_errors_and_recovery_notes(client):
+    from backend import db
+
+    task = await db.create_task("Secret failure", "prompt")
+    await db.update_task(
+        task["id"],
+        status="failed",
+        error="token=ghp_abcdefghijklmnopqrstuvwxyz123456",
+        recovery_note="token=ghp_abcdefghijklmnopqrstuvwxyz123456",
+    )
+
+    response = await client.get("/operator/status")
+
+    assert response.status_code == 200
+    payload = response.text
+    assert "ghp_abcdefghijklmnopqrstuvwxyz123456" not in payload
+    assert "[REDACTED]" in payload
+
+
+@pytest.mark.asyncio
+async def test_operator_status_does_not_expose_secret_config_values(client, monkeypatch):
+    monkeypatch.setattr("backend.main.settings.api_key", "super-secret-api-key")
+    monkeypatch.setattr("backend.main.settings.github_token", "ghp_abcdefghijklmnopqrstuvwxyz123456")
+    monkeypatch.setattr("backend.main.settings.anthropic_api_key", "sk-ant-super-secret")
+
+    response = await client.get(
+        "/operator/status",
+        headers={"Authorization": "Bearer super-secret-api-key"},
+    )
+
+    assert response.status_code == 200
+    payload = response.text
+    assert "super-secret-api-key" not in payload
+    assert "ghp_abcdefghijklmnopqrstuvwxyz123456" not in payload
+    assert "sk-ant-super-secret" not in payload
+    assert response.json()["app"]["auth_required"] is True
+
+
+@pytest.mark.asyncio
+async def test_operator_backup_triggers_local_backup(client, tmp_path, monkeypatch):
+    from backend import config, db
+
+    monkeypatch.setattr(config.settings, "backup_enabled", True)
+    monkeypatch.setattr(db.settings, "backup_enabled", True)
+    monkeypatch.setattr(config.settings, "backup_retention_days", 14)
+    monkeypatch.setattr(db.settings, "backup_retention_days", 14)
+
+    await db.create_task("Backup", "prompt")
+    response = await client.post("/operator/backup")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["created"] is True
+    assert data["backup"]["enabled"] is True
+    assert data["backup"]["backup_count"] >= 1
+
+
+@pytest.mark.asyncio
 async def test_get_task_includes_recovery_fields(client):
     from backend import db
 

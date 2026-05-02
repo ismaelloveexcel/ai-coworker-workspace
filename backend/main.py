@@ -546,6 +546,57 @@ async def add_artifact_version(artifact_id: str, req: ArtifactVersionRequest, wo
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.get("/operator/status", dependencies=[Depends(require_auth)])
+async def operator_status():
+    """Private operator status surface for local supervision and recovery."""
+    db_detail = await db.health_detail()
+    spend = await db.get_summary()
+    return {
+        "app": {
+            "name": "AI Coworker",
+            "version": app.version,
+            "environment": settings.environment,
+            "auth_required": bool(settings.api_key),
+            "model": settings.model,
+            "watchdog_model": settings.watchdog_model,
+        },
+        "db": db_detail,
+        "tasks": {
+            "counts_by_status": await db.get_task_counts_by_status(),
+            "running": await db.get_running_task_summaries(),
+            "recent_failed": await db.get_recent_failed_task_summaries(limit=10),
+        },
+        "spend": {
+            "today_usd": spend["total_usd_today"],
+            "week_usd": spend["total_usd_this_week"],
+            "summary": spend,
+        },
+        "backup": await db.backup_status(),
+        "guardrails": {
+            "max_steps": settings.max_steps,
+            "step_timeout_seconds": settings.step_timeout_seconds,
+            "max_concurrent_tasks": settings.max_concurrent_tasks,
+            "task_create_rate_limit_enabled": settings.task_create_rate_limit_enabled,
+            "task_create_rate_limit_count": settings.task_create_rate_limit_count,
+            "task_create_rate_limit_window_seconds": settings.task_create_rate_limit_window_seconds,
+            "task_request_max_bytes": settings.task_request_max_bytes,
+            "max_task_usd": settings.max_task_usd,
+            "daily_max_usd": settings.daily_max_usd,
+            "zombie_reaper_interval_seconds": settings.zombie_reaper_interval_seconds,
+        },
+    }
+
+
+@app.post("/operator/backup", dependencies=[Depends(require_auth)])
+async def operator_backup():
+    """Trigger a local SQLite backup for the private operator."""
+    backup_path = await db.backup_database()
+    return {
+        "created": bool(backup_path),
+        "backup": await db.backup_status(),
+    }
+
+
 @app.get("/tasks", dependencies=[Depends(require_auth)])
 async def list_tasks(
     limit: int = Query(default=50, ge=1, le=200),

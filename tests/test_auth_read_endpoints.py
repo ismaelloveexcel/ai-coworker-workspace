@@ -60,6 +60,26 @@ async def test_list_tasks_accepts_correct_token(auth_client):
 
 
 @pytest.mark.asyncio
+async def test_operator_status_requires_bearer_token(auth_client):
+    missing = await auth_client.get("/operator/status")
+    query = await auth_client.get(f"/operator/status?token={_API_KEY}")
+    good = await auth_client.get("/operator/status", headers={"Authorization": f"Bearer {_API_KEY}"})
+
+    assert missing.status_code == 401
+    assert query.status_code == 401
+    assert good.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_operator_backup_requires_bearer_token(auth_client):
+    missing = await auth_client.post("/operator/backup")
+    query = await auth_client.post(f"/operator/backup?token={_API_KEY}")
+
+    assert missing.status_code == 401
+    assert query.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_query_param_token_rejected_for_non_sse_read_endpoints(auth_client):
     from backend import db
 
