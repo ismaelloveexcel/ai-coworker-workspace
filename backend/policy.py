@@ -5,35 +5,25 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List
 
+from backend.tool_catalog import (
+    BROWSER_IDS,
+    LOCAL_FILESYSTEM_IDS,
+    REMOTE_OR_SUPPORT_IDS,
+    SHELL_ALLOWLISTED_IDS,
+)
 
 ALLOW = "allow"
 DENY = "deny"
 REQUIRE_APPROVAL = "require_approval"
 
-_LOCAL_TOOL_CATEGORIES = {
-    "filesystem_read": "filesystem",
-    "filesystem_write": "filesystem",
-    "filesystem_list": "filesystem",
-    "playwright_browse": "browser",
-    "run_tests": "shell_allowlisted",
+# Derived from the canonical tool catalog — do NOT edit inline.
+_LOCAL_TOOL_CATEGORIES: Dict[str, str] = {
+    **{tool_id: "filesystem" for tool_id in LOCAL_FILESYSTEM_IDS},
+    **{tool_id: "browser" for tool_id in BROWSER_IDS},
+    **{tool_id: "shell_allowlisted" for tool_id in SHELL_ALLOWLISTED_IDS},
 }
 
-_SAFE_NONLOCAL_TOOLS = {
-    "github_create_branch",
-    "github_commit_files",
-    "github_create_pr",
-    "github_read_file",
-    "github_list_files",
-    "github_compare_branch",
-    "repo_snapshot",
-    "secret_scan",
-    "humanize_error",
-    "cost_status",
-    "web_search",
-    "fetch_url",
-    "source_summarize",
-    "research_compare",
-}
+_SAFE_NONLOCAL_TOOLS: frozenset = REMOTE_OR_SUPPORT_IDS
 
 _SENSITIVE_PATH_SEGMENTS = {".ssh", ".gnupg", ".aws", ".azure", ".config", "AppData"}
 _AUDIT_LIMIT = 500

@@ -31,6 +31,7 @@ from tenacity import RetryError, retry, retry_if_exception, stop_after_attempt, 
 
 from backend.config import settings
 from backend.policy import ALLOW, evaluate_tool_call, record_policy_decision
+from backend.tool_catalog import TOOL_IDS as _CATALOG_TOOL_IDS
 
 # PyGithub deprecated the positional-token constructor in 2.x and removes it
 # in 3.x. Use the explicit Auth.Token form so we don't break on upgrade.
@@ -916,16 +917,12 @@ def playwright_browse(url: str) -> Dict:
         return _err(f"Playwright error: {e}")
 
 
-# -- Dispatcher ----------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Dispatcher
+# ---------------------------------------------------------------------------
 
-_ALLOWED_TOOLS = {
-    "github_create_branch", "github_commit_files", "github_create_pr",
-    "github_read_file", "github_list_files", "github_compare_branch",
-    "filesystem_read", "filesystem_write", "filesystem_list",
-    "playwright_browse", "repo_snapshot", "run_tests", "secret_scan",
-    "humanize_error", "cost_status", "web_search", "fetch_url",
-    "source_summarize", "research_compare",
-}
+# Derived from the canonical tool catalog — do NOT edit inline.
+_ALLOWED_TOOLS = _CATALOG_TOOL_IDS
 
 _TOOL_MAP = {
     "github_create_branch": github_create_branch,
