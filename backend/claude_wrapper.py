@@ -4,6 +4,8 @@ Claude wrapper - strict schema parsing, single correction attempt.
 v2: removed @retry from run_agent_turn to prevent nested retry storms (F5).
     Fixed INPUT regex to handle deeply-nested JSON objects (F15).
     One correction attempt per turn; caller decides what to do on failure.
+v3: context sourced from task target repo via GitHub API (B5).
+    Added per-task context cache to reduce repeated API reads.
 """
 import json
 import os
@@ -30,6 +32,17 @@ MAX_TOKENS = 4096
 # Estimated via the 4-chars-per-token heuristic so callers can include it in
 # preflight budget checks without importing the raw prompt text.
 SYSTEM_PROMPT_TOKENS: int = (len(_SYSTEM_PROMPT) + 3) // 4
+
+# -- Per-task context cache ---------------------------------------------------
+# Keyed by (task_id, cache_slot, repo, branch).
+# Bounded dict; eviction is not needed for typical single-worker deployments.
+_ctx_cache: Dict[tuple, str] = {}
+
+# Context assembly limits — keep these consistent with token budget (A11)
+_MAX_PRELUDE_FILE_CHARS = 2500   # per-file limit in full step-0 prelude
+_MAX_README_COMPACT_CHARS = 500  # README summary for step>0 compact context
+_MAX_SNAPSHOT_FILES = 160        # max entries in repo file tree
+_TRUNCATION_MARKER = "\n...[truncated]"
 
 
 def _is_retryable_anthropic(exc: Exception) -> bool:
@@ -65,6 +78,7 @@ def _create_message(messages: List[Dict], model: str = None):
 
 
 def _read_context_file(path: str, limit: int = 2500) -> str:
+    """Read a file from the host filesystem (deploy repo only)."""
     full_path = os.path.join(_ROOT, path)
     try:
         with open(full_path, "r", encoding="utf-8", errors="replace") as f:
@@ -76,7 +90,97 @@ def _read_context_file(path: str, limit: int = 2500) -> str:
     return content
 
 
-def _build_repo_prelude() -> str:
+def _repo_slug(repo_url: Optional[str]) -> str:
+    """Normalize a GitHub repo URL to an owner/repo slug."""
+    url = (repo_url or "").strip().rstrip("/")
+    if url.startswith("https://github.com/"):
+        return url[len("https://github.com/"):]
+    return url
+
+
+def _build_repo_prelude_from_github(repo: str, branch: str = "main") -> str:
+    """Fetch the step-0 repo prelude from the task's target GitHub repository.
+
+    Returns an empty string on any API failure so callers can fall back.
+    Lazy-imports tool_adapters to avoid a circular import at module level.
+    """
+    # Inline import to avoid circular dependency (tool_adapters -> policy, not claude_wrapper)
+    try:
+        from backend.tool_adapters import github_read_file as _ghrf  # noqa: PLC0415
+        from backend.tool_adapters import repo_snapshot as _snap  # noqa: PLC0415
+    except Exception:
+        return ""
+
+    parts: List[str] = []
+
+    # Fetch high-signal config files (same set as local walk, plus CLAUDE.md)
+    for path in ["README.md", "CLAUDE.md", "requirements.txt", "package.json"]:
+        try:
+            result = _ghrf(path, repo=repo, branch=branch)
+        except Exception:
+            continue
+        if result.get("success"):
+            raw = result["data"].get("content", "")
+            if raw:
+                if len(raw) > _MAX_PRELUDE_FILE_CHARS:
+                    raw = raw[:_MAX_PRELUDE_FILE_CHARS] + _TRUNCATION_MARKER
+                parts.append(f"--- {path} ---\n{raw}")
+
+    # Fetch file tree via snapshot (tree-only; individual file content not needed here)
+    try:
+        snap = _snap(repo=repo, branch=branch, max_files=_MAX_SNAPSHOT_FILES, max_file_chars=0)
+    except Exception:
+        snap = {"success": False}
+    if snap.get("success"):
+        tree_items = snap["data"].get("tree", [])
+        tree_lines = [item["path"] for item in tree_items[:_MAX_SNAPSHOT_FILES]]
+        if tree_lines:
+            parts.append("--- file tree ---\n" + "\n".join(tree_lines))
+
+    return "\n\n".join(parts)
+
+
+def _build_compact_context_from_github(repo: str, branch: str = "main") -> str:
+    """Fetch the step>0 compact repo context from the task's target GitHub repository.
+
+    Includes only a README.md header and the raw file tree — preserving the
+    same token budget as the local fallback (A11).
+    Returns an empty string on any API failure so callers can fall back.
+    """
+    try:
+        from backend.tool_adapters import github_read_file as _ghrf  # noqa: PLC0415
+        from backend.tool_adapters import repo_snapshot as _snap  # noqa: PLC0415
+    except Exception:
+        return ""
+
+    parts: List[str] = []
+
+    try:
+        result = _ghrf("README.md", repo=repo, branch=branch)
+    except Exception:
+        result = {"success": False}
+    if result.get("success"):
+        raw = result["data"].get("content", "")
+        if raw:
+            if len(raw) > _MAX_README_COMPACT_CHARS:
+                raw = raw[:_MAX_README_COMPACT_CHARS] + _TRUNCATION_MARKER
+            parts.append(f"--- README.md (summary) ---\n{raw}")
+
+    try:
+        snap = _snap(repo=repo, branch=branch, max_files=_MAX_SNAPSHOT_FILES, max_file_chars=0)
+    except Exception:
+        snap = {"success": False}
+    if snap.get("success"):
+        tree_items = snap["data"].get("tree", [])
+        tree_lines = [item["path"] for item in tree_items[:_MAX_SNAPSHOT_FILES]]
+        if tree_lines:
+            parts.append("--- file tree ---\n" + "\n".join(tree_lines))
+
+    return "\n\n".join(parts)
+
+
+def _build_repo_prelude_local() -> str:
+    """Build step-0 prelude by walking the host deploy-repo filesystem (fallback)."""
     files = ["README.md", "CLAUDE.md", "requirements.txt", "package.json"]
     parts = []
     for path in files:
@@ -84,7 +188,7 @@ def _build_repo_prelude() -> str:
         if content:
             parts.append(f"--- {path} ---\n{content}")
     try:
-        tree = []
+        tree: List[str] = []
         for root, dirs, filenames in os.walk(_ROOT):
             rel_root = os.path.relpath(root, _ROOT)
             if rel_root == ".":
@@ -107,19 +211,14 @@ def _build_repo_prelude() -> str:
     return "\n\n".join(parts)
 
 
-def _build_compact_repo_context() -> str:
-    """Lightweight repo context injected on every step >0 (A11).
-
-    Includes only the first 500 chars of README.md and the raw file tree —
-    no full file contents.  Adds ~800–1 000 tokens per step but prevents
-    Claude from hallucinating file paths on long tasks.
-    """
-    parts = []
+def _build_compact_context_local() -> str:
+    """Lightweight step>0 context from host filesystem (fallback, A11)."""
+    parts: List[str] = []
     readme = _read_context_file("README.md", limit=500)
     if readme:
         parts.append(f"--- README.md (summary) ---\n{readme}")
     try:
-        tree: list = []
+        tree: List[str] = []
         for root, dirs, filenames in os.walk(_ROOT):
             rel_root = os.path.relpath(root, _ROOT)
             if rel_root == ".":
@@ -140,6 +239,56 @@ def _build_compact_repo_context() -> str:
     except OSError:
         pass
     return "\n\n".join(parts)
+
+
+def _get_task_prelude(task: Dict) -> str:
+    """Return the step-0 prelude for *task*, using per-task cache.
+
+    Sources context from the task's target GitHub repository.  Falls back to
+    the host-filesystem walk only when no repo is configured or the GitHub API
+    call fails.
+    """
+    task_id = task.get("id", "")
+    repo = _repo_slug(task.get("repo_url") or settings.github_default_repo)
+    branch = task.get("branch") or "main"
+    cache_key = (task_id, "prelude", repo, branch)
+
+    if cache_key in _ctx_cache:
+        return _ctx_cache[cache_key]
+
+    result = ""
+    if repo:
+        result = _build_repo_prelude_from_github(repo, branch)
+    if not result:
+        result = _build_repo_prelude_local()
+
+    _ctx_cache[cache_key] = result
+    return result
+
+
+def _get_task_compact(task: Dict) -> str:
+    """Return the step>0 compact context for *task*, using per-task cache.
+
+    Sources context from the task's target GitHub repository.  Falls back to
+    the host-filesystem walk only when no repo is configured or the GitHub API
+    call fails.
+    """
+    task_id = task.get("id", "")
+    repo = _repo_slug(task.get("repo_url") or settings.github_default_repo)
+    branch = task.get("branch") or "main"
+    cache_key = (task_id, "compact", repo, branch)
+
+    if cache_key in _ctx_cache:
+        return _ctx_cache[cache_key]
+
+    result = ""
+    if repo:
+        result = _build_compact_context_from_github(repo, branch)
+    if not result:
+        result = _build_compact_context_local()
+
+    _ctx_cache[cache_key] = result
+    return result
 
 
 # -- Context builder -----------------------------------------------------------
@@ -161,16 +310,16 @@ def build_task_context(task: Dict, steps: List[Dict]) -> str:
         )
     repo_context = ""
     if not steps:
-        # Step 0: full repo prelude with file contents
-        prelude = _build_repo_prelude()
+        # Step 0: full repo prelude sourced from task target repository (B5)
+        prelude = _get_task_prelude(task)
         if prelude:
             repo_context = f"""
 === Repo Snapshot ===
 {prelude}
 """
     else:
-        # Steps >0: compact context — file tree + README header only (A11)
-        compact = _build_compact_repo_context()
+        # Steps >0: compact context sourced from task target repository (A11, B5)
+        compact = _get_task_compact(task)
         if compact:
             repo_context = f"""
 === Repo Context ===

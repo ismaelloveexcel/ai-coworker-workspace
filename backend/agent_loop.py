@@ -16,6 +16,7 @@ import concurrent.futures
 import functools
 import json
 import traceback
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 import structlog
@@ -40,6 +41,11 @@ _tool_executor   = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_n
 
 # Registry of running asyncio Tasks keyed by task_id (for cancellation)
 _running: Dict[str, asyncio.Task] = {}
+
+
+def _utcnow() -> str:
+    """Return current UTC time as an ISO-8601 string for timing fields."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _human_error(error: str) -> str:
@@ -85,7 +91,7 @@ async def run_task(task_id: str) -> None:
     loop = asyncio.get_running_loop()   # F34: never use get_event_loop() in a coroutine
     log_ctx = log.bind(task_id=task_id)
 
-    await db.update_task(task_id, status="running", current_step=0)
+    await db.update_task(task_id, status="running", current_step=0, started_at=_utcnow())
     await db.touch_heartbeat(task_id)   # prevent false-positive zombie reap during branch creation
     await emit_log(task_id, "info", "Agent starting")
 
@@ -104,7 +110,8 @@ async def run_task(task_id: str) -> None:
         )
         if not branch_result.get("success"):
             err = branch_result.get("error", "unknown")
-            await db.update_task(task_id, status="failed", error=f"Branch creation failed: {err}")
+            await db.update_task(task_id, status="failed", error=f"Branch creation failed: {err}",
+                                 ended_at=_utcnow(), failure_category="branch_creation_failed")
             await emit_log(task_id, "error", f"Branch creation failed: {err}")
             await emit(task_id, "task_failed", {"error": err})
             await notify_task_failure(task_id, repo, f"Branch creation failed: {err}")
@@ -174,7 +181,8 @@ async def run_task(task_id: str) -> None:
                                      tool_output=_json_redacted({"error": "Claude call timed out"}))
                 err = f"Step {step_count} timed out after {settings.step_timeout_seconds}s"
                 human = _human_error(err)
-                await db.update_task(task_id, status="failed", error=human)
+                await db.update_task(task_id, status="failed", error=human,
+                                     ended_at=_utcnow(), failure_category="timeout")
                 await emit_log(task_id, "error", f"Step {step_count} timed out")
                 await emit(task_id, "task_failed", {"error": human})
                 await notify_task_failure(task_id, repo, human)
@@ -183,7 +191,8 @@ async def run_task(task_id: str) -> None:
                 human = _human_error(str(e))
                 await db.update_step(step_id, status="failed",
                                      tool_output=_json_redacted({"error": human}))
-                await db.update_task(task_id, status="failed", error=human)
+                await db.update_task(task_id, status="failed", error=human,
+                                     ended_at=_utcnow(), failure_category="malformed_output")
                 await emit_log(task_id, "error", f"Malformed output: {human}")
                 await emit(task_id, "task_failed", {"error": human})
                 await notify_task_failure(task_id, repo, human)
@@ -193,7 +202,8 @@ async def run_task(task_id: str) -> None:
                 log_ctx.exception("agent_error", error=human)
                 await db.update_step(step_id, status="failed",
                                      tool_output=_json_redacted({"error": human}))
-                await db.update_task(task_id, status="failed", error=human)
+                await db.update_task(task_id, status="failed", error=human,
+                                     ended_at=_utcnow(), failure_category="agent_error")
                 await emit_log(task_id, "error", f"Agent error: {human}")
                 await emit(task_id, "task_failed", {"error": human})
                 await notify_task_failure(task_id, repo, human)
@@ -209,7 +219,8 @@ async def run_task(task_id: str) -> None:
                 human = _human_error(str(e))
                 await db.update_step(step_id, status="failed",
                                      tool_output=_json_redacted({"error": human}))
-                await db.update_task(task_id, status="failed", error=human)
+                await db.update_task(task_id, status="failed", error=human,
+                                     ended_at=_utcnow(), failure_category="budget_exceeded")
                 await emit_log(task_id, "error", human)
                 await emit(task_id, "task_failed", {"error": human})
                 await notify_task_failure(task_id, repo, human)
@@ -235,7 +246,8 @@ async def run_task(task_id: str) -> None:
                 if not compare_result.get("success"):
                     err = _human_error(compare_result.get("error", "Branch comparison failed"))
                     await db.update_step(step_id, status="failed", tool_output=_json_redacted({"error": err}))
-                    await db.update_task(task_id, status="failed", error=err)
+                    await db.update_task(task_id, status="failed", error=err,
+                                         ended_at=_utcnow(), failure_category="agent_error")
                     await emit_log(task_id, "error", err)
                     await emit(task_id, "task_failed", {"error": err})
                     await notify_task_failure(task_id, repo, err)
@@ -245,7 +257,8 @@ async def run_task(task_id: str) -> None:
                 if not compare_result.get("data", {}).get("has_changes"):
                     err = "No file changes were found on the task branch, so no PR was opened."
                     await db.update_step(step_id, status="failed", tool_output=_json_redacted({"error": err, "compare": compare_result.get("data", {})}))
-                    await db.update_task(task_id, status="failed", error=err)
+                    await db.update_task(task_id, status="failed", error=err,
+                                         ended_at=_utcnow(), failure_category="no_changes")
                     await emit_log(task_id, "error", err)
                     await emit(task_id, "task_failed", {"error": err})
                     await notify_task_failure(task_id, repo, err)
@@ -258,7 +271,8 @@ async def run_task(task_id: str) -> None:
                     if not test_result.get("success") or not test_result.get("data", {}).get("success"):
                         err = "Validation failed before PR creation. Fix the test errors and retry."
                         await db.update_step(step_id, status="failed", tool_output=_json_redacted({"error": err, "tests": test_result}))
-                        await db.update_task(task_id, status="failed", error=err)
+                        await db.update_task(task_id, status="failed", error=err,
+                                             ended_at=_utcnow(), failure_category="validation_failed")
                         await emit_log(task_id, "error", err)
                         await emit(task_id, "task_failed", {"error": err})
                         await notify_task_failure(task_id, repo, err)
@@ -274,7 +288,8 @@ async def run_task(task_id: str) -> None:
                 if not pr_result.get("success"):
                     err = _human_error(pr_result.get("error", "PR creation failed"))
                     await db.update_step(step_id, status="failed", tool_output=_json_redacted({"error": err, "compare": compare_result.get("data", {})}))
-                    await db.update_task(task_id, status="failed", error=err)
+                    await db.update_task(task_id, status="failed", error=err,
+                                         ended_at=_utcnow(), failure_category="pr_creation_failed")
                     await emit_log(task_id, "error", err)
                     await emit(task_id, "task_failed", {"error": err})
                     await notify_task_failure(task_id, repo, err)
@@ -313,7 +328,7 @@ async def run_task(task_id: str) -> None:
                     log_ctx.warning("changelog_update_skipped", error=str(cl_exc))
                 await db.update_step(step_id, status="done",
                                      tool_output=_json_redacted({"pr_url": pr_url, "compare": compare_result.get("data", {})}))
-                await db.update_task(task_id, status="done", pr_url=pr_url)
+                await db.update_task(task_id, status="done", pr_url=pr_url, ended_at=_utcnow())
                 await emit_log(task_id, "info", f"Task complete. PR: {pr_url}")
                 await emit(task_id, "task_done", {"pr_url": pr_url})
                 return
@@ -323,7 +338,8 @@ async def run_task(task_id: str) -> None:
                 human = _human_error(reasoning)
                 await db.update_step(step_id, status="failed",
                                      tool_output=_json_redacted({"error": human}))
-                await db.update_task(task_id, status="failed", error=human)
+                await db.update_task(task_id, status="failed", error=human,
+                                     ended_at=_utcnow(), failure_category="agent_error")
                 await emit_log(task_id, "error", f"Agent reported error: {human}")
                 await emit(task_id, "task_failed", {"error": human})
                 await notify_task_failure(task_id, repo, human)
@@ -371,6 +387,8 @@ async def run_task(task_id: str) -> None:
                         error=f"{human_err} Partial draft PR: {pr_url}",
                         pr_url=pr_url,
                         recovery_note=f"Partial draft PR opened at {pr_url}. Review the PR before retrying.",
+                        ended_at=_utcnow(),
+                        failure_category="agent_error",
                     )
                     await emit(task_id, "task_failed", {"error": human_err, "pr_url": pr_url})
                     await notify_task_failure(task_id, repo, f"{human_err} Partial draft PR: {pr_url}")
@@ -382,19 +400,22 @@ async def run_task(task_id: str) -> None:
             status="failed",
             error=human_err,
             recovery_note=f"Agent stopped after reaching max steps. Review branch {branch!r} for partial work.",
+            ended_at=_utcnow(),
+            failure_category="agent_error",
         )
         await emit(task_id, "task_failed", {"error": human_err})
         await notify_task_failure(task_id, repo, human_err)
 
     except asyncio.CancelledError:
-        await db.update_task(task_id, status="cancelled")
+        await db.update_task(task_id, status="cancelled", ended_at=_utcnow())
         await emit_log(task_id, "info", "Task cancelled")
         await emit(task_id, "task_cancelled", {})
         raise
     except Exception as e:
         traceback.print_exc()
         err = _human_error(str(e))
-        await db.update_task(task_id, status="failed", error=err)
+        await db.update_task(task_id, status="failed", error=err,
+                             ended_at=_utcnow(), failure_category="agent_error")
         await emit_log(task_id, "error", f"Unexpected error: {err}")
         await emit(task_id, "task_failed", {"error": err})
         _repo = settings.github_default_repo

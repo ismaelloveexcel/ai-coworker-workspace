@@ -206,9 +206,15 @@ async def enforce_task_request_size(request: Request, call_next):
             except ValueError:
                 size = 0
             if size > settings.task_request_max_bytes:
+                if settings.task_request_max_bytes >= 1024:
+                    size_value = settings.task_request_max_bytes // 1024
+                    unit = "KB"
+                else:
+                    size_value = settings.task_request_max_bytes
+                    unit = "bytes"
                 return JSONResponse(
                     status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                    content={"detail": f"Task request body must be <= {settings.task_request_max_bytes} bytes"},
+                    content={"detail": f"Mission brief is too long (over {size_value} {unit}). Please shorten it and try again."},
                 )
     return await call_next(request)
 
@@ -243,7 +249,7 @@ async def require_auth(request: Request) -> None:
     if token_param and token_param == settings.api_key and _is_sse_stream_request(request):
         return
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Invalid or missing Bearer token")
+                        detail="API key required — enter your key in the settings panel to continue.")
 
 
 def _task_create_rate_limit_key(request: Request) -> str:
@@ -269,7 +275,7 @@ async def _check_task_create_rate_limit(request: Request) -> None:
         if len(entries) >= limit:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Task creation rate limit exceeded: {limit} per {window} seconds",
+                detail=f"Tasks are being created too quickly — please wait {window} seconds and try again.",
             )
         entries.append(now)
 
@@ -300,7 +306,7 @@ async def _create_and_start_task(req) -> Dict:
     if active_count >= settings.max_concurrent_tasks:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Too many active tasks in workspace {req.workspace!r} ({active_count}/{settings.max_concurrent_tasks}). Retry when one finishes.",
+            detail=f"A task is already active in this workspace ({active_count}/{settings.max_concurrent_tasks}). Wait for it to finish, then try again.",
         )
     task = await db.create_task(req.title, req.prompt, req.repo_url, workspace=req.workspace)
     task_id = task["id"]
@@ -500,6 +506,19 @@ async def create_task(req: CreateTaskRequest, request: Request):
 async def summary(workspace: str = Depends(_workspace_query)):
     """Return task counts and USD spend for today and the last 7 days (A9)."""
     return await db.get_summary(workspace=workspace)
+
+
+@app.get("/metrics", dependencies=[Depends(require_auth)])
+async def metrics(
+    window: int = Query(default=24, ge=1, le=168, description="Lookback window in hours (1-168)"),
+):
+    """Return aggregated reliability and cost metrics for the given time window (A1).
+
+    Supports any window from 1h to 168h (7 days).
+    Returns success_rate, failure_rate, latency stats, failure_category distribution,
+    and cost summary derived from explicit schema fields.
+    """
+    return await db.get_metrics(window_hours=window)
 
 
 @app.post("/artifacts", status_code=201, dependencies=[Depends(require_auth)])
@@ -735,7 +754,8 @@ async def stream_task(task_id: str, request: Request, workspace: str = Depends(_
                     continue
 
                 import json
-                yield f"event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
+                seq_line = f"id: {event['seq']}\n" if "seq" in event else ""
+                yield f"{seq_line}event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
 
                 # Terminal events — close stream
                 if event["type"] in ("task_done", "task_failed", "task_cancelled"):
