@@ -206,11 +206,15 @@ async def enforce_task_request_size(request: Request, call_next):
             except ValueError:
                 size = 0
             if size > settings.task_request_max_bytes:
-                kb = settings.task_request_max_bytes // 1024 or settings.task_request_max_bytes
-                unit = "KB" if settings.task_request_max_bytes >= 1024 else "bytes"
+                if settings.task_request_max_bytes >= 1024:
+                    size_value = settings.task_request_max_bytes // 1024
+                    unit = "KB"
+                else:
+                    size_value = settings.task_request_max_bytes
+                    unit = "bytes"
                 return JSONResponse(
                     status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                    content={"detail": f"Mission brief is too long (over {kb} {unit}). Please shorten it and try again."},
+                    content={"detail": f"Mission brief is too long (over {size_value} {unit}). Please shorten it and try again."},
                 )
     return await call_next(request)
 

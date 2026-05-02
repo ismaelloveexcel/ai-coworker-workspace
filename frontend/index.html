@@ -631,6 +631,8 @@
 
   const API = '/api';
   const terminalStatuses = new Set(['done','failed','cancelled']);
+  const DISPATCH_BTN_HTML = '\u2694\uFE0F Send to Coworker <span class="key-hint">Ctrl+Enter</span>';
+  const TITLE_MAX_LEN = 72;
   let tasks = [], logsByTask = {}, activeStreams = {}, budgetCap = null, selectedTaskId = null, workspace = 'personal';
 
   function setWorkspace(next) {
@@ -755,13 +757,18 @@
   }
 
   function saveApiKey() {
-    const k = document.getElementById('api-key-input').value.trim();
-    if (k) { localStorage.setItem('api_key', k); document.getElementById('api-key-input').value = ''; }
+    const input = document.getElementById('api-key-input');
+    const k = input.value.trim();
+    if (k) {
+      localStorage.setItem('api_key', k);
+      input.value = '';
+      input.placeholder = '\u2714 Key saved — ready to use';
+    }
   }
 
   function _autoTitle(promptText) {
     const first = promptText.split('\n')[0].trim();
-    return first.length > 72 ? first.slice(0, 71) + '\u2026' : first;
+    return first.length > TITLE_MAX_LEN ? first.slice(0, TITLE_MAX_LEN - 1) + '\u2026' : first;
   }
 
   function _friendlyError(detail, statusCode) {
@@ -809,7 +816,7 @@
       errEl.classList.remove('hidden');
     } finally {
       btn.disabled = false;
-      btn.innerHTML = '\u2694\uFE0F Send to Coworker <span class="key-hint">Ctrl+Enter</span>';
+      btn.innerHTML = DISPATCH_BTN_HTML;
     }
   }
 

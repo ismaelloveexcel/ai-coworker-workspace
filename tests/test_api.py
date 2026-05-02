@@ -414,7 +414,7 @@ async def test_rate_limit_message_is_actionable(client, monkeypatch):
     assert second.status_code == 429
     detail = second.json()["detail"].lower()
     # Message should mention a wait period and guide the user to retry
-    assert "wait" in detail or "30" in detail
+    assert "wait" in detail
 
 
 @pytest.mark.asyncio
