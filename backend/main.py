@@ -11,6 +11,7 @@ v2 fixes:
 - F52:    structlog configured once at startup
 """
 import asyncio
+import json
 import os as _os
 import re
 import time
@@ -26,10 +27,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, field_validator
 
 from backend import db
+from backend.agents.registry import list_agents
 from backend.agent_loop import _running, run_task
 from backend.config import settings
 from backend.events import get_bus
 from backend.notifier import notify_task_failure
+from backend.recipes import list_recipes, normalize_workspace
+from backend.supervisor import plan_task
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +291,7 @@ async def _create_and_start_task(req) -> Dict:
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Too many active tasks ({len(active)}/{settings.max_concurrent_tasks}). Retry when one finishes.",
         )
-    task = await db.create_task(req.title, req.prompt, req.repo_url)
+    task = await db.create_task(req.title, req.prompt, req.repo_url, workspace=req.workspace)
     task_id = task["id"]
     t = asyncio.create_task(run_task(task_id))
     _running[task_id] = t
@@ -346,6 +350,7 @@ class CreateTaskRequest(BaseModel):
     title: str
     prompt: str
     repo_url: Optional[str] = None
+    workspace: str = "personal"
 
     @field_validator("title")
     @classmethod
@@ -366,6 +371,50 @@ class CreateTaskRequest(BaseModel):
             raise ValueError("prompt must be <= 8000 characters")
         return v
 
+    @field_validator("workspace")
+    @classmethod
+    def validate_workspace(cls, v: str) -> str:
+        try:
+            return normalize_workspace(v)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+
+class SupervisorPlanRequest(BaseModel):
+    prompt: str
+    workspace: str = "personal"
+
+    @field_validator("workspace")
+    @classmethod
+    def validate_workspace(cls, v: str) -> str:
+        try:
+            return normalize_workspace(v)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+
+class ArtifactCreateRequest(BaseModel):
+    artifact_type: str
+    title: str
+    content: Dict
+    task_id: Optional[str] = None
+    workspace: str = "personal"
+    created_by: Optional[str] = None
+
+    @field_validator("workspace")
+    @classmethod
+    def validate_workspace(cls, v: str) -> str:
+        try:
+            return normalize_workspace(v)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+
+class ArtifactVersionRequest(BaseModel):
+    content: Dict
+    created_by: Optional[str] = None
+    change_note: Optional[str] = None
+
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -384,6 +433,28 @@ async def health():
         "model": settings.model,
         "watchdog_model": settings.watchdog_model,
     }
+
+
+@app.get("/agents", dependencies=[Depends(require_auth)])
+async def agents(workspace: Optional[str] = None):
+    try:
+        normalized = normalize_workspace(workspace) if workspace else None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"agents": list_agents(normalized)}
+
+
+@app.get("/recipes", dependencies=[Depends(require_auth)])
+async def recipes(workspace: Optional[str] = None):
+    try:
+        return {"recipes": list_recipes(workspace)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/supervisor/plan", dependencies=[Depends(require_auth)])
+async def supervisor_plan(req: SupervisorPlanRequest):
+    return plan_task(req.prompt, req.workspace)
 
 
 @app.post("/tasks", status_code=201, dependencies=[Depends(require_auth)])
@@ -411,6 +482,68 @@ async def create_task(req: CreateTaskRequest, request: Request):
 async def summary():
     """Return task counts and USD spend for today and the last 7 days (A9)."""
     return await db.get_summary()
+
+
+@app.post("/artifacts", status_code=201, dependencies=[Depends(require_auth)])
+async def create_artifact(req: ArtifactCreateRequest):
+    if req.task_id:
+        task = await db.get_task(req.task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+    try:
+        return await db.create_artifact(
+            artifact_type=req.artifact_type,
+            title=req.title,
+            content_json=json.dumps(req.content, sort_keys=True),
+            task_id=req.task_id,
+            workspace=req.workspace,
+            created_by=req.created_by,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/artifacts", dependencies=[Depends(require_auth)])
+async def artifacts(task_id: Optional[str] = None, workspace: Optional[str] = None):
+    try:
+        return {"artifacts": await db.list_artifacts(task_id=task_id, workspace=workspace)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _assert_artifact_workspace(artifact: Dict, workspace: str) -> None:
+    try:
+        normalized = normalize_workspace(workspace)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if artifact.get("workspace") != normalized:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+
+@app.get("/artifacts/{artifact_id}", dependencies=[Depends(require_auth)])
+async def get_artifact(artifact_id: str, workspace: str = Query(...)):
+    artifact = await db.get_artifact(artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    _assert_artifact_workspace(artifact, workspace)
+    return artifact
+
+
+@app.post("/artifacts/{artifact_id}/versions", dependencies=[Depends(require_auth)])
+async def add_artifact_version(artifact_id: str, req: ArtifactVersionRequest, workspace: str = Query(...)):
+    artifact = await db.get_artifact(artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    _assert_artifact_workspace(artifact, workspace)
+    try:
+        return await db.add_artifact_version(
+            artifact_id,
+            json.dumps(req.content, sort_keys=True),
+            created_by=req.created_by,
+            change_note=req.change_note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/tasks", dependencies=[Depends(require_auth)])

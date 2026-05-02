@@ -89,6 +89,42 @@ ALTER TABLE tasks ADD COLUMN reconciled_at TEXT NULL;
 """
 _MIGRATIONS.append(_SCHEMA_V3)
 
+_SCHEMA_V4 = """
+ALTER TABLE tasks ADD COLUMN workspace TEXT NOT NULL DEFAULT 'personal';
+CREATE TABLE IF NOT EXISTS artifacts (
+    id              TEXT PRIMARY KEY,
+    task_id         TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    workspace       TEXT NOT NULL DEFAULT 'personal',
+    artifact_type   TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    current_version INTEGER NOT NULL DEFAULT 1,
+    created_by      TEXT,
+    created_at      TEXT DEFAULT (datetime('now')),
+    updated_at      TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS artifact_versions (
+    id           TEXT PRIMARY KEY,
+    artifact_id  TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+    version_num  INTEGER NOT NULL,
+    content_json TEXT NOT NULL,
+    created_by   TEXT,
+    change_note  TEXT,
+    created_at   TEXT DEFAULT (datetime('now')),
+    UNIQUE(artifact_id, version_num)
+);
+CREATE TABLE IF NOT EXISTS artifact_links (
+    id                 TEXT PRIMARY KEY,
+    artifact_id        TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+    linked_artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+    relation           TEXT NOT NULL,
+    created_at         TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts (task_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_artifacts_workspace ON artifacts (workspace, created_at);
+CREATE INDEX IF NOT EXISTS idx_artifact_versions_artifact ON artifact_versions (artifact_id, version_num);
+"""
+_MIGRATIONS.append(_SCHEMA_V4)
+
 # ---------------------------------------------------------------------------
 # Column allowlists (F19)
 # ---------------------------------------------------------------------------
@@ -96,8 +132,13 @@ _MIGRATIONS.append(_SCHEMA_V3)
 _TASK_UPDATABLE = frozenset({
     "status", "pr_url", "error", "updated_at", "heartbeat_at", "usd_spent",
     "branch", "current_step", "last_action", "last_tool", "recovery_note", "reconciled_at",
+    "workspace",
 })
 _STEP_UPDATABLE = frozenset({"status", "tool_name", "tool_input", "tool_output", "reasoning", "updated_at"})
+_ARTIFACT_TYPES = frozenset({
+    "app", "document", "slide_deck", "spreadsheet", "research_brief", "campaign_pack",
+    "workflow", "code_diff", "dashboard", "design_mockup", "automation_blueprint", "knowledge_base",
+})
 
 
 def _safe_cols(allowed: frozenset, kwargs: dict) -> dict:
@@ -171,16 +212,39 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def create_task(title: str, prompt: str, repo_url: Optional[str] = None) -> Dict:
+def _validate_workspace(workspace: str) -> str:
+    value = (workspace or "personal").strip().lower()
+    if value not in {"personal", "work"}:
+        raise ValueError("workspace must be one of: personal, work")
+    return value
+
+
+def _validate_artifact_type(artifact_type: str) -> str:
+    value = (artifact_type or "").strip().lower()
+    if value not in _ARTIFACT_TYPES:
+        raise ValueError(f"artifact_type must be one of: {', '.join(sorted(_ARTIFACT_TYPES))}")
+    return value
+
+
+async def create_task(title: str, prompt: str, repo_url: Optional[str] = None, workspace: str = "personal") -> Dict:
     task_id = str(uuid.uuid4())
     safe_title = _redact_text(title) or title
     safe_prompt = _redact_text(prompt) or prompt
+    safe_workspace = _validate_workspace(workspace)
     async with _get_db() as db:
         await db.execute(
-            "INSERT INTO tasks (id, title, prompt, repo_url, status) VALUES (?,?,?,?,'pending')",
-            (task_id, safe_title, safe_prompt, repo_url),
+            "INSERT INTO tasks (id, title, prompt, repo_url, status, workspace) VALUES (?,?,?,?, 'pending', ?)",
+            (task_id, safe_title, safe_prompt, repo_url, safe_workspace),
         )
-    return {"id": task_id, "title": safe_title, "prompt": safe_prompt, "repo_url": repo_url, "status": "pending", "created_at": _now()}
+    return {
+        "id": task_id,
+        "title": safe_title,
+        "prompt": safe_prompt,
+        "repo_url": repo_url,
+        "workspace": safe_workspace,
+        "status": "pending",
+        "created_at": _now(),
+    }
 
 
 async def get_task(task_id: str) -> Optional[Dict]:
@@ -325,6 +389,110 @@ async def get_running_tasks() -> List[Dict]:
             "SELECT * FROM tasks WHERE status='running' ORDER BY created_at ASC"
         )).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Artifacts
+# ---------------------------------------------------------------------------
+
+async def create_artifact(
+    *,
+    artifact_type: str,
+    title: str,
+    content_json: str,
+    task_id: Optional[str] = None,
+    workspace: str = "personal",
+    created_by: Optional[str] = None,
+) -> Dict:
+    artifact_id = str(uuid.uuid4())
+    version_id = str(uuid.uuid4())
+    safe_workspace = _validate_workspace(workspace)
+    safe_type = _validate_artifact_type(artifact_type)
+    safe_title = _redact_text(title) or title
+    safe_content = _redact_text(content_json) or "{}"
+    safe_created_by = _redact_text(created_by) if created_by else created_by
+    async with _get_db() as db:
+        await db.execute(
+            """INSERT INTO artifacts
+               (id, task_id, workspace, artifact_type, title, current_version, created_by)
+               VALUES (?,?,?,?,?,1,?)""",
+            (artifact_id, task_id, safe_workspace, safe_type, safe_title, safe_created_by),
+        )
+        await db.execute(
+            """INSERT INTO artifact_versions
+               (id, artifact_id, version_num, content_json, created_by)
+               VALUES (?,?,?,?,?)""",
+            (version_id, artifact_id, 1, safe_content, safe_created_by),
+        )
+    artifact = await get_artifact(artifact_id)
+    if artifact is None:
+        raise ValueError("artifact was not created")
+    return artifact
+
+
+async def add_artifact_version(
+    artifact_id: str,
+    content_json: str,
+    created_by: Optional[str] = None,
+    change_note: Optional[str] = None,
+) -> Dict:
+    safe_content = _redact_text(content_json) or "{}"
+    safe_created_by = _redact_text(created_by) if created_by else created_by
+    safe_change_note = _redact_text(change_note) if change_note else change_note
+    async with _get_db() as db:
+        row = await (await db.execute(
+            "SELECT current_version FROM artifacts WHERE id=?",
+            (artifact_id,),
+        )).fetchone()
+        if row is None:
+            raise ValueError("artifact not found")
+        version_num = int(row["current_version"]) + 1
+        await db.execute(
+            """INSERT INTO artifact_versions
+               (id, artifact_id, version_num, content_json, created_by, change_note)
+               VALUES (?,?,?,?,?,?)""",
+            (str(uuid.uuid4()), artifact_id, version_num, safe_content, safe_created_by, safe_change_note),
+        )
+        await db.execute(
+            "UPDATE artifacts SET current_version=?, updated_at=? WHERE id=?",
+            (version_num, _now(), artifact_id),
+        )
+    artifact = await get_artifact(artifact_id)
+    if artifact is None:
+        raise ValueError("artifact not found")
+    return artifact
+
+
+async def list_artifacts(task_id: Optional[str] = None, workspace: Optional[str] = None) -> List[Dict]:
+    filters = []
+    params = []
+    if task_id:
+        filters.append("task_id=?")
+        params.append(task_id)
+    if workspace:
+        filters.append("workspace=?")
+        params.append(_validate_workspace(workspace))
+    where = f"WHERE {' AND '.join(filters)}" if filters else ""
+    async with _get_db() as db:
+        rows = await (await db.execute(
+            f"SELECT * FROM artifacts {where} ORDER BY created_at DESC",
+            tuple(params),
+        )).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def get_artifact(artifact_id: str) -> Optional[Dict]:
+    async with _get_db() as db:
+        artifact = await (await db.execute("SELECT * FROM artifacts WHERE id=?", (artifact_id,))).fetchone()
+        if not artifact:
+            return None
+        versions = await (await db.execute(
+            "SELECT * FROM artifact_versions WHERE artifact_id=? ORDER BY version_num ASC",
+            (artifact_id,),
+        )).fetchall()
+    result = dict(artifact)
+    result["versions"] = [dict(row) for row in versions]
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -106,6 +106,17 @@ Default model: **`claude-sonnet-4-5`** (set via `CLAUDE_MODEL` env var).
 - The Watchdog never writes code patches to `main` directly — all fixes go through a PR
 - The Watchdog does write `.watchdog/state.json` to `main` to persist the daily invocation counter; CI is configured to ignore this path (`paths-ignore: .watchdog/**`) so the write does not trigger new CI runs or re-activate the watchdog loop
 
+## Factory Foundations
+
+The backend includes the first AI Coworker Factory foundations:
+
+- `GET /agents` lists serializable built-in agent definitions, optionally filtered by `?workspace=personal|work`.
+- `GET /recipes` lists starter recipes for personal and work contexts.
+- `POST /supervisor/plan` deterministically maps a prompt and workspace to a recipe, stages, agents, approval gates, and expected artifact types.
+- `POST /artifacts`, `GET /artifacts`, `GET /artifacts/{id}`, and `POST /artifacts/{id}/versions` provide task/workspace-scoped artifact persistence with version history.
+
+New tasks accept a `workspace` field and default to `personal` for existing clients.
+
 ## Frontend
 
 The deployed frontend is a single static page at `frontend/index.html`
