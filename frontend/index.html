@@ -664,16 +664,16 @@
       <div class="tavern-sign" aria-hidden="true">&#x1F37A;</div>
       <div class="brand-text">
         <h1>The Coworker Tavern</h1>
-        <p id="conn-status" class="brand-sub">Seeking adventurers&#x2026;</p>
+        <p id="conn-status" class="brand-sub">Connecting…</p>
         <div class="brand-taglines" aria-live="polite">
-          <span class="tag-rot">Quests accepted 24/7</span>
-          <span class="tag-rot">AI coworkers, no meetings</span>
+          <span class="tag-rot">Always on, always ready</span>
+          <span class="tag-rot">AI teammates, no overhead</span>
           <span class="tag-rot">Ship while you sleep</span>
         </div>
       </div>
     </div>
     <div class="top-actions">
-      <div class="inn-stat"><span>&#x1F4DC;</span><span>Quests</span><strong id="metric-total">0</strong></div>
+      <div class="inn-stat"><span>&#x1F4DC;</span><span>Tasks</span><strong id="metric-total">0</strong></div>
       <div class="inn-stat"><span>&#x2694;&#xFE0F;</span><span>Active</span><strong id="metric-active">0</strong></div>
       <div class="inn-stat"><span>&#x1FA99;</span><span>Week</span><strong id="metric-week">$0.0000</strong></div>
       <button class="theme-btn" type="button" id="theme-cycle-btn" onclick="cycleTheme()" title="Theme: Nocturnal / Dim / High contrast" aria-label="Cycle color theme">&#x25D0;</button>
@@ -687,7 +687,7 @@
     <!-- Quest Board -->
     <section class="panel" aria-labelledby="intake-title">
       <div class="panel-header">
-        <h2 id="intake-title" class="panel-title">&#x1F4CB; New Quest</h2>
+        <h2 id="intake-title" class="panel-title">&#x1F4CB; New Task</h2>
       </div>
       <div class="intake">
         <div id="personal-project-block" class="growth-row">
@@ -726,7 +726,7 @@
           </div>
         </div>
         <div class="field">
-          <label for="title-input">Quest name <span class="field-hint">(optional — auto-filled from your brief)</span></label>
+          <label for="title-input">Task name <span class="field-hint">(optional — auto-filled from your brief)</span></label>
           <input id="title-input" type="text" placeholder="Leave blank to auto-name from brief" autocomplete="off" />
         </div>
         <details id="advanced-section" class="advanced-section">
@@ -1043,10 +1043,10 @@
         </div>
       </div>
 
-      <div class="rune-divider" aria-hidden="true">&#x2500;&#x2500; &#x16A0; ACTIVE QUESTS &#x16A0; &#x2500;&#x2500;</div>
+      <div class="rune-divider" aria-hidden="true">&#x2500;&#x2500; &#x16A0; ACTIVE TASKS &#x16A0; &#x2500;&#x2500;</div>
       <div class="queue-toolbar" role="search">
-        <label for="queue-filter" class="hidden">Filter quests</label>
-        <input id="queue-filter" type="search" placeholder="Search quests by title&#x2026;" autocomplete="off" oninput="onQueueFilterInput(event)" />
+        <label for="queue-filter" class="hidden">Filter tasks</label>
+        <input id="queue-filter" type="search" placeholder="Search tasks by title&#x2026;" autocomplete="off" oninput="onQueueFilterInput(event)" />
         <span id="queue-filter-hint" class="queue-filter-hint hidden" aria-live="polite"></span>
       </div>
       <div class="queue" id="task-list"></div>
@@ -1055,7 +1055,7 @@
     <!-- Quest Detail -->
     <aside class="panel right-rail" aria-labelledby="details-title">
       <div class="panel-header">
-        <h2 id="details-title" class="panel-title">&#x1F4DC; Quest Detail</h2>
+        <h2 id="details-title" class="panel-title">&#x1F4DC; Task Detail</h2>
         <span id="selected-status" class="status status-pending">None</span>
       </div>
       <div class="details">
@@ -1063,12 +1063,12 @@
           <svg class="arrow-left" width="72" height="36" viewBox="0 0 72 36" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
             <path d="M52 18 H14 M24 8 L12 18 24 28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          <p><strong class="task-title" style="color:var(--gold);font-size:0.95rem">Select a quest from the board</strong></p>
-          <p>Pick any active quest card on the left to stream its log, steps, and handoff here.</p>
+          <p><strong class="task-title" style="color:var(--gold);font-size:0.95rem">Select a task to view details</strong></p>
+          <p>Pick any active task card on the left to stream its log, steps, and handoff here.</p>
         </div>
         <div id="detail-content" class="hidden">
         <div>
-          <p id="selected-title" class="task-title">No quest selected</p>
+          <p id="selected-title" class="task-title">No task selected</p>
           <p id="selected-id" class="task-id"></p>
           <p id="stream-status-row" class="stream-status hidden" aria-live="polite">
             <span id="stream-dot" class="stream-dot closed" aria-hidden="true"></span>
@@ -1179,8 +1179,8 @@
 <div id="shortcuts-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="shortcut-modal-title" onclick="if(event.target===this)closeShortcutsModal()">
   <div class="modal-sheet" onclick="event.stopPropagation()">
     <h3 id="shortcut-modal-title">Keyboard shortcuts</h3>
-    <div class="shortcut-row"><span>Dispatch quest</span><kbd>Ctrl</kbd>+<kbd>Enter</kbd></div>
-    <div class="shortcut-row"><span>Clear quest selection</span><kbd>Esc</kbd></div>
+    <div class="shortcut-row"><span>Start task</span><kbd>Ctrl</kbd>+<kbd>Enter</kbd></div>
+    <div class="shortcut-row"><span>Clear selection</span><kbd>Esc</kbd></div>
     <div class="shortcut-row"><span>Refresh board</span><kbd>R</kbd></div>
     <button type="button" class="btn-primary modal-close" onclick="closeShortcutsModal()">Close</button>
   </div>
@@ -1670,7 +1670,7 @@
     const active = tasks.filter(t => ['pending','running'].includes(t.status)).length;
     document.getElementById('metric-total').textContent = String(tasks.length);
     document.getElementById('metric-active').textContent = String(active);
-    const stateLabel = active ? 'On Quest' : 'At Rest';
+    const stateLabel = active ? 'Active' : 'At Rest';
     const stateEl = document.getElementById('factory-state');
     stateEl.textContent = stateLabel;
     stateEl.className = active ? 'status status-running' : 'status status-pending';
@@ -1717,7 +1717,7 @@
       if (hint) { hint.classList.add('hidden'); hint.textContent = ''; }
       list.innerHTML = '<div class="empty-queue-visual">'
         + _WANTED_POSTER_SVG
-        + '<p>No quests on the board. Dispatch your first adventurer above.</p>'
+        + '<p>No tasks yet. Create your first task above.</p>'
         + '<details class="advanced-section" style="max-width:32em;text-align:left;margin-top:8px"><summary class="advanced-toggle">Tips for your first dispatch</summary>'
         + '<div class="advanced-body"><ol style="margin:0;padding-left:18px;display:grid;gap:6px;font-size:0.85rem;color:var(--muted)">'
         + '<li>Describe the change in the left panel &mdash; repo and workspace live under Advanced.</li>'
@@ -1730,11 +1730,11 @@
     if (hint) {
       if ((queueFilterQuery || '').trim() && filtered.length < tasks.length) {
         hint.classList.remove('hidden');
-        hint.textContent = 'Showing ' + filtered.length + ' of ' + tasks.length + ' quests.';
+        hint.textContent = 'Showing ' + filtered.length + ' of ' + tasks.length + ' tasks.';
       } else { hint.classList.add('hidden'); hint.textContent = ''; }
     }
     if (!filtered.length) {
-      list.innerHTML = '<div class="empty-queue-visual"><p>No quests match your search. Try a different title phrase.</p></div>';
+      list.innerHTML = '<div class="empty-queue-visual"><p>No tasks match your search. Try a different title.</p></div>';
       if (selectedTaskId) selectedTaskId = null;
       updateMetrics(); renderSelectedTask(); return;
     }
@@ -1800,7 +1800,7 @@
     if (emptyEl) emptyEl.classList.add('hidden');
     if (contentEl) contentEl.classList.remove('hidden');
     statusEl.className = statusClass(task.status); statusEl.textContent = task.status;
-    titleEl.textContent = task.title || 'Untitled quest'; idEl.textContent = task.id;
+    titleEl.textContent = task.title || 'Untitled task'; idEl.textContent = task.id;
     const tl = logsByTask[task.id] || [];
     logsEl.innerHTML = tl.length ? tl.map(l => '<p class="log-line log-' + escHtml(l.level||'info') + '">' + escHtml(l.message) + '</p>').join('') : '<p class="log-line">No dispatches yet.</p>';
     const prUrl = safePrUrl(task.pr_url);
@@ -2132,8 +2132,8 @@
       }
       for (const t of tasks) { if (['pending','running'].includes(t.status)) await subscribeSSE(t.id); }
       document.getElementById('conn-status').textContent = tasks.length
-        ? tasks.length + ' quest' + (tasks.length === 1 ? '' : 's') + ' on the board'
-        : 'Tavern is open \u2014 no quests yet';
+        ? tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + ' on the board'
+        : 'Ready — no tasks yet';
       renderTasks();
       if (selectedTaskId) loadTaskDetail(selectedTaskId);
     } catch { document.getElementById('conn-status').textContent = 'Tavern is closed\u2026'; renderTasks(); }
