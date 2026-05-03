@@ -35,7 +35,7 @@ class Settings:
     summarizer_model: str  = field(default_factory=lambda: _optional("SUMMARIZER_MODEL", ""))
     judge_model: str       = field(default_factory=lambda: _optional("JUDGE_MODEL", ""))
 
-    # Database
+    # Database — SQLite file path (never use ``:memory:`` in production; CI may use in-memory DB)
     db_path: str             = field(default_factory=lambda: _optional("DB_PATH", "data/agent.db"))
 
     # API authentication (F3/E1 / PR-B1)
@@ -52,6 +52,12 @@ class Settings:
     # Agent behaviour
     max_steps: int           = field(default_factory=lambda: int(_optional("MAX_STEPS", "25")))
     step_timeout_seconds: int = field(default_factory=lambda: int(_optional("STEP_TIMEOUT_SECONDS", "300")))
+    # Per-step Claude / executor wait cap (defaults to STEP_TIMEOUT_SECONDS if unset)
+    task_timeout_seconds: int = field(
+        default_factory=lambda: int(
+            _optional("TASK_TIMEOUT_SECONDS", _optional("STEP_TIMEOUT_SECONDS", "300"))
+        )
+    )
     max_concurrent_tasks: int = field(default_factory=lambda: int(_optional("MAX_CONCURRENT_TASKS", "1")))
     task_create_rate_limit_enabled: bool = field(default_factory=lambda: _optional("TASK_CREATE_RATE_LIMIT_ENABLED", "true").lower() == "true")
     task_create_rate_limit_count: int = field(default_factory=lambda: int(_optional("TASK_CREATE_RATE_LIMIT_COUNT", "6")))
@@ -83,6 +89,9 @@ class Settings:
     def __post_init__(self) -> None:
         import re as _re
         import logging as _logging
+        _db = self.db_path.strip().lower()
+        if self.environment == "production" and _db.startswith(":memory:"):
+            raise RuntimeError("DB_PATH=:memory: is not allowed when ENV/APP_ENV is production")
         _DATE_PIN_RE = _re.compile(r"claude-.+-\d{8}")
         for field_name in ("model", "watchdog_model"):
             value = getattr(self, field_name)

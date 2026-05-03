@@ -737,19 +737,25 @@ async def backup_status() -> Dict:
 # ---------------------------------------------------------------------------
 
 def _latency_stats(durations_s: List[float]) -> Dict:
-    """Return median and p95 latency in seconds from a list of durations.
+    """Return mean, median and p95 latency in seconds from a list of durations.
 
     Uses the nearest-rank method: p95 index = ceil(n * 0.95) - 1, clamped to [0, n-1].
     """
     if not durations_s:
-        return {"median_s": None, "p95_s": None, "count": 0}
+        return {"median_s": None, "p95_s": None, "avg_s": None, "count": 0}
     import math
     sorted_d = sorted(durations_s)
     n = len(sorted_d)
+    avg = sum(sorted_d) / n
     median = sorted_d[n // 2] if n % 2 == 1 else (sorted_d[n // 2 - 1] + sorted_d[n // 2]) / 2.0
     p95_idx = min(n - 1, max(0, math.ceil(n * 0.95) - 1))
     p95 = sorted_d[p95_idx]
-    return {"median_s": round(median, 3), "p95_s": round(p95, 3), "count": n}
+    return {
+        "median_s": round(median, 3),
+        "p95_s": round(p95, 3),
+        "avg_s": round(avg, 3),
+        "count": n,
+    }
 
 
 async def get_metrics(window_hours: int = 24) -> Dict:

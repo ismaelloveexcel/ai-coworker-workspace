@@ -722,6 +722,7 @@ async def operator_status():
         "guardrails": {
             "max_steps": settings.max_steps,
             "step_timeout_seconds": settings.step_timeout_seconds,
+            "task_timeout_seconds": settings.task_timeout_seconds,
             "max_concurrent_tasks": settings.max_concurrent_tasks,
             "task_create_rate_limit_enabled": settings.task_create_rate_limit_enabled,
             "task_create_rate_limit_count": settings.task_create_rate_limit_count,
