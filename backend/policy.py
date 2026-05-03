@@ -5,11 +5,14 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List
 
+import re
+
 from backend.tool_catalog import (
     BROWSER_IDS,
     LOCAL_FILESYSTEM_IDS,
     REMOTE_OR_SUPPORT_IDS,
     SHELL_ALLOWLISTED_IDS,
+    SHELL_SANDBOXED_IDS,
 )
 
 ALLOW = "allow"
@@ -50,6 +53,7 @@ STAGE_TOOL_MATRIX: Dict[str, str] = {
     "secret_scan": STAGE_EDIT,
     # test / validation
     "run_tests": STAGE_VALIDATE,
+    "run_shell": STAGE_VALIDATE,
     # PR / finalization
     "github_create_pr": STAGE_FINALIZE,
     # browser / network
@@ -63,6 +67,7 @@ _LOCAL_TOOL_CATEGORIES: Dict[str, str] = {
     **{tool_id: "filesystem" for tool_id in LOCAL_FILESYSTEM_IDS},
     **{tool_id: "browser" for tool_id in BROWSER_IDS},
     **{tool_id: "shell_allowlisted" for tool_id in SHELL_ALLOWLISTED_IDS},
+    **{tool_id: "shell_sandboxed" for tool_id in SHELL_SANDBOXED_IDS},
 }
 
 _SAFE_NONLOCAL_TOOLS: frozenset = REMOTE_OR_SUPPORT_IDS
@@ -140,6 +145,51 @@ def _path_from_input(tool_input: Dict[str, Any]) -> str:
 
 def _path_segments(path: str) -> List[str]:
     return [segment for segment in path.replace("\\", "/").split("/") if segment and segment != "."]
+
+
+_RUN_SHELL_BLOCKLIST = (
+    re.compile(r"rm\s+-rf", re.I),
+    re.compile(r"\bsudo\b", re.I),
+    re.compile(r"\|\s*curl\b", re.I),
+    re.compile(r"\|\s*wget\b", re.I),
+    re.compile(r"curl\s+[^|]*\|", re.I),
+    re.compile(r"wget\s+[^|]*\|", re.I),
+    re.compile(r";\s*rm\b", re.I),
+    re.compile(r"&&\s*rm\b", re.I),
+    re.compile(r"\bmkfs\b", re.I),
+    re.compile(r"\bdd\b", re.I),
+    re.compile(r"\bchmod\s+777\b", re.I),
+    re.compile(r":\(\)\s*\{", re.I),  # fork bomb pattern
+)
+# Allow spaces and parentheses so ``python -c "…"`` / ``npm run …`` work without shell=True.
+_SHELL_META_CHARS = frozenset(";|&$`<>")
+_ARG_CHAR_RE = re.compile(r"^[A-Za-z0-9_.\-/@:+=%,() \x22\x27\x5c]{1,400}$")
+
+
+def _run_shell_policy(tool_name: str, tool_input: Dict[str, Any]) -> PolicyDecision:
+    """Argv-only subprocess: deny shell metacharacters and high-risk command strings."""
+    if tool_name != "run_shell":
+        return _decision(tool_name, "shell_sandboxed", DENY, "internal policy error")
+    argv = tool_input.get("argv")
+    if not isinstance(argv, list) or not argv:
+        return _decision(tool_name, "shell_sandboxed", DENY, "argv must be a non-empty list of strings")
+    if len(argv) > 32:
+        return _decision(tool_name, "shell_sandboxed", DENY, "too many argv entries")
+    joined = " ".join(str(a) for a in argv)
+    for rx in _RUN_SHELL_BLOCKLIST:
+        if rx.search(joined):
+            return _decision(tool_name, "shell_sandboxed", DENY, "command matches a blocked pattern")
+    for i, part in enumerate(argv):
+        s = str(part)
+        if not s or len(s) > 400:
+            return _decision(tool_name, "shell_sandboxed", DENY, f"argv[{i}] length invalid")
+        if any(ch in _SHELL_META_CHARS for ch in s):
+            return _decision(tool_name, "shell_sandboxed", DENY, f"argv[{i}] contains shell metacharacters")
+        if "\n" in s or "\r" in s:
+            return _decision(tool_name, "shell_sandboxed", DENY, f"argv[{i}] contains newline characters")
+        if not _ARG_CHAR_RE.fullmatch(s):
+            return _decision(tool_name, "shell_sandboxed", DENY, f"argv[{i}] contains disallowed characters")
+    return _decision(tool_name, "shell_sandboxed", ALLOW, "Argv-only shell command passed policy checks")
 
 
 def _path_policy(tool_name: str, tool_input: Dict[str, Any]) -> PolicyDecision:
@@ -237,6 +287,8 @@ def evaluate_tool_call(
         if suite not in allowed_suites:
             return _decision(tool_name, category, DENY, f"Test suite {suite!r} is not allowlisted")
         return _decision(tool_name, category, ALLOW, "Allowlisted test command")
+    if category == "shell_sandboxed":
+        return _run_shell_policy(tool_name, tool_input)
     if category == "browser":
         return _decision(tool_name, category, REQUIRE_APPROVAL, "Browser actions require operator approval")
     return _decision(tool_name, category, REQUIRE_APPROVAL, "Sensitive local action requires operator approval")

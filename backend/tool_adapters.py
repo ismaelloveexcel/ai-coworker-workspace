@@ -714,16 +714,76 @@ _TEXT_CONTENT_TYPES = (
 )
 
 
-def web_search(query: str, max_results: int = 5, provider: str = "disabled") -> Dict:
-    """Search provider shim. It is intentionally disabled until configured."""
+def web_search(query: str, max_results: int = 5, provider: str = "brave") -> Dict:
+    """Brave Search API when ``BRAVE_API_KEY`` is set; otherwise a clear configuration message."""
     query = (query or "").strip()
     if not query:
         return _err("query is required")
     max_results = max(1, min(int(max_results), 10))
-    return _err(
-        "web_search is not configured. Add an approved search provider before use; "
-        f"requested provider={provider!r}, max_results={max_results}. Use fetch_url with known source URLs meanwhile."
-    )
+    key = (settings.brave_api_key or "").strip()
+    if not key:
+        return _err(
+            "web_search is not configured: set the BRAVE_API_KEY environment variable to enable Brave Search."
+        )
+    try:
+        headers = {"Accept": "application/json", "X-Subscription-Token": key}
+        params = {"q": query, "count": str(max_results)}
+        with httpx.Client(timeout=15.0, headers=headers) as client:
+            resp = client.get("https://api.search.brave.com/res/v1/web/search", params=params)
+        if resp.status_code >= 400:
+            return _err(f"Brave Search HTTP {resp.status_code}: {_truncate(resp.text, 500)}")
+        data = resp.json()
+        web = data.get("web", {}) or {}
+        results = web.get("results") or data.get("results") or []
+        out = []
+        for item in results[:max_results]:
+            if not isinstance(item, dict):
+                continue
+            out.append({
+                "title": _truncate(_redact(str(item.get("title", ""))), 200),
+                "url": str(item.get("url", "")),
+                "description": _truncate(_redact(str(item.get("description", ""))), 400),
+            })
+        return _ok({"query": _redact(query), "provider": provider, "results": out})
+    except httpx.TimeoutException:
+        return _err("Brave Search request timed out")
+    except Exception as e:
+        return _err(f"web_search error: {e}")
+
+
+def run_shell(argv: Optional[List[str]] = None) -> Dict:
+    """Run argv-only subprocess in the deploy repo root with a short timeout."""
+    argv = argv or []
+    if not isinstance(argv, list) or not argv:
+        return _err("argv must be a non-empty list of strings")
+    try:
+        completed = subprocess.run(
+            [str(a) for a in argv],
+            cwd=_repo_root(),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            shell=False,
+        )
+        out = ((completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")).strip()
+        return _ok({
+            "argv": [str(a) for a in argv],
+            "exit_code": completed.returncode,
+            "output": _truncate(_redact(out), 12000),
+            "success": completed.returncode == 0,
+        })
+    except subprocess.TimeoutExpired as e:
+        merged = (_to_text(e.stdout) + _to_text(e.stderr)).strip()
+        return _ok({
+            "argv": [str(a) for a in argv],
+            "exit_code": None,
+            "output": _truncate(_redact(merged + "\nTimed out after 30s"), 12000),
+            "success": False,
+        })
+    except FileNotFoundError:
+        return _err(f"Command not found: {argv[0]!r}")
+    except Exception as e:
+        return _err(f"run_shell error: {e}")
 
 
 def fetch_url(url: str, max_bytes: int = 65536, timeout_seconds: float = 10.0) -> Dict:
@@ -937,6 +997,7 @@ _TOOL_MAP = {
     "playwright_browse": playwright_browse,
     "repo_snapshot": repo_snapshot,
     "run_tests": run_tests,
+    "run_shell": run_shell,
     "secret_scan": secret_scan,
     "humanize_error": humanize_error,
     "cost_status": cost_status,

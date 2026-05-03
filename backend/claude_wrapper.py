@@ -56,10 +56,26 @@ _SYSTEM_PROMPT = _SYSTEM_PROMPT.rstrip() + _INJECTION_GUARD
 MAX_HISTORY_STEPS = 20
 MAX_TOKENS = 4096
 
+# Personal-workspace persona — prepended to CLAUDE.md system prompt (Area 1).
+PERSONAL_WORKSPACE_SYSTEM_PREFIX = (
+    "You are a senior full-stack engineer and product builder working for the owner of this platform. "
+    "Your job is to build complete, shippable products — not prototypes. Prefer working code over explanations. "
+    "Always create a GitHub branch, commit all changes, and open a PR. When a feature is complete, summarise "
+    "what was built, what to test, and how to deploy it."
+)
+
 # Conservative token count for the system prompt used in every Claude call.
 # Estimated via the 4-chars-per-token heuristic so callers can include it in
 # preflight budget checks without importing the raw prompt text.
 SYSTEM_PROMPT_TOKENS: int = (len(_SYSTEM_PROMPT) + 3) // 4
+
+
+def system_prompt_token_estimate(*, workspace: str = "personal") -> int:
+    """Token estimate for system prompt including optional workspace persona prefix."""
+    if workspace == "personal":
+        combined = PERSONAL_WORKSPACE_SYSTEM_PREFIX.strip() + "\n\n" + _SYSTEM_PROMPT
+        return (len(combined) + 3) // 4
+    return SYSTEM_PROMPT_TOKENS
 
 # -- Per-task context cache ---------------------------------------------------
 # Keyed by (task_id, cache_slot, repo, branch).
@@ -96,11 +112,12 @@ def _anthropic_before_sleep(retry_state) -> None:
     reraise=True,
     before_sleep=_anthropic_before_sleep,
 )
-def _create_message(messages: List[Dict], model: str = None):
+def _create_message(messages: List[Dict], model: str = None, system_text: Optional[str] = None):
+    system = system_text if system_text is not None else _SYSTEM_PROMPT
     return _client.messages.create(
         model=model or settings.model,
         max_tokens=MAX_TOKENS,
-        system=_SYSTEM_PROMPT,
+        system=system,
         messages=messages,
     )
 
@@ -469,7 +486,11 @@ class MalformedOutputError(ValueError):
     """Raised when Claude's output is malformed after one correction attempt."""
 
 
-def run_agent_turn(messages: List[Dict], route_context: Optional[Dict[str, str]] = None) -> Tuple[str, Dict, Dict]:
+def run_agent_turn(
+    messages: List[Dict],
+    route_context: Optional[Dict[str, str]] = None,
+    system_prefix: Optional[str] = None,
+) -> Tuple[str, Dict, Dict]:
     """
     Call Claude, parse response. One correction attempt on malformed output.
     Returns (raw_text, parsed_action, usage) where usage has input_tokens /
@@ -483,7 +504,10 @@ def run_agent_turn(messages: List[Dict], route_context: Optional[Dict[str, str]]
         risk=route_context.get("risk", "normal"),
         cost_profile=route_context.get("cost_profile", "standard"),
     )
-    response = _create_message(messages, model=route.model)
+    system_text = None
+    if system_prefix:
+        system_text = system_prefix.strip() + "\n\n" + _SYSTEM_PROMPT
+    response = _create_message(messages, model=route.model, system_text=system_text)
     usage = {
         "input_tokens": response.usage.input_tokens,
         "output_tokens": response.usage.output_tokens,
@@ -507,7 +531,7 @@ def run_agent_turn(messages: List[Dict], route_context: Optional[Dict[str, str]]
                 ),
             },
         ]
-        correction = _create_message(correction_messages, model=route.model)
+        correction = _create_message(correction_messages, model=route.model, system_text=system_text)
         # Accumulate token usage from the correction call
         usage["input_tokens"] += correction.usage.input_tokens
         usage["output_tokens"] += correction.usage.output_tokens

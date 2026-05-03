@@ -38,6 +38,55 @@
       --glow-teal: 0 0 20px rgba(127,219,218,0.4);
     }
 
+    html[data-theme="dim"] {
+      --bg: #16162a;
+      --stone: #222238;
+      --stone-2: #1e1e36;
+      --text: #ececf4;
+      --muted: #8b8ba3;
+    }
+    html[data-theme="contrast"] {
+      --bg: #000000;
+      --stone: #0a0a0a;
+      --stone-2: #111;
+      --text: #ffffff;
+      --muted: #cccccc;
+      --amber: #ffea00;
+      --teal: #00ffff;
+      --border: #ffffff;
+    }
+
+    .theme-btn {
+      width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border-light);
+      background: var(--stone-3); color: var(--teal); font-size: 0.75rem;
+      line-height: 1; flex-shrink: 0;
+    }
+    .theme-btn:hover { border-color: var(--amber-dim); box-shadow: var(--glow-teal); }
+
+    .tpl-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .tpl-chip {
+      font-size: 0.68rem; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--border);
+      background: var(--stone-2); color: var(--muted); cursor: pointer;
+    }
+    .tpl-chip:hover { border-color: var(--teal); color: var(--text); }
+
+    .growth-row { display: grid; gap: 8px; margin-bottom: 10px; font-size: 0.82rem; }
+    .growth-row label { color: var(--muted); font-size: 0.72rem; }
+    .growth-inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+    .activity-drawer {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+      max-height: 38vh; background: linear-gradient(0deg,#0a0814 0%,#14122a 100%);
+      border-top: 2px solid var(--border); box-shadow: 0 -12px 40px rgba(0,0,0,0.65);
+      transform: translateY(calc(100% - 40px)); transition: transform .25s ease;
+    }
+    .activity-drawer.open { transform: translateY(0); }
+    .activity-drawer-toggle {
+      height: 40px; width: 100%; border: 0; background: var(--stone-3); color: var(--amber);
+      font-family: 'MedievalSharp', serif; font-size: 0.82rem; letter-spacing: 0.06em;
+    }
+    .activity-drawer-body { overflow-y: auto; max-height: calc(38vh - 40px); padding: 10px 14px 16px; font-size: 0.78rem; }
+
     /* Landing (Area 1) — hidden once tavern entered */
     html[data-dashboard="1"] #landing-view { display: none !important; }
     html[data-dashboard="1"] #dashboard-root { display: block !important; }
@@ -627,6 +676,7 @@
       <div class="inn-stat"><span>&#x1F4DC;</span><span>Quests</span><strong id="metric-total">0</strong></div>
       <div class="inn-stat"><span>&#x2694;&#xFE0F;</span><span>Active</span><strong id="metric-active">0</strong></div>
       <div class="inn-stat"><span>&#x1FA99;</span><span>Week</span><strong id="metric-week">$0.0000</strong></div>
+      <button class="theme-btn" type="button" id="theme-cycle-btn" onclick="cycleTheme()" title="Theme: Nocturnal / Dim / High contrast" aria-label="Cycle color theme">&#x25D0;</button>
       <button class="btn-icon-help" type="button" onclick="openShortcutsModal()" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
       <button class="btn-refresh" type="button" onclick="loadAll()">&#x21BB; Refresh</button>
     </div>
@@ -640,9 +690,40 @@
         <h2 id="intake-title" class="panel-title">&#x1F4CB; New Quest</h2>
       </div>
       <div class="intake">
+        <div id="personal-project-block" class="growth-row">
+          <label for="project-select">Product project</label>
+          <div class="growth-inline">
+            <select id="project-select" style="flex:1;min-width:140px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--stone);color:var(--text)"></select>
+            <input id="new-project-name" type="text" placeholder="New project name" style="flex:1;min-width:120px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--stone);color:var(--text)" />
+            <input id="new-project-desc" type="text" placeholder="One-line description" style="flex:1;min-width:120px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--stone);color:var(--text)" />
+            <button type="button" class="btn-ghost" onclick="createProjectInline()">+ Add</button>
+          </div>
+        </div>
+        <div id="work-client-block" class="growth-row" style="display:none">
+          <label for="client-select">Client</label>
+          <select id="client-select" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--stone);color:var(--text)"></select>
+        </div>
+        <div id="personal-revenue-block" class="growth-row">
+          <label>Revenue (this workspace)</label>
+          <div class="growth-inline" style="justify-content:space-between;width:100%">
+            <strong id="revenue-total-display" style="color:var(--teal)">$0</strong>
+            <span id="revenue-by-source" class="subtle" style="font-size:0.72rem"></span>
+          </div>
+          <div class="growth-inline">
+            <input id="rev-amount" type="number" step="0.01" placeholder="USD" style="width:88px;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--stone);color:var(--text)" />
+            <input id="rev-source" type="text" placeholder="Source (Stripe, client…)" style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--stone);color:var(--text)" />
+            <input id="rev-note" type="text" placeholder="Note" style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--stone);color:var(--text)" />
+            <button type="button" class="btn-ghost" onclick="submitRevenue()">Log</button>
+          </div>
+        </div>
         <div class="field">
           <label for="prompt-input">What should your coworker do?</label>
+          <div id="template-chips" class="tpl-chips"></div>
           <textarea id="prompt-input" rows="5" placeholder="Describe the task: what to build, fix, or investigate. The more detail, the better.&#10;&#10;Example: Add a /ping endpoint to backend/main.py that returns {&quot;ok&quot;: true}."></textarea>
+          <div class="growth-inline" style="margin-top:6px">
+            <button type="button" class="btn-ghost" onclick="runEstimate()">Estimate</button>
+            <span id="estimate-display" class="subtle" style="font-size:0.78rem"></span>
+          </div>
         </div>
         <div class="field">
           <label for="title-input">Quest name <span class="field-hint">(optional — auto-filled from your brief)</span></label>
@@ -1000,6 +1081,27 @@
           <button id="btn-resync" class="btn-resync hidden" type="button" onclick="resyncStream()">&#x21BB; Resync</button>
         </div>
         <div class="artifact-list" id="artifact-list"></div>
+        <div id="plan-panel" class="hidden" style="margin:10px 0;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--stone)">
+          <div style="font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Agent plan</div>
+          <pre id="plan-panel-text" style="margin:0;white-space:pre-wrap;font-family:'Share Tech Mono',monospace;font-size:0.72rem;color:var(--text)"></pre>
+        </div>
+        <div id="ship-checklist" class="hidden" style="margin:10px 0;padding:10px;border-radius:8px;border:1px dashed var(--amber-dim);background:rgba(244,185,66,0.06)">
+          <div style="font-size:0.72rem;color:var(--gold);margin-bottom:8px">Ship it</div>
+          <label class="growth-inline" style="display:flex;gap:8px;margin:4px 0"><input type="checkbox" data-ship="tests" onchange="onShipCheck(this)" /> Tests passing</label>
+          <label class="growth-inline" style="display:flex;gap:8px;margin:4px 0"><input type="checkbox" data-ship="review" onchange="onShipCheck(this)" /> PR reviewed</label>
+          <label class="growth-inline" style="display:flex;gap:8px;margin:4px 0"><input type="checkbox" data-ship="deploy" onchange="onShipCheck(this)" /> Deployed</label>
+          <label class="growth-inline" style="display:flex;gap:8px;margin:4px 0"><input type="checkbox" data-ship="revenue" onchange="onShipCheck(this)" /> Revenue logged</label>
+        </div>
+        <div id="owner-notes-wrap" class="field" style="margin-top:8px;display:none">
+          <label for="owner-notes">Owner notes</label>
+          <textarea id="owner-notes" rows="3" placeholder="Client context, deploy notes, revenue reminders…" onblur="saveOwnerNotes()"></textarea>
+        </div>
+        <div id="task-growth-actions" class="growth-inline" style="margin-top:10px;flex-wrap:wrap;gap:6px;display:none">
+          <button type="button" class="btn-ghost" onclick="event.stopPropagation();togglePinSelected()">&#x1F4CC; Pin</button>
+          <button type="button" class="btn-ghost" id="btn-share-task" onclick="event.stopPropagation();shareTaskLink()">Share</button>
+          <button type="button" class="btn-ghost" id="btn-export-deliverable" onclick="event.stopPropagation();exportDeliverable()">Export deliverable</button>
+          <label class="growth-inline" style="gap:4px;font-size:0.75rem;color:var(--muted)"><input type="checkbox" id="chk-public-task" onchange="togglePublicTask()" /> Public portfolio</label>
+        </div>
         <div class="step-panel-hdr" id="step-panel-hdr" style="display:none">&#x2692;&#xFE0F; Steps</div>
         <div id="step-panel" class="step-list"></div>
         <div id="log-panel" class="log-box" aria-live="polite"></div>
@@ -1049,6 +1151,26 @@
         <p id="perf-error" class="error hidden"></p>
       </div>
     </div>
+    <div class="studio-panel" aria-labelledby="analytics-title">
+      <div class="studio-header">
+        <span id="analytics-title" class="studio-title">&#x1F4CA; Analytics (30d)</span>
+        <span class="studio-count" id="analytics-ws-label">all</span>
+      </div>
+      <div id="analytics-body" class="studio-body" style="font-style:normal">
+        <p id="analytics-loading" class="subtle">Loading&#x2026;</p>
+        <div id="analytics-metrics" class="hidden">
+          <p>Tasks in window: <strong id="analytics-total">0</strong> &middot; PRs with URL: <strong id="analytics-prs">0</strong></p>
+          <p>Avg cost / task: <strong id="analytics-avg">$0</strong> &middot; Success rate: <strong id="analytics-rate">n/a</strong></p>
+          <p class="subtle" id="analytics-tools" style="font-size:0.72rem"></p>
+        </div>
+        <p id="analytics-error" class="error hidden"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="activity-drawer" id="activity-drawer">
+    <button type="button" class="activity-drawer-toggle" onclick="document.getElementById('activity-drawer').classList.toggle('open')">&#x2692; Agent activity</button>
+    <div class="activity-drawer-body" id="activity-feed-body"><p class="subtle">Loading feed&#x2026;</p></div>
   </div>
 
 </div>
@@ -1094,6 +1216,264 @@
   let tasks = [], logsByTask = {}, stepsByTask = {}, activeStreams = {}, budgetCap = null, selectedTaskId = null, workspace = 'personal';
   let queueFilterQuery = '';
   let _queueFilterTimer = null;
+  let clientNameById = {};
+  const lastPlanByTask = {};
+  const TASK_TEMPLATES = [
+    'Build a REST API with FastAPI — [describe the endpoints]',
+    'Create a Chrome extension that [describe the feature]',
+    'Build a landing page for [product name] with [key features]',
+    'Write a Python script that automates [describe the task]',
+    'Set up a Stripe payment integration for [describe the product]',
+    'Debug and fix: [paste the error here]',
+  ];
+
+  function applyTheme() {
+    var t = localStorage.getItem('coworker_theme') || 'nocturnal';
+    if (t === 'nocturnal') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', t === 'dim' ? 'dim' : 'contrast');
+  }
+  function cycleTheme() {
+    var order = ['nocturnal', 'dim', 'contrast'];
+    var cur = localStorage.getItem('coworker_theme') || 'nocturnal';
+    var i = order.indexOf(cur);
+    var next = order[(i + 1) % order.length];
+    localStorage.setItem('coworker_theme', next);
+    applyTheme();
+  }
+  applyTheme();
+
+  function _shipStorageKey(taskId) { return 'ship_' + taskId; }
+  function onShipCheck(el) {
+    if (!selectedTaskId || !el) return;
+    try {
+      var raw = localStorage.getItem(_shipStorageKey(selectedTaskId)) || '{}';
+      var o = JSON.parse(raw);
+      o[el.getAttribute('data-ship')] = !!el.checked;
+      localStorage.setItem(_shipStorageKey(selectedTaskId), JSON.stringify(o));
+    } catch (e) {}
+  }
+  function _loadShipChecks(taskId) {
+    var boxes = document.querySelectorAll('#ship-checklist input[type="checkbox"]');
+    var o = {};
+    try { o = JSON.parse(localStorage.getItem(_shipStorageKey(taskId)) || '{}'); } catch (e) {}
+    boxes.forEach(function(b) {
+      var k = b.getAttribute('data-ship');
+      b.checked = !!o[k];
+    });
+  }
+
+  function initTemplateChips() {
+    var host = document.getElementById('template-chips');
+    if (!host || host.dataset.ready) return;
+    host.dataset.ready = '1';
+    host.innerHTML = TASK_TEMPLATES.map(function(t, i) {
+      return '<button type="button" class="tpl-chip" onclick="applyTemplate(' + i + ')">' + escHtml(t.slice(0, 42) + (t.length > 42 ? '\u2026' : '')) + '</button>';
+    }).join('');
+  }
+  function applyTemplate(i) {
+    var t = TASK_TEMPLATES[i];
+    if (t) document.getElementById('prompt-input').value = t;
+  }
+
+  async function loadGrowthData() {
+    try {
+      if (workspace === 'personal') {
+        var pr = await fetch(API + '/projects?workspace=' + encodeURIComponent(workspace), { headers: readHeaders(false) });
+        if (pr.ok) {
+          var pj = await pr.json();
+          var sel = document.getElementById('project-select');
+          if (sel) {
+            sel.innerHTML = '<option value="">(no project)</option>' + (pj.projects || []).map(function(p) {
+              return '<option value="' + escHtml(p.id) + '">' + escHtml(p.name) + '</option>';
+            }).join('');
+          }
+        }
+        var rr = await fetch(API + '/revenue?workspace=' + encodeURIComponent(workspace), { headers: readHeaders(false) });
+        if (rr.ok) {
+          var rj = await rr.json();
+          var sum = rj.summary || {};
+          var el = document.getElementById('revenue-total-display');
+          if (el) el.textContent = '$' + Number(sum.total_usd || 0).toFixed(2);
+          var by = document.getElementById('revenue-by-source');
+          if (by) by.textContent = (sum.by_source || []).map(function(s) { return s.source + ': $' + Number(s.total_usd).toFixed(0); }).join(' · ') || '—';
+        }
+      } else {
+        var cr = await fetch(API + '/clients?workspace=' + encodeURIComponent(workspace), { headers: readHeaders(false) });
+        if (cr.ok) {
+          var cj = await cr.json();
+          clientNameById = {};
+          (cj.clients || []).forEach(function(c) { clientNameById[c.id] = c.name; });
+          var csel = document.getElementById('client-select');
+          if (csel) {
+            csel.innerHTML = '<option value="">(no client)</option>' + (cj.clients || []).map(function(c) {
+              return '<option value="' + escHtml(c.id) + '">' + escHtml(c.name) + '</option>';
+            }).join('');
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  async function createProjectInline() {
+    var name = (document.getElementById('new-project-name') || {}).value.trim();
+    var desc = (document.getElementById('new-project-desc') || {}).value.trim();
+    if (!name) return;
+    try {
+      var res = await fetch(API + '/projects', { method: 'POST', headers: readHeaders(true), body: JSON.stringify({ name: name, description: desc || null, workspace: 'personal' }) });
+      if (!res.ok) return;
+      document.getElementById('new-project-name').value = '';
+      document.getElementById('new-project-desc').value = '';
+      await loadGrowthData();
+    } catch (e) {}
+  }
+
+  async function submitRevenue() {
+    var amt = parseFloat((document.getElementById('rev-amount') || {}).value);
+    var src = (document.getElementById('rev-source') || {}).value.trim();
+    var note = (document.getElementById('rev-note') || {}).value.trim();
+    if (!src || !(amt > 0)) return;
+    var pid = (document.getElementById('project-select') || {}).value || null;
+    try {
+      var res = await fetch(API + '/revenue', { method: 'POST', headers: readHeaders(true), body: JSON.stringify({ amount_usd: amt, source: src, note: note || null, project_id: pid, workspace: 'personal' }) });
+      if (res.ok) {
+        document.getElementById('rev-amount').value = '';
+        document.getElementById('rev-source').value = '';
+        document.getElementById('rev-note').value = '';
+        await loadGrowthData();
+      }
+    } catch (e) {}
+  }
+
+  async function runEstimate() {
+    var el = document.getElementById('estimate-display');
+    var promptText = document.getElementById('prompt-input').value.trim();
+    if (!promptText) { if (el) el.textContent = 'Enter a brief first.'; return; }
+    if (el) el.textContent = '\u2026';
+    try {
+      var res = await fetch(API + '/tasks/estimate', { method: 'POST', headers: readHeaders(true), body: JSON.stringify({ prompt: promptText }) });
+      if (!res.ok) { if (el) el.textContent = 'Could not estimate.'; return; }
+      var d = await res.json();
+      if (el) el.textContent = '~' + d.estimated_minutes + ' min · ~$' + Number(d.estimated_cost_usd).toFixed(2);
+    } catch (e) { if (el) el.textContent = 'Could not estimate.'; }
+  }
+
+  async function saveOwnerNotes() {
+    if (!selectedTaskId) return;
+    var ta = document.getElementById('owner-notes');
+    var notes = ta ? ta.value : '';
+    try {
+      await fetch(API + '/tasks/' + encodeURIComponent(selectedTaskId) + '?workspace=' + encodeURIComponent(workspace), {
+        method: 'PATCH', headers: readHeaders(true), body: JSON.stringify({ notes: notes }),
+      });
+      var t = tasks.find(function(x) { return x.id === selectedTaskId; });
+      if (t) t.notes = notes;
+    } catch (e) {}
+  }
+
+  async function togglePinSelected() {
+    if (!selectedTaskId) return;
+    var t = tasks.find(function(x) { return x.id === selectedTaskId; });
+    var next = !t || !t.pinned || t.pinned === 0;
+    try {
+      var res = await fetch(API + '/tasks/' + encodeURIComponent(selectedTaskId) + '?workspace=' + encodeURIComponent(workspace), {
+        method: 'PATCH', headers: readHeaders(true), body: JSON.stringify({ pinned: next }),
+      });
+      if (res.ok && t) { t.pinned = next ? 1 : 0; renderTasks(); }
+    } catch (e) {}
+  }
+
+  async function togglePublicTask() {
+    if (!selectedTaskId) return;
+    var chk = document.getElementById('chk-public-task');
+    var pub = !!(chk && chk.checked);
+    try {
+      await fetch(API + '/tasks/' + encodeURIComponent(selectedTaskId) + '?workspace=' + encodeURIComponent(workspace), {
+        method: 'PATCH', headers: readHeaders(true), body: JSON.stringify({ public: pub }),
+      });
+      var t = tasks.find(function(x) { return x.id === selectedTaskId; });
+      if (t) t.public = pub ? 1 : 0;
+    } catch (e) {}
+  }
+
+  function shareTaskLink() {
+    if (!selectedTaskId) return;
+    var path = location.pathname.replace(/[^/]+$/, 'showcase.html');
+    var url = location.origin + path + '?task=' + encodeURIComponent(selectedTaskId);
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url);
+    addLog(selectedTaskId, 'Link copied: ' + url, 'info');
+  }
+
+  function exportDeliverable() {
+    if (!selectedTaskId || workspace !== 'work') return;
+    var task = tasks.find(function(t) { return t.id === selectedTaskId; });
+    if (!task) return;
+    var steps = stepsByTask[task.id] || [];
+    var logs = logsByTask[task.id] || [];
+    var client = task.client_id ? (clientNameById[task.client_id] || task.client_id) : '—';
+    var rows = steps.map(function(s) {
+      return '<tr><td>' + escHtml(String(s.step_num)) + '</td><td>' + escHtml(s.tool_name || '') + '</td><td>' + escHtml(s.status) + '</td></tr>';
+    }).join('');
+    var spent = Number(task.usd_spent || 0);
+    var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Deliverable — ' + escHtml(task.title) + '</title></head><body style="font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;line-height:1.5">'
+      + '<h1>' + escHtml(task.title) + '</h1>'
+      + '<p><strong>Client:</strong> ' + escHtml(client) + '</p>'
+      + '<p><strong>Status:</strong> ' + escHtml(task.status) + '</p>'
+      + '<p><strong>PR:</strong> ' + (task.pr_url ? '<a href="' + escHtml(task.pr_url) + '">' + escHtml(task.pr_url) + '</a>' : '—') + '</p>'
+      + '<p><strong>Approx. cost:</strong> $' + spent.toFixed(4) + '</p>'
+      + '<h2>Objective</h2><pre style="white-space:pre-wrap;background:#f4f4f8;padding:12px;border-radius:8px">' + escHtml(task.prompt || '') + '</pre>'
+      + '<h2>Steps</h2><table border="1" cellpadding="6" cellspacing="0" width="100%"><thead><tr><th>#</th><th>Tool</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>'
+      + '<h2>Log excerpts</h2><ul>' + logs.slice(-30).map(function(l) { return '<li>' + escHtml(l.message) + '</li>'; }).join('') + '</ul>'
+      + '</body></html>';
+    var blob = new Blob([html], { type: 'text/html' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'deliverable-' + selectedTaskId.slice(0, 8) + '.html';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  async function loadAnalytics() {
+    var loadEl = document.getElementById('analytics-loading');
+    var box = document.getElementById('analytics-metrics');
+    var errEl = document.getElementById('analytics-error');
+    if (!loadEl || !box) return;
+    errEl.classList.add('hidden');
+    loadEl.classList.remove('hidden');
+    box.classList.add('hidden');
+    try {
+      var res = await fetch(API + '/analytics?workspace=' + encodeURIComponent(workspace), { headers: readHeaders(false) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var d = await res.json();
+      loadEl.classList.add('hidden');
+      box.classList.remove('hidden');
+      document.getElementById('analytics-total').textContent = String(d.total_tasks_window || 0);
+      document.getElementById('analytics-prs').textContent = String(d.total_prs_with_url || 0);
+      document.getElementById('analytics-avg').textContent = '$' + Number(d.avg_cost_per_task_usd || 0).toFixed(3);
+      var sr = d.success_rate;
+      document.getElementById('analytics-rate').textContent = sr == null ? 'n/a' : (Math.round(Number(sr) * 1000) / 10 + '%');
+      var tools = (d.most_used_tools || []).map(function(t) { return t.tool + ' (' + t.count + ')'; }).join(', ');
+      document.getElementById('analytics-tools').textContent = tools ? 'Top tools: ' + tools : '';
+    } catch (e) {
+      loadEl.classList.add('hidden');
+      errEl.textContent = 'Analytics unavailable.';
+      errEl.classList.remove('hidden');
+    }
+  }
+
+  async function loadActivityFeed() {
+    var body = document.getElementById('activity-feed-body');
+    if (!body) return;
+    try {
+      var res = await fetch(API + '/activity?limit=20', { headers: readHeaders(false) });
+      if (!res.ok) { body.innerHTML = '<p class="subtle">Feed unavailable.</p>'; return; }
+      var d = await res.json();
+      var evs = d.events || [];
+      body.innerHTML = evs.length ? evs.map(function(e) {
+        return '<p style="margin:4px 0"><span class="subtle">' + escHtml(e.created_at || '') + '</span> '
+          + '<strong>' + escHtml(e.task_title || '') + '</strong> — ' + escHtml(e.message || '') + '</p>';
+      }).join('') : '<p class="subtle">No recent events.</p>';
+    } catch (e) { body.innerHTML = '<p class="subtle">Feed unavailable.</p>'; }
+  }
 
   function enterTavern() {
     try { sessionStorage.setItem('coworker_tavern_entered', '1'); } catch (e) {}
@@ -1197,6 +1577,7 @@
     github_list_files:      'builder',
     github_compare_branch:  'builder',
     run_tests:              'tester',
+    run_shell:              'builder',
     get_code_scanning_alert:'tester',
     list_code_scanning_alerts:'tester',
     github_create_pr:       'handoff',
@@ -1218,6 +1599,17 @@
     workspace = next;
     document.getElementById('workspace-personal').classList.toggle('active', workspace === 'personal');
     document.getElementById('workspace-work').classList.toggle('active', workspace === 'work');
+    var pp = document.getElementById('personal-project-block');
+    var wc = document.getElementById('work-client-block');
+    var rev = document.getElementById('personal-revenue-block');
+    var chips = document.getElementById('template-chips');
+    if (pp) pp.style.display = workspace === 'personal' ? '' : 'none';
+    if (wc) wc.style.display = workspace === 'work' ? '' : 'none';
+    if (rev) rev.style.display = workspace === 'personal' ? '' : 'none';
+    if (chips) chips.style.display = workspace === 'personal' ? 'flex' : 'none';
+    var aw = document.getElementById('analytics-ws-label');
+    if (aw) aw.textContent = workspace;
+    initTemplateChips();
     loadAll();
   }
 
@@ -1301,17 +1693,20 @@
     const budgetText = budgetCap == null ? '$' + spent.toFixed(4) : '$' + spent.toFixed(4) + ' / $' + Number(budgetCap).toFixed(2);
     const sel = task.id === selectedTaskId ? ' selected' : '';
     const prLink = prUrl ? '<a class="btn-ghost" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">&#x1F4DC; PR</a>' : '';
-    const cancel = ['pending','running'].includes(task.status) ? '<button class="btn-danger" type="button" onclick="cancelTask(\'' + escHtml(task.id) + '\')">&#x2717; Abandon</button>' : '';
-    const retry  = ['failed','cancelled'].includes(task.status)  ? '<button class="btn-ghost"  type="button" onclick="retryTask(\'' + escHtml(task.id) + '\')">&#x21A9; Retry</button>'  : '';
+    const cancel = ['pending','running'].includes(task.status) ? '<button class="btn-danger" type="button" onclick="event.stopPropagation();cancelTask(\'' + escHtml(task.id) + '\')">&#x2717; Abandon</button>' : '';
+    const retry  = ['failed','cancelled'].includes(task.status)  ? '<button class="btn-ghost"  type="button" onclick="event.stopPropagation();retryTask(\'' + escHtml(task.id) + '\')">&#x21A9; Retry</button>'  : '';
+    var pinMark = (task.pinned && Number(task.pinned) !== 0) ? '\uD83D\uDCCC ' : '';
+    var clientMark = (task.client_id && clientNameById[task.client_id]) ? '<span class="subtle" style="font-size:0.72rem">Client: ' + escHtml(clientNameById[task.client_id]) + '</span>' : '';
     return '<article class="task-card' + sel + '" onclick="selectTask(\'' + escHtml(task.id) + '\')">'
       + '<div class="task-main"><div>'
-      + '<p class="task-title">' + escHtml(task.title) + '</p>'
+      + '<p class="task-title">' + pinMark + escHtml(task.title) + '</p>'
+      + (clientMark ? '<p style="margin:2px 0">' + clientMark + '</p>' : '')
       + '<p class="task-id">' + escHtml(task.id) + '</p>'
       + '<p class="subtle">&#x1FA99; ' + escHtml(budgetText) + '</p>'
       + renderBudgetBar(spent, budgetCap)
       + '</div><span class="' + statusClass(task.status) + '" aria-label="Status: ' + escHtml(task.status) + '">' + escHtml(task.status) + '</span></div>'
       + (task.error ? '<p class="log-line log-error">' + escHtml(task.error) + '</p>' : '')
-      + '<div class="card-actions">' + prLink + cancel + retry + '</div>'
+      + '<div class="card-actions" onclick="event.stopPropagation()">' + prLink + cancel + retry + '</div>'
       + '</article>';
   }
 
@@ -1396,6 +1791,10 @@
       if (contentEl) contentEl.classList.add('hidden');
       statusEl.className = 'status status-pending'; statusEl.textContent = 'None';
       _updateStreamStatusRow(null);
+      var nw = document.getElementById('owner-notes-wrap');
+      var gw = document.getElementById('task-growth-actions');
+      if (nw) nw.style.display = 'none';
+      if (gw) gw.style.display = 'none';
       return;
     }
     if (emptyEl) emptyEl.classList.add('hidden');
@@ -1408,6 +1807,28 @@
     artEl.innerHTML = prUrl
       ? '<a class="artifact-chip" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">&#x1F5E1;&#xFE0F; Pull Request Ready</a>'
       : '<div class="artifact-chip">PR handoff pending&#x2026;</div>';
+    var planPanel = document.getElementById('plan-panel');
+    var planTxt = document.getElementById('plan-panel-text');
+    if (planPanel && planTxt) {
+      if (lastPlanByTask[task.id]) { planPanel.classList.remove('hidden'); planTxt.textContent = lastPlanByTask[task.id]; }
+      else { planPanel.classList.add('hidden'); planTxt.textContent = ''; }
+    }
+    var ship = document.getElementById('ship-checklist');
+    if (ship) {
+      if (workspace === 'personal' && task.status === 'done' && prUrl) { ship.classList.remove('hidden'); _loadShipChecks(task.id); }
+      else { ship.classList.add('hidden'); }
+    }
+    var notesWrap = document.getElementById('owner-notes-wrap');
+    var notesTa = document.getElementById('owner-notes');
+    if (notesWrap && notesTa) { notesWrap.style.display = ''; notesTa.value = task.notes || ''; }
+    var grow = document.getElementById('task-growth-actions');
+    if (grow) {
+      grow.style.display = 'flex';
+      var ex = document.getElementById('btn-export-deliverable');
+      if (ex) ex.style.display = (workspace === 'work' && terminalStatuses.has(task.status)) ? '' : 'none';
+      var chk = document.getElementById('chk-public-task');
+      if (chk) chk.checked = !!(task.public && Number(task.public) !== 0);
+    }
     logsEl.scrollTop = logsEl.scrollHeight;
     renderStepList(task.id);
     if (stepHdr) stepHdr.style.display = '';
@@ -1419,7 +1840,7 @@
     github_create_branch:'🌿', github_commit_files:'📦', github_create_pr:'📝',
     github_read_file:'📖', github_list_files:'📂', github_compare_branch:'🔀',
     filesystem_read:'📖', filesystem_write:'✏️', filesystem_list:'📂',
-    run_tests:'🧪', repo_snapshot:'📸', secret_scan:'🔒',
+    run_tests:'🧪', run_shell:'⚡', repo_snapshot:'📸', secret_scan:'🔒',
     humanize_error:'💬', cost_status:'💰', playwright_browse:'🌐',
     final_answer:'🏁', web_search:'🔍', fetch_url:'🌐',
   };
@@ -1565,7 +1986,15 @@
     btn.disabled = true;
     btn.textContent = '\u23F3 Sending\u2026';
     try {
-      const res = await fetch(API + '/tasks', {method:'POST', headers:readHeaders(true), body:JSON.stringify({title, prompt:promptText, repo_url:repo, workspace})});
+      var body = { title: title, prompt: promptText, repo_url: repo, workspace: workspace };
+      if (workspace === 'personal') {
+        var ps = document.getElementById('project-select');
+        if (ps && ps.value) body.project_id = ps.value;
+      } else {
+        var cs = document.getElementById('client-select');
+        if (cs && cs.value) body.client_id = cs.value;
+      }
+      const res = await fetch(API + '/tasks', { method: 'POST', headers: readHeaders(true), body: JSON.stringify(body) });
       if (res.status === 401) {
         errEl.textContent = 'API key required \u2014 open Advanced options and enter your key, then try again.';
         errEl.classList.remove('hidden');
@@ -1621,9 +2050,13 @@
     streamHealthByTask[taskId] = { lastHb: Date.now(), dropped: 0 };
     if (selectedTaskId === taskId) _updateStreamStatusRow(tasks.find(t => t.id === taskId) || null);
 
-    ['task_done','task_failed','task_cancelled','tool_start','tool_done','log','heartbeat','stream_warning'].forEach(type => {
+    ['task_done','task_failed','task_cancelled','tool_start','tool_done','log','heartbeat','stream_warning','plan'].forEach(type => {
       es.addEventListener(type, ev => {
         let d = {}; try { d = JSON.parse(ev.data); } catch {}
+        if (type === 'plan' && d.plan) {
+          lastPlanByTask[taskId] = d.plan;
+          if (selectedTaskId === taskId) renderSelectedTask();
+        }
         if (type === 'log')        addLog(taskId, d.message||'', d.level||'info');
         if (type === 'tool_start') {
           activeToolByTask[taskId] = d.tool || '';
@@ -1740,7 +2173,15 @@
     } catch {}
   }
 
-  function loadAll() { loadTasks(); loadSummary(); loadOperatorStudio(); loadPerfMetrics(); }
+  function loadAll() {
+    loadTasks();
+    loadSummary();
+    loadOperatorStudio();
+    loadPerfMetrics();
+    loadGrowthData();
+    loadAnalytics();
+    loadActivityFeed();
+  }
 
   // Ctrl+Enter to submit the form from anywhere on the page
   document.addEventListener('keydown', function(e) {
@@ -1763,6 +2204,18 @@
   (function() {
     const k = localStorage.getItem('api_key');
     if (k) { const el = document.getElementById('api-key-input'); if (el) el.placeholder = '\u2714 Key saved (paste to update)'; }
+  })();
+
+  initTemplateChips();
+  (function initWsPanels() {
+    var pp = document.getElementById('personal-project-block');
+    var wc = document.getElementById('work-client-block');
+    var rev = document.getElementById('personal-revenue-block');
+    var chips = document.getElementById('template-chips');
+    if (pp) pp.style.display = workspace === 'personal' ? '' : 'none';
+    if (wc) wc.style.display = workspace === 'work' ? '' : 'none';
+    if (rev) rev.style.display = workspace === 'personal' ? '' : 'none';
+    if (chips) chips.style.display = workspace === 'personal' ? 'flex' : 'none';
   })();
 
   loadAll();

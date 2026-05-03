@@ -23,12 +23,20 @@ import structlog
 import structlog.stdlib
 
 from backend import db
-from backend.claude_wrapper import MalformedOutputError, build_task_context, run_agent_turn, MAX_TOKENS, SYSTEM_PROMPT_TOKENS
+from backend.claude_wrapper import (
+    MalformedOutputError,
+    PERSONAL_WORKSPACE_SYSTEM_PREFIX,
+    build_task_context,
+    run_agent_turn,
+    MAX_TOKENS,
+    system_prompt_token_estimate,
+)
 from backend.config import settings
 from backend.cost_tracker import BudgetExceeded, BudgetPreflightError, estimate_input_tokens, preflight_check, record_and_check
 from backend.events import destroy_bus, emit, emit_log
 from backend.model_router import infer_task_profile
 from backend.notifier import notify_task_failure
+from backend.task_webhook import fire_terminal_webhook
 from backend.tool_adapters import _redact, execute_tool, github_compare_branch, github_create_branch, github_create_pr, humanize_error, run_tests
 
 log = structlog.get_logger(__name__)
@@ -171,6 +179,7 @@ async def run_task(task_id: str) -> None:
                 ended_at=_utcnow(),
                 failure_category="agent_error",
             )
+            fire_terminal_webhook(task_id, "failed")
         except Exception:
             log_ctx.warning("task_start_failed_followup_db_error")
         _cancel_requested.discard(task_id)
@@ -211,6 +220,7 @@ async def run_task(task_id: str) -> None:
             await emit_log(task_id, "error", f"Branch creation failed: {err}")
             await emit(task_id, "task_failed", {"error": err})
             await _notify_if_not_cancelled(task_id, repo, f"Branch creation failed: {err}")
+            fire_terminal_webhook(task_id, "failed")
             return
 
         branch = branch_result["data"]["branch"]
@@ -232,11 +242,15 @@ async def run_task(task_id: str) -> None:
             context = build_task_context(task, steps)
             messages = [{"role": "user", "content": context}]
             route_context = infer_task_profile(task)
+            ws = task.get("workspace") or "personal"
+            system_prefix = PERSONAL_WORKSPACE_SYSTEM_PREFIX if ws == "personal" else None
 
             # --- Preflight budget guard --------------------------------------
             # Estimate cost before calling the model to prevent avoidable
             # single-call budget overshoots (PR-B7).
-            estimated_input = estimate_input_tokens(messages, system_tokens=SYSTEM_PROMPT_TOKENS)
+            estimated_input = estimate_input_tokens(
+                messages, system_tokens=system_prompt_token_estimate(workspace=ws)
+            )
             try:
                 await preflight_check(
                     task_id,
@@ -254,6 +268,7 @@ async def run_task(task_id: str) -> None:
                 await emit_log(task_id, "error", human)
                 await emit(task_id, "task_failed", {"error": human})
                 await notify_task_failure(task_id, repo, human)
+                fire_terminal_webhook(task_id, "failed")
                 return
 
             # --- Claude call -------------------------------------------------
@@ -265,7 +280,7 @@ async def run_task(task_id: str) -> None:
                 raw_text, parsed, usage = await asyncio.wait_for(
                     loop.run_in_executor(
                         _claude_executor,
-                        functools.partial(run_agent_turn, messages, route_context),
+                        functools.partial(run_agent_turn, messages, route_context, system_prefix),
                     ),
                     timeout=float(settings.task_timeout_seconds),
                 )
@@ -282,6 +297,7 @@ async def run_task(task_id: str) -> None:
                 await emit_log(task_id, "error", f"Step {step_count} timed out")
                 await emit(task_id, "task_failed", {"error": human})
                 await _notify_if_not_cancelled(task_id, repo, human)
+                fire_terminal_webhook(task_id, "failed")
                 return
             except MalformedOutputError as e:
                 human = _human_error(str(e))
@@ -292,6 +308,7 @@ async def run_task(task_id: str) -> None:
                 await emit_log(task_id, "error", f"Malformed output: {human}")
                 await emit(task_id, "task_failed", {"error": human})
                 await _notify_if_not_cancelled(task_id, repo, human)
+                fire_terminal_webhook(task_id, "failed")
                 return
             except Exception as e:
                 human = _human_error(str(e))
@@ -303,6 +320,7 @@ async def run_task(task_id: str) -> None:
                 await emit_log(task_id, "error", f"Agent error: {human}")
                 await emit(task_id, "task_failed", {"error": human})
                 await _notify_if_not_cancelled(task_id, repo, human)
+                fire_terminal_webhook(task_id, "failed")
                 return
 
             # Track cost and enforce budget cap
@@ -320,6 +338,7 @@ async def run_task(task_id: str) -> None:
                 await emit_log(task_id, "error", human)
                 await emit(task_id, "task_failed", {"error": human})
                 await _notify_if_not_cancelled(task_id, repo, human)
+                fire_terminal_webhook(task_id, "failed")
                 return
 
             action    = parsed.get("action", "error")
@@ -328,6 +347,10 @@ async def run_task(task_id: str) -> None:
             reasoning = parsed.get("reasoning", "")
 
             await db.update_task(task_id, last_action=action, last_tool=tool_name or None)
+
+            plan_text = parsed.get("plan") or ""
+            if isinstance(plan_text, str) and plan_text.strip():
+                await emit(task_id, "plan", {"plan": plan_text.strip()})
 
             await db.update_step(step_id, tool_name=tool_name,
                                  tool_input=_json_redacted(tool_input),
@@ -347,6 +370,7 @@ async def run_task(task_id: str) -> None:
                     await emit_log(task_id, "error", err)
                     await emit(task_id, "task_failed", {"error": err})
                     await _notify_if_not_cancelled(task_id, repo, err)
+                    fire_terminal_webhook(task_id, "failed")
                     return
 
                 changed_files = compare_result.get("data", {}).get("files", [])
@@ -358,6 +382,7 @@ async def run_task(task_id: str) -> None:
                     await emit_log(task_id, "error", err)
                     await emit(task_id, "task_failed", {"error": err})
                     await _notify_if_not_cancelled(task_id, repo, err)
+                    fire_terminal_webhook(task_id, "failed")
                     return
 
                 if not _has_successful_tests(steps):
@@ -372,6 +397,7 @@ async def run_task(task_id: str) -> None:
                         await emit_log(task_id, "error", err)
                         await emit(task_id, "task_failed", {"error": err})
                         await _notify_if_not_cancelled(task_id, repo, err)
+                        fire_terminal_webhook(task_id, "failed")
                         return
 
                 await _check_cancel_checkpoint(task_id, "pr_creation")
@@ -397,6 +423,7 @@ async def run_task(task_id: str) -> None:
                     await emit_log(task_id, "error", err)
                     await emit(task_id, "task_failed", {"error": err})
                     await _notify_if_not_cancelled(task_id, repo, err)
+                    fire_terminal_webhook(task_id, "failed")
                     return
                 pr_url = pr_result.get("data", {}).get("pr_url", "")
 
@@ -450,6 +477,7 @@ async def run_task(task_id: str) -> None:
                 await db.update_task(task_id, status="done", pr_url=pr_url, ended_at=_utcnow())
                 await emit_log(task_id, "info", f"Task complete. PR: {pr_url}")
                 await emit(task_id, "task_done", {"pr_url": pr_url})
+                fire_terminal_webhook(task_id, "done")
                 return
 
             # --- error action ------------------------------------------------
@@ -462,6 +490,7 @@ async def run_task(task_id: str) -> None:
                 await emit_log(task_id, "error", f"Agent reported error: {human}")
                 await emit(task_id, "task_failed", {"error": human})
                 await _notify_if_not_cancelled(task_id, repo, human)
+                fire_terminal_webhook(task_id, "failed")
                 return
 
             # --- tool_call ---------------------------------------------------
@@ -545,6 +574,7 @@ async def run_task(task_id: str) -> None:
         )
         await emit(task_id, "task_failed", {"error": human_err})
         await _notify_if_not_cancelled(task_id, repo, human_err)
+        fire_terminal_webhook(task_id, "failed")
 
     except asyncio.CancelledError:
         await db.update_task(task_id, status="cancelled", ended_at=_utcnow())
@@ -558,6 +588,7 @@ async def run_task(task_id: str) -> None:
                              ended_at=_utcnow(), failure_category="agent_error")
         await emit_log(task_id, "error", f"Unexpected error: {err}")
         await emit(task_id, "task_failed", {"error": err})
+        fire_terminal_webhook(task_id, "failed")
         _repo = settings.github_default_repo
         try:
             _task = await db.get_task(task_id)
