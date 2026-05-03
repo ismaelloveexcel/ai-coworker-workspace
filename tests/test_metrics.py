@@ -140,6 +140,7 @@ async def test_metrics_latency_stats():
     assert 1100 <= latency["median_s"] <= 1300
     # p95 should be close to 1800s (30min)
     assert latency["p95_s"] is not None
+    assert 1100 <= latency["avg_s"] <= 1300
 
 
 @pytest.mark.asyncio
@@ -293,7 +294,7 @@ async def test_metrics_endpoint_rejects_invalid_window(monkeypatch):
 def test_latency_stats_empty():
     from backend.db import _latency_stats
     result = _latency_stats([])
-    assert result == {"median_s": None, "p95_s": None, "count": 0}
+    assert result == {"median_s": None, "p95_s": None, "avg_s": None, "count": 0}
 
 
 def test_latency_stats_single():
@@ -302,6 +303,7 @@ def test_latency_stats_single():
     assert result["count"] == 1
     assert result["median_s"] == 60.0
     assert result["p95_s"] == 60.0
+    assert result["avg_s"] == 60.0
 
 
 def test_latency_stats_even_count():
@@ -310,6 +312,7 @@ def test_latency_stats_even_count():
     result = _latency_stats([10.0, 20.0])
     assert result["median_s"] == 15.0
     assert result["p95_s"] == 20.0
+    assert result["avg_s"] == 15.0
 
 
 def test_latency_stats_p95():
@@ -320,3 +323,4 @@ def test_latency_stats_p95():
     assert result["count"] == 20
     assert result["median_s"] == 10.5
     assert result["p95_s"] == 19.0
+    assert result["avg_s"] == 10.5

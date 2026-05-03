@@ -92,6 +92,11 @@ See `.env.example` for the full list. Key variables:
 | `WATCHDOG_DAILY_MAX` | — | Max watchdog invocations per UTC day (default: `10`) |
 | `WATCHDOG_MAX_USD` | — | Per-run watchdog spend cap |
 | `DB_BACKUP_ENABLED` | — | Enable SQLite backup rotation |
+| `DB_PATH` | — | SQLite database file path (default `data/agent.db`). Never use `:memory:` in production; CI may use an in-memory database. |
+| `LOG_JSON` | — | Set to `true` for JSON structlog output instead of colored console logs. |
+| `ENV` / `APP_ENV` | — | Deployment environment (default `development`). When set to `production`, `API_KEY` is required and `DB_PATH=:memory:` is rejected at startup. |
+| `TASK_TIMEOUT_SECONDS` | — | Per-step Claude executor timeout in seconds (default `300`, or falls back to `STEP_TIMEOUT_SECONDS`). |
+| `STEP_TIMEOUT_SECONDS` | — | Legacy alias read when `TASK_TIMEOUT_SECONDS` is unset. |
 
 ## Model
 

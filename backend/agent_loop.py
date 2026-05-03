@@ -155,10 +155,28 @@ def _suite_for_changed_files(files) -> str:
 async def run_task(task_id: str) -> None:
     loop = asyncio.get_running_loop()   # F34: never use get_event_loop() in a coroutine
     log_ctx = log.bind(task_id=task_id)
+    _hb_task: Optional[asyncio.Task] = None
 
-    await db.update_task(task_id, status="running", current_step=0, started_at=_utcnow())
-    await db.touch_heartbeat(task_id)   # prevent false-positive zombie reap during branch creation
-    await emit_log(task_id, "info", "Agent starting")
+    try:
+        await db.update_task(task_id, status="running", current_step=0, started_at=_utcnow())
+        await db.touch_heartbeat(task_id)   # prevent false-positive zombie reap during branch creation
+        await emit_log(task_id, "info", "Agent starting")
+    except Exception as exc:
+        log_ctx.exception("task_start_failed", error=str(exc))
+        try:
+            await db.update_task(
+                task_id,
+                status="failed",
+                error=_human_error(f"Failed to start task: {exc}"),
+                ended_at=_utcnow(),
+                failure_category="agent_error",
+            )
+        except Exception:
+            log_ctx.warning("task_start_failed_followup_db_error")
+        _cancel_requested.discard(task_id)
+        _running.pop(task_id, None)
+        destroy_bus(task_id)
+        return
 
     _hb_task = asyncio.create_task(
         _heartbeat_worker(task_id, settings.heartbeat_interval_seconds),
@@ -249,7 +267,7 @@ async def run_task(task_id: str) -> None:
                         _claude_executor,
                         functools.partial(run_agent_turn, messages, route_context),
                     ),
-                    timeout=float(settings.step_timeout_seconds),
+                    timeout=float(settings.task_timeout_seconds),
                 )
                 # Note: wait_for cancels the Future but the underlying thread
                 # continues until the Anthropic SDK times out on its own (~600s).
@@ -257,7 +275,7 @@ async def run_task(task_id: str) -> None:
             except asyncio.TimeoutError:
                 await db.update_step(step_id, status="failed",
                                      tool_output=_json_redacted({"error": "Claude call timed out"}))
-                err = f"Step {step_count} timed out after {settings.step_timeout_seconds}s"
+                err = f"Step {step_count} timed out after {settings.task_timeout_seconds}s"
                 human = _human_error(err)
                 await db.update_task(task_id, status="failed", error=human,
                                      ended_at=_utcnow(), failure_category="timeout")
@@ -550,8 +568,9 @@ async def run_task(task_id: str) -> None:
         await _notify_if_not_cancelled(task_id, _repo, err)
     finally:
         _cancel_requested.discard(task_id)
-        _hb_task.cancel()
-        await asyncio.gather(_hb_task, return_exceptions=True)
+        if _hb_task is not None:
+            _hb_task.cancel()
+            await asyncio.gather(_hb_task, return_exceptions=True)
         _running.pop(task_id, None)
         await asyncio.sleep(5)   # brief grace period for SSE consumers to drain
         destroy_bus(task_id)
