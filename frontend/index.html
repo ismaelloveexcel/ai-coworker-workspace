@@ -632,16 +632,16 @@
       </div>
       <div class="brand-text">
         <h1>The Coworker Tavern</h1>
-        <p id="conn-status" class="brand-sub">Seeking adventurers&#x2026;</p>
+        <p id="conn-status" class="brand-sub">Connecting&#x2026;</p>
         <div class="brand-taglines" aria-live="polite">
-          <span class="tag-rot">Quests accepted 24/7</span>
-          <span class="tag-rot">AI coworkers, no meetings</span>
+          <span class="tag-rot">Always on, always ready</span>
+          <span class="tag-rot">AI teammates, no overhead</span>
           <span class="tag-rot">Ship while you sleep</span>
         </div>
       </div>
     </div>
     <div class="top-actions">
-      <div class="inn-stat"><span>&#x1F4DC;</span><span>Quests</span><strong id="metric-total">0</strong></div>
+      <div class="inn-stat"><span>&#x1F4DC;</span><span>Tasks</span><strong id="metric-total">0</strong></div>
       <div class="inn-stat"><span>&#x2694;&#xFE0F;</span><span>Active</span><strong id="metric-active">0</strong></div>
       <div class="inn-stat"><span>&#x1FA99;</span><span>Week</span><strong id="metric-week">$0.0000</strong></div>
       <button class="btn-icon-help" type="button" onclick="openShortcutsModal()" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
@@ -651,10 +651,10 @@
 
   <main class="layout">
 
-    <!-- Quest Board -->
+    <!-- Task Intake -->
     <section class="panel" aria-labelledby="intake-title">
       <div class="panel-header">
-        <h2 id="intake-title" class="panel-title">&#x1F4CB; New Quest</h2>
+        <h2 id="intake-title" class="panel-title">&#x1F4CB; New Task</h2>
       </div>
       <div class="intake">
         <div class="field">
@@ -662,7 +662,7 @@
           <textarea id="prompt-input" rows="5" placeholder="Describe the task: what to build, fix, or investigate. The more detail, the better.&#10;&#10;Example: Add a /ping endpoint to backend/main.py that returns {&quot;ok&quot;: true}."></textarea>
         </div>
         <div class="field">
-          <label for="title-input">Quest name <span class="field-hint">(optional — auto-filled from your brief)</span></label>
+          <label for="title-input">Task name <span class="field-hint">(optional — auto-filled from your description)</span></label>
           <input id="title-input" type="text" placeholder="Leave blank to auto-name from brief" autocomplete="off" />
         </div>
         <details id="advanced-section" class="advanced-section">
@@ -693,7 +693,7 @@
       </div>
     </section>
 
-    <!-- Tavern Floor + Quest list -->
+    <!-- Tavern Floor + Task list -->
     <section class="tavern-center">
       <div class="panel">
         <div class="tavern-floor">
@@ -908,14 +908,54 @@
                 <span class="char-nameplate">Rex</span>
                 <span class="char-sprite" aria-hidden="true">
                   <svg viewBox="0 0 64 80" width="64" height="80" xmlns="http://www.w3.org/2000/svg" focusable="false">
-                    <ellipse cx="32" cy="74" rx="18" ry="4" fill="rgba(0,0,0,0.45)"/>
-                    <path d="M18 68 Q32 58 46 68 L44 78 H20Z" fill="currentColor" opacity="0.85"/>
-                    <path d="M24 40 Q32 36 40 40 L42 68 H22Z" fill="currentColor"/>
-                    <circle cx="32" cy="28" r="10" fill="#c9a882"/>
-                    <path d="M22 14 Q32 4 42 14 L40 22 Q32 18 24 22Z" fill="currentColor"/>
-                    <ellipse cx="32" cy="12" rx="14" ry="6" fill="currentColor"/>
-                    <line x1="44" y1="30" x2="54" y2="8" stroke="#4a3020" stroke-width="3" stroke-linecap="round"/>
-                    <circle cx="54" cy="7" r="3" fill="#F4B942"/>
+                    <!-- Shadow -->
+                    <ellipse cx="32" cy="77" rx="15" ry="3" fill="rgba(0,0,0,0.4)"/>
+                    <!-- Robe lower bell -->
+                    <path d="M11,72 Q20,76 32,77 Q44,76 53,72 C52,62 49,52 43,42 L21,42 C15,52 12,62 11,72Z" fill="currentColor" opacity="0.88"/>
+                    <!-- Robe inner highlight fold -->
+                    <path d="M28,44 L36,44 L37,74 Q32,75 27,74Z" fill="rgba(255,255,255,0.1)"/>
+                    <!-- Robe hem trim -->
+                    <path d="M11,72 Q20,76 32,77 Q44,76 53,72" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1"/>
+                    <!-- Belt sash -->
+                    <ellipse cx="32" cy="46" rx="11" ry="2.5" fill="#F4B942" opacity="0.6"/>
+                    <!-- Left sleeve -->
+                    <path d="M21,42 C15,44 9,50 7,56 L13,58 C15,52 19,47 23,44Z" fill="currentColor" opacity="0.9"/>
+                    <!-- Right sleeve -->
+                    <path d="M43,42 C49,44 55,50 57,56 L51,58 C49,52 45,47 41,44Z" fill="currentColor" opacity="0.9"/>
+                    <!-- Left hand -->
+                    <ellipse cx="7" cy="57" rx="3.5" ry="3" fill="#c9a882"/>
+                    <!-- Right hand (staff) -->
+                    <ellipse cx="57" cy="57" rx="3.5" ry="3" fill="#c9a882"/>
+                    <!-- Staff -->
+                    <line x1="57" y1="57" x2="59" y2="5" stroke="#6B4C2A" stroke-width="2.2" stroke-linecap="round"/>
+                    <!-- Orb glow -->
+                    <circle cx="59" cy="4" r="6" fill="#F4B942" opacity="0.2"/>
+                    <circle cx="59" cy="4" r="4" fill="#F4B942" opacity="0.6"/>
+                    <circle cx="59" cy="4" r="2" fill="#FFECA8"/>
+                    <!-- Neck -->
+                    <rect x="29" y="30" width="6" height="10" rx="3" fill="#c9a882"/>
+                    <!-- Head -->
+                    <circle cx="32" cy="23" r="9.5" fill="#c9a882"/>
+                    <!-- Eyes -->
+                    <circle cx="28.5" cy="22" r="1.8" fill="#2a1a0a"/>
+                    <circle cx="35.5" cy="22" r="1.8" fill="#2a1a0a"/>
+                    <circle cx="29" cy="21.4" r="0.6" fill="white"/>
+                    <circle cx="36" cy="21.4" r="0.6" fill="white"/>
+                    <!-- Eyebrows -->
+                    <path d="M26.5,19 Q28.5,17.5 30.5,18.5" fill="none" stroke="#7a5030" stroke-width="1" stroke-linecap="round"/>
+                    <path d="M33.5,18.5 Q35.5,17.5 37.5,19" fill="none" stroke="#7a5030" stroke-width="1" stroke-linecap="round"/>
+                    <!-- Mouth -->
+                    <path d="M28.5,27 Q32,29.5 35.5,27" fill="none" stroke="#8a6040" stroke-width="1"/>
+                    <!-- Beard -->
+                    <path d="M24,28 Q28,36 32,37 Q36,36 40,28 Q36,33 32,34 Q28,33 24,28Z" fill="rgba(210,180,130,0.55)"/>
+                    <!-- Hat brim -->
+                    <ellipse cx="32" cy="14" rx="14.5" ry="4.5" fill="currentColor"/>
+                    <!-- Hat cone -->
+                    <path d="M17.5,14 Q20,5 32,0 Q44,5 46.5,14Z" fill="currentColor" opacity="0.92"/>
+                    <!-- Hat band -->
+                    <rect x="18" y="12" width="28" height="3.5" rx="1.5" fill="#F4B942" opacity="0.55"/>
+                    <!-- Star on hat -->
+                    <path d="M32,4 L33.2,7.2 L36.6,7.2 L33.9,9.2 L34.9,12.4 L32,10.6 L29.1,12.4 L30.1,9.2 L27.4,7.2 L30.8,7.2Z" fill="#F4B942" opacity="0.8"/>
                   </svg>
                 </span>
                 <div class="char-orb" aria-hidden="true"></div>
@@ -926,13 +966,51 @@
                 <span class="char-nameplate">Forge</span>
                 <span class="char-sprite" aria-hidden="true">
                   <svg viewBox="0 0 64 80" width="64" height="80" xmlns="http://www.w3.org/2000/svg" focusable="false">
-                    <ellipse cx="32" cy="74" rx="18" ry="4" fill="rgba(0,0,0,0.45)"/>
-                    <path d="M20 68 H44 L42 42 L22 42Z" fill="#1e1f2e" stroke="currentColor" stroke-width="1.2"/>
-                    <circle cx="32" cy="30" r="11" fill="#b8a090"/>
-                    <path d="M26 18 H38 V26 H26Z" fill="#2a2c38"/>
-                    <path d="M14 36 L22 32 L26 50 L18 54Z" fill="#7FDBDA" stroke="#5ec4c2" stroke-width="0.8"/>
-                    <path d="M50 36 L42 32 L38 50 L46 54Z" fill="#7FDBDA" stroke="#5ec4c2" stroke-width="0.8"/>
-                    <rect x="30" y="44" width="4" height="22" fill="#4a3020"/>
+                    <!-- Shadow -->
+                    <ellipse cx="32" cy="77" rx="17" ry="3" fill="rgba(0,0,0,0.4)"/>
+                    <!-- Boots -->
+                    <rect x="21" y="67" width="10" height="12" rx="3" fill="#1a1828"/>
+                    <rect x="33" y="67" width="10" height="12" rx="3" fill="#1a1828"/>
+                    <!-- Legs -->
+                    <rect x="23" y="53" width="8" height="16" rx="2" fill="#24263a"/>
+                    <rect x="33" y="53" width="8" height="16" rx="2" fill="#24263a"/>
+                    <!-- Armored torso -->
+                    <path d="M17,38 L20,62 Q26,66 32,66 Q38,66 44,62 L47,38 Q38,33 32,33 Q26,33 17,38Z" fill="#1a1c2e" stroke="currentColor" stroke-width="1.2"/>
+                    <!-- Chest plate detail -->
+                    <rect x="25" y="39" width="14" height="10" rx="1.5" fill="#13142a" stroke="currentColor" stroke-width="0.8"/>
+                    <!-- Chest rune glyph -->
+                    <text x="32" y="48" text-anchor="middle" fill="#7FDBDA" opacity="0.9" font-size="7" font-family="serif">ᚠ</text>
+                    <!-- Armor belt -->
+                    <rect x="18" y="55" width="28" height="4" rx="1" fill="#30284a" stroke="currentColor" stroke-width="0.7"/>
+                    <!-- Left pauldron -->
+                    <path d="M17,38 C10,34 6,38 8,47 L17,47Z" fill="currentColor" opacity="0.85"/>
+                    <!-- Right pauldron -->
+                    <path d="M47,38 C54,34 58,38 56,47 L47,47Z" fill="currentColor" opacity="0.85"/>
+                    <!-- Left arm -->
+                    <path d="M17,45 C11,51 9,59 10,65 L17,64 C17,59 18,53 22,49Z" fill="#1a1c2e" stroke="currentColor" stroke-width="0.8"/>
+                    <!-- Right arm raised (hammer) -->
+                    <path d="M47,45 C52,42 57,38 59,32 L54,30 C52,36 49,42 43,47Z" fill="#1a1c2e" stroke="currentColor" stroke-width="0.8"/>
+                    <!-- Left gauntlet -->
+                    <rect x="8" y="62" width="8" height="6" rx="2" fill="currentColor" opacity="0.8"/>
+                    <!-- Hammer shaft -->
+                    <line x1="54" y1="30" x2="44" y2="54" stroke="#6B4C2A" stroke-width="2.5" stroke-linecap="round"/>
+                    <!-- Hammer head -->
+                    <rect x="49" y="21" width="13" height="10" rx="2" fill="currentColor" transform="rotate(-18 55.5 26)"/>
+                    <!-- Hammer teal accent -->
+                    <rect x="49" y="21" width="13" height="4" rx="1" fill="#7FDBDA" opacity="0.75" transform="rotate(-18 55.5 23)"/>
+                    <!-- Neck -->
+                    <rect x="29" y="28" width="6" height="8" rx="3" fill="#c0a890"/>
+                    <!-- Head -->
+                    <circle cx="32" cy="22" r="9" fill="#b8a090"/>
+                    <!-- Helmet -->
+                    <path d="M23,17 Q32,9 41,17 L40,27 Q32,22 24,27Z" fill="#1a1c2e" stroke="currentColor" stroke-width="0.7"/>
+                    <!-- Visor brow line -->
+                    <path d="M24,21 Q32,17 40,21" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                    <!-- Eyes (glowing teal slits) -->
+                    <rect x="25.5" y="21" width="5" height="2.5" rx="1" fill="#7FDBDA" opacity="0.75"/>
+                    <rect x="33.5" y="21" width="5" height="2.5" rx="1" fill="#7FDBDA" opacity="0.75"/>
+                    <!-- Jaw -->
+                    <path d="M25,28 Q32,32 39,28" fill="none" stroke="rgba(180,150,120,0.5)" stroke-width="1"/>
                   </svg>
                 </span>
                 <div class="char-orb" aria-hidden="true"></div>
@@ -943,14 +1021,57 @@
                 <span class="char-nameplate">Sage</span>
                 <span class="char-sprite" aria-hidden="true">
                   <svg viewBox="0 0 64 80" width="64" height="80" xmlns="http://www.w3.org/2000/svg" focusable="false">
-                    <ellipse cx="32" cy="74" rx="18" ry="4" fill="rgba(0,0,0,0.45)"/>
-                    <path d="M18 70 Q32 52 46 70 V76 H18Z" fill="currentColor" opacity="0.75"/>
-                    <rect x="24" y="38" width="16" height="30" rx="2" fill="currentColor"/>
-                    <circle cx="32" cy="28" r="10" fill="#d8c4b0"/>
-                    <rect x="38" y="44" width="14" height="18" rx="1" fill="#1a1830" stroke="#7FDBDA" stroke-width="0.8"/>
-                    <line x1="40" y1="48" x2="50" y2="48" stroke="#7FDBDA" stroke-width="0.6"/>
-                    <line x1="40" y1="52" x2="50" y2="52" stroke="#7FDBDA" stroke-width="0.6"/>
-                    <path d="M26 10 Q32 4 38 10 L36 18 H28Z" fill="currentColor"/>
+                    <!-- Shadow -->
+                    <ellipse cx="32" cy="77" rx="14" ry="3" fill="rgba(0,0,0,0.4)"/>
+                    <!-- Robe long -->
+                    <path d="M21,44 C17,54 16,64 15,74 Q23,78 32,78 Q41,78 49,74 C48,64 47,54 43,44Z" fill="currentColor" opacity="0.85"/>
+                    <!-- Inner highlight -->
+                    <path d="M28,46 L36,46 L37,74 Q32,75 27,74Z" fill="rgba(255,255,255,0.08)"/>
+                    <!-- Robe trim (teal) -->
+                    <path d="M15,74 Q23,78 32,79 Q41,78 49,74" fill="none" stroke="rgba(127,219,218,0.4)" stroke-width="1.2"/>
+                    <!-- Waist sash -->
+                    <ellipse cx="32" cy="50" rx="12" ry="2.5" fill="#F4B942" opacity="0.5"/>
+                    <!-- Left sleeve (book arm) -->
+                    <path d="M21,44 C15,46 11,51 9,58 L15,60 C17,55 19,50 24,47Z" fill="currentColor" opacity="0.88"/>
+                    <!-- Right sleeve -->
+                    <path d="M43,44 C49,46 53,51 53,58 L47,59 C47,53 45,49 40,47Z" fill="currentColor" opacity="0.88"/>
+                    <!-- Open book (left arm) -->
+                    <rect x="4" y="53" width="13" height="16" rx="1.5" fill="#1a1830" stroke="#7FDBDA" stroke-width="1.2"/>
+                    <rect x="4" y="53" width="3.5" height="16" rx="1" fill="#7FDBDA" opacity="0.4"/>
+                    <line x1="9.5" y1="57" x2="16" y2="57" stroke="#7FDBDA" stroke-width="0.7" opacity="0.7"/>
+                    <line x1="9.5" y1="60" x2="16" y2="60" stroke="#7FDBDA" stroke-width="0.7" opacity="0.7"/>
+                    <line x1="9.5" y1="63" x2="16" y2="63" stroke="#7FDBDA" stroke-width="0.7" opacity="0.7"/>
+                    <line x1="9.5" y1="66" x2="16" y2="66" stroke="#7FDBDA" stroke-width="0.5" opacity="0.5"/>
+                    <!-- Quill pen (right hand) -->
+                    <ellipse cx="53" cy="58" rx="3" ry="3" fill="#d8c4b0"/>
+                    <line x1="53" y1="57" x2="59" y2="44" stroke="#c9a882" stroke-width="1.5" stroke-linecap="round"/>
+                    <path d="M59,44 Q61,40 57,38 Q59,42 56,44Z" fill="#e0d8c0"/>
+                    <!-- Neck -->
+                    <rect x="29" y="30" width="6" height="9" rx="3" fill="#d8c4b0"/>
+                    <!-- Head -->
+                    <circle cx="32" cy="23" r="9.5" fill="#d8c4b0"/>
+                    <!-- Round spectacles -->
+                    <circle cx="28" cy="23" r="3.5" fill="none" stroke="#7FDBDA" stroke-width="1.2"/>
+                    <circle cx="36" cy="23" r="3.5" fill="none" stroke="#7FDBDA" stroke-width="1.2"/>
+                    <line x1="31.5" y1="23" x2="32.5" y2="23" stroke="#7FDBDA" stroke-width="1"/>
+                    <circle cx="28" cy="23" r="3" fill="#7FDBDA" opacity="0.12"/>
+                    <circle cx="36" cy="23" r="3" fill="#7FDBDA" opacity="0.12"/>
+                    <!-- Eyes behind glasses -->
+                    <circle cx="28" cy="23" r="1.5" fill="#2a3a30"/>
+                    <circle cx="36" cy="23" r="1.5" fill="#2a3a30"/>
+                    <circle cx="28.5" cy="22.5" r="0.5" fill="white"/>
+                    <circle cx="36.5" cy="22.5" r="0.5" fill="white"/>
+                    <!-- Mouth -->
+                    <path d="M29,28 Q32,30.5 35,28" fill="none" stroke="#a08868" stroke-width="0.9"/>
+                    <!-- Beard/hair -->
+                    <path d="M23,30 Q28,38 32,39 Q36,38 41,30 Q36,35 32,36 Q28,35 23,30Z" fill="rgba(220,210,190,0.6)"/>
+                    <!-- Scholar mortarboard hat -->
+                    <ellipse cx="32" cy="14" rx="13" ry="3.5" fill="currentColor" opacity="0.9"/>
+                    <rect x="22" y="4" width="20" height="12" rx="2" fill="currentColor" opacity="0.88"/>
+                    <rect x="22" y="4" width="20" height="3" rx="1.5" fill="#1a1628"/>
+                    <!-- Tassel -->
+                    <line x1="43" y1="4" x2="47" y2="10" stroke="#7FDBDA" stroke-width="1.5" stroke-linecap="round"/>
+                    <circle cx="47" cy="11" r="2" fill="#7FDBDA" opacity="0.8"/>
                   </svg>
                 </span>
                 <div class="char-orb" aria-hidden="true"></div>
@@ -961,13 +1082,58 @@
                 <span class="char-nameplate">Myra</span>
                 <span class="char-sprite" aria-hidden="true">
                   <svg viewBox="0 0 64 80" width="64" height="80" xmlns="http://www.w3.org/2000/svg" focusable="false">
-                    <ellipse cx="32" cy="74" rx="16" ry="3.5" fill="rgba(0,0,0,0.45)"/>
-                    <path d="M14 48 Q10 62 20 70 L44 70 Q54 62 50 48 Q32 40 14 48Z" fill="#3d5c48"/>
-                    <path d="M22 48 Q32 42 42 48 L40 68 H24Z" fill="rgba(244,185,66,0.35)"/>
-                    <ellipse cx="32" cy="26" rx="9" ry="10" fill="#e8d5c4"/>
-                    <path d="M24 8 Q32 2 40 8 L38 16 Q32 12 26 16Z" fill="#5a9070"/>
-                    <path d="M18 22 Q14 30 22 34" fill="none" stroke="#c9a882" stroke-width="2"/>
-                    <circle cx="46" cy="30" r="4" fill="#F4B942" opacity="0.9"/>
+                    <!-- Shadow -->
+                    <ellipse cx="32" cy="77" rx="13" ry="2.5" fill="rgba(0,0,0,0.35)"/>
+                    <!-- Cloak back (dark green) -->
+                    <path d="M15,38 C9,48 7,60 9,74 Q19,79 32,79 Q45,79 55,74 C57,60 55,48 49,38Z" fill="#2d5040" opacity="0.8"/>
+                    <!-- Cloak inner (currentColor — green) -->
+                    <path d="M19,44 C15,53 13,62 14,73 Q23,77 32,77 Q41,77 50,73 C51,62 49,53 45,44Z" fill="currentColor" opacity="0.88"/>
+                    <!-- Cloak highlight fold -->
+                    <path d="M29,47 L35,47 L36,72 Q32,74 28,72Z" fill="rgba(255,255,255,0.1)"/>
+                    <!-- Cloak hem trim -->
+                    <path d="M14,73 Q23,77 32,78 Q41,77 50,73" fill="none" stroke="rgba(255,220,100,0.25)" stroke-width="1"/>
+                    <!-- Brooch / amber gem clasp -->
+                    <circle cx="32" cy="43" r="4.5" fill="#1e1818"/>
+                    <circle cx="32" cy="43" r="3" fill="#F4B942" opacity="0.9"/>
+                    <circle cx="30.8" cy="41.8" r="1" fill="rgba(255,255,255,0.6)"/>
+                    <!-- Shoulder drape of hood -->
+                    <path d="M15,38 Q24,33 32,32 Q40,33 49,38 Q45,45 32,46 Q19,45 15,38Z" fill="#2d5040"/>
+                    <!-- Left arm -->
+                    <path d="M15,48 C11,53 9,60 10,66 L17,65 C16,60 17,55 22,51Z" fill="currentColor" opacity="0.8"/>
+                    <!-- Right arm (holding scroll) -->
+                    <path d="M49,48 C53,53 55,60 54,66 L47,65 C48,60 47,55 42,51Z" fill="currentColor" opacity="0.8"/>
+                    <!-- Scroll parcel -->
+                    <ellipse cx="54" cy="64" rx="5" ry="4" fill="#e8d5a0"/>
+                    <ellipse cx="54" cy="61" rx="5" ry="2" fill="#d4bf8a"/>
+                    <line x1="51" y1="62" x2="57" y2="66" stroke="#c9a050" stroke-width="1" opacity="0.6"/>
+                    <!-- Neck -->
+                    <rect x="29" y="27" width="6" height="8" rx="3" fill="#e8d5c4"/>
+                    <!-- Head -->
+                    <circle cx="32" cy="20" r="9" fill="#e8d5c4"/>
+                    <!-- Pointed elf ears -->
+                    <path d="M23,19 Q17,13 20,10 Q22,16 25,18Z" fill="#e8d5c4" stroke="#c0a888" stroke-width="0.5"/>
+                    <path d="M41,19 Q47,13 44,10 Q42,16 39,18Z" fill="#e8d5c4" stroke="#c0a888" stroke-width="0.5"/>
+                    <!-- Eyes (almond, slightly upturned) -->
+                    <path d="M26,19 Q28.5,17.5 31,19 Q28.5,20.5 26,19Z" fill="#1a2a1a"/>
+                    <path d="M33,19 Q35.5,17.5 38,19 Q35.5,20.5 33,19Z" fill="#1a2a1a"/>
+                    <!-- Eye shine -->
+                    <circle cx="28.5" cy="18.5" r="0.8" fill="rgba(127,219,218,0.7)"/>
+                    <circle cx="36.5" cy="18.5" r="0.8" fill="rgba(127,219,218,0.7)"/>
+                    <!-- Eyebrows (arched) -->
+                    <path d="M25,17 Q28,15.5 31,16.5" fill="none" stroke="#8a5540" stroke-width="0.9" stroke-linecap="round"/>
+                    <path d="M33,16.5 Q36,15.5 39,17" fill="none" stroke="#8a5540" stroke-width="0.9" stroke-linecap="round"/>
+                    <!-- Nose -->
+                    <path d="M31,21.5 Q32,23 33,21.5" fill="none" stroke="#c09070" stroke-width="0.7"/>
+                    <!-- Lips -->
+                    <path d="M29,25 Q32,27 35,25" fill="none" stroke="#c07870" stroke-width="1"/>
+                    <!-- Hair (dark, with strands) -->
+                    <path d="M23,13 Q26,7 32,6 Q38,7 41,13" fill="none" stroke="#3d4a30" stroke-width="3" stroke-linecap="round"/>
+                    <path d="M23,13 Q19,9 21,7" fill="none" stroke="#3d4a30" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M41,13 Q45,9 43,7" fill="none" stroke="#3d4a30" stroke-width="2" stroke-linecap="round"/>
+                    <!-- Headband with amber gem -->
+                    <path d="M23,15 Q28,12 32,12 Q36,12 41,15" fill="none" stroke="#2d5040" stroke-width="2.5"/>
+                    <circle cx="32" cy="11" r="2.5" fill="#2d5040"/>
+                    <ellipse cx="32" cy="11" rx="1.5" ry="1.2" fill="#F4B942" opacity="0.9"/>
                   </svg>
                 </span>
                 <div class="char-orb" aria-hidden="true"></div>
@@ -979,19 +1145,19 @@
         </div>
       </div>
 
-      <div class="rune-divider" aria-hidden="true">&#x2500;&#x2500; &#x16A0; ACTIVE QUESTS &#x16A0; &#x2500;&#x2500;</div>
+      <div class="rune-divider" aria-hidden="true">&#x2500;&#x2500; &#x16A0; ACTIVE TASKS &#x16A0; &#x2500;&#x2500;</div>
       <div class="queue-toolbar" role="search">
-        <label for="queue-filter" class="hidden">Filter quests</label>
-        <input id="queue-filter" type="search" placeholder="Search quests by title&#x2026;" autocomplete="off" oninput="onQueueFilterInput(event)" />
+        <label for="queue-filter" class="hidden">Filter tasks</label>
+        <input id="queue-filter" type="search" placeholder="Search tasks&#x2026;" autocomplete="off" oninput="onQueueFilterInput(event)" />
         <span id="queue-filter-hint" class="queue-filter-hint hidden" aria-live="polite"></span>
       </div>
       <div class="queue" id="task-list"></div>
     </section>
 
-    <!-- Quest Detail -->
+    <!-- Task Detail -->
     <aside class="panel right-rail" aria-labelledby="details-title">
       <div class="panel-header">
-        <h2 id="details-title" class="panel-title">&#x1F4DC; Quest Detail</h2>
+        <h2 id="details-title" class="panel-title">&#x1F4DC; Task Detail</h2>
         <span id="selected-status" class="status status-pending">None</span>
       </div>
       <div class="details">
@@ -999,12 +1165,12 @@
           <svg class="arrow-left" width="72" height="36" viewBox="0 0 72 36" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
             <path d="M52 18 H14 M24 8 L12 18 24 28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          <p><strong class="task-title" style="color:var(--gold);font-size:0.95rem">Select a quest from the board</strong></p>
-          <p>Pick any active quest card on the left to stream its log, steps, and handoff here.</p>
+          <p><strong class="task-title" style="color:var(--gold);font-size:0.95rem">Select a task to view details</strong></p>
+          <p>Pick any task card on the left to view its log, steps, and status.</p>
         </div>
         <div id="detail-content" class="hidden">
         <div>
-          <p id="selected-title" class="task-title">No quest selected</p>
+          <p id="selected-title" class="task-title">No task selected</p>
           <p id="selected-id" class="task-id"></p>
           <p id="stream-status-row" class="stream-status hidden" aria-live="polite">
             <span id="stream-dot" class="stream-dot closed" aria-hidden="true"></span>
@@ -1074,8 +1240,8 @@
 <div id="shortcuts-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="shortcut-modal-title" onclick="if(event.target===this)closeShortcutsModal()">
   <div class="modal-sheet" onclick="event.stopPropagation()">
     <h3 id="shortcut-modal-title">Keyboard shortcuts</h3>
-    <div class="shortcut-row"><span>Dispatch quest</span><kbd>Ctrl</kbd>+<kbd>Enter</kbd></div>
-    <div class="shortcut-row"><span>Clear quest selection</span><kbd>Esc</kbd></div>
+    <div class="shortcut-row"><span>Start task</span><kbd>Ctrl</kbd>+<kbd>Enter</kbd></div>
+    <div class="shortcut-row"><span>Clear selection</span><kbd>Esc</kbd></div>
     <div class="shortcut-row"><span>Refresh board</span><kbd>R</kbd></div>
     <button type="button" class="btn-primary modal-close" onclick="closeShortcutsModal()">Close</button>
   </div>
@@ -1295,7 +1461,7 @@
     const active = tasks.filter(t => ['pending','running'].includes(t.status)).length;
     document.getElementById('metric-total').textContent = String(tasks.length);
     document.getElementById('metric-active').textContent = String(active);
-    const stateLabel = active ? 'On Quest' : 'At Rest';
+    const stateLabel = active ? 'Active' : 'At Rest';
     const stateEl = document.getElementById('factory-state');
     stateEl.textContent = stateLabel;
     stateEl.className = active ? 'status status-running' : 'status status-pending';
@@ -1339,7 +1505,7 @@
       if (hint) { hint.classList.add('hidden'); hint.textContent = ''; }
       list.innerHTML = '<div class="empty-queue-visual">'
         + _WANTED_POSTER_SVG
-        + '<p>No quests on the board. Dispatch your first adventurer above.</p>'
+        + '<p>No tasks yet. Create your first task above.</p>'
         + '<details class="advanced-section" style="max-width:32em;text-align:left;margin-top:8px"><summary class="advanced-toggle">Tips for your first dispatch</summary>'
         + '<div class="advanced-body"><ol style="margin:0;padding-left:18px;display:grid;gap:6px;font-size:0.85rem;color:var(--muted)">'
         + '<li>Describe the change in the left panel &mdash; repo and workspace live under Advanced.</li>'
@@ -1352,11 +1518,11 @@
     if (hint) {
       if ((queueFilterQuery || '').trim() && filtered.length < tasks.length) {
         hint.classList.remove('hidden');
-        hint.textContent = 'Showing ' + filtered.length + ' of ' + tasks.length + ' quests.';
+        hint.textContent = 'Showing ' + filtered.length + ' of ' + tasks.length + ' tasks.';
       } else { hint.classList.add('hidden'); hint.textContent = ''; }
     }
     if (!filtered.length) {
-      list.innerHTML = '<div class="empty-queue-visual"><p>No quests match your search. Try a different title phrase.</p></div>';
+      list.innerHTML = '<div class="empty-queue-visual"><p>No tasks match your search.</p></div>';
       if (selectedTaskId) selectedTaskId = null;
       updateMetrics(); renderSelectedTask(); return;
     }
@@ -1418,7 +1584,7 @@
     if (emptyEl) emptyEl.classList.add('hidden');
     if (contentEl) contentEl.classList.remove('hidden');
     statusEl.className = statusClass(task.status); statusEl.textContent = task.status;
-    titleEl.textContent = task.title || 'Untitled quest'; idEl.textContent = task.id;
+    titleEl.textContent = task.title || 'Untitled task'; idEl.textContent = task.id;
     const tl = logsByTask[task.id] || [];
     logsEl.innerHTML = tl.length ? tl.map(l => '<p class="log-line log-' + escHtml(l.level||'info') + '">' + escHtml(l.message) + '</p>').join('') : '<p class="log-line">No dispatches yet.</p>';
     const prUrl = safePrUrl(task.pr_url);
@@ -1716,8 +1882,8 @@
       }
       for (const t of tasks) { if (['pending','running'].includes(t.status)) await subscribeSSE(t.id); }
       document.getElementById('conn-status').textContent = tasks.length
-        ? tasks.length + ' quest' + (tasks.length === 1 ? '' : 's') + ' on the board'
-        : 'Tavern is open \u2014 no quests yet';
+        ? tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + ' on the board'
+        : 'Tavern is open \u2014 no tasks yet';
       renderTasks();
       if (selectedTaskId) loadTaskDetail(selectedTaskId);
     } catch { document.getElementById('conn-status').textContent = 'Tavern is closed\u2026'; renderTasks(); }
