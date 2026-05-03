@@ -1,9 +1,16 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>The Coworker Tavern</title>
+  <script>
+    try {
+      if (sessionStorage.getItem('coworker_tavern_entered')) {
+        document.documentElement.dataset.dashboard = '1';
+      }
+    } catch (e) {}
+  </script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=MedievalSharp&family=IM+Fell+English:ital@0;1&family=Share+Tech+Mono&display=swap');
 
@@ -30,6 +37,127 @@
       --glow-amber: 0 0 24px rgba(244,185,66,0.45);
       --glow-teal: 0 0 20px rgba(127,219,218,0.4);
     }
+
+    /* Landing (Area 1) — hidden once tavern entered */
+    html[data-dashboard="1"] #landing-view { display: none !important; }
+    html[data-dashboard="1"] #dashboard-root { display: block !important; }
+    #dashboard-root { display: none; min-height: 100vh; position: relative; }
+    #landing-view {
+      min-height: 100vh; display: grid; grid-template-rows: 1fr auto;
+      position: relative; z-index: 1;
+      background:
+        radial-gradient(ellipse 90% 55% at 50% 18%, rgba(244,185,66,0.14) 0%, transparent 55%),
+        radial-gradient(ellipse 70% 45% at 12% 88%, rgba(127,219,218,0.08) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 40% at 92% 80%, rgba(74,63,107,0.35) 0%, transparent 45%),
+        linear-gradient(165deg, #0a0914 0%, var(--bg) 42%, #12102a 100%);
+    }
+    .landing-inner { max-width: 920px; margin: 0 auto; padding: clamp(28px, 5vw, 56px) clamp(18px, 4vw, 40px) 40px; display: grid; gap: 28px; align-content: center; }
+    .landing-hero-svg {
+      width: min(100%, 720px); height: auto; margin: 0 auto; display: block;
+      filter: drop-shadow(0 28px 48px rgba(0,0,0,0.55));
+    }
+    .landing-copy { text-align: center; display: grid; gap: 18px; }
+    .landing-copy h2 {
+      font-family: 'MedievalSharp', serif; font-size: clamp(1.85rem, 4.2vw, 2.65rem);
+      color: var(--gold); letter-spacing: 0.04em;
+      text-shadow: 0 0 28px rgba(244,185,66,0.45), 0 2px 0 rgba(0,0,0,0.6);
+      line-height: 1.15;
+    }
+    .landing-value {
+      font-family: 'IM Fell English', serif; font-size: clamp(1.05rem, 2.2vw, 1.28rem);
+      color: rgba(245,245,245,0.88); max-width: 38em; margin: 0 auto; line-height: 1.55;
+    }
+    .landing-cta {
+      min-height: 48px; padding: 12px 28px; border-radius: 10px; border: 1px solid var(--amber-dim);
+      font-family: 'MedievalSharp', serif; font-size: 1.05rem; letter-spacing: 0.08em;
+      color: var(--ink); background: linear-gradient(135deg,#f0bc3a,#c47d18);
+      box-shadow: var(--glow-amber), inset 0 1px 0 rgba(255,255,255,0.22);
+      cursor: pointer; justify-self: center; transition: filter .15s, transform .15s;
+    }
+    .landing-cta:hover { filter: brightness(1.1); transform: translateY(-2px); }
+    .landing-strip {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;
+      margin-top: 8px;
+    }
+    .landing-strip li {
+      list-style: none; padding: 14px 16px; border-radius: 10px;
+      border: 1px solid rgba(74,63,107,0.85); background: rgba(22,19,16,0.72);
+      font-size: 0.88rem; color: var(--muted); text-align: left;
+      box-shadow: inset 0 1px 0 rgba(127,219,218,0.06);
+    }
+    .landing-strip li strong { display: block; color: var(--teal); font-family: 'MedievalSharp', serif; font-size: 0.82rem; margin-bottom: 6px; letter-spacing: 0.06em; }
+
+    .brand-taglines {
+      position: relative; min-height: 1.35em; margin-top: 4px;
+      font-size: clamp(0.82rem, 1.6vw, 0.95rem); color: rgba(127,219,218,0.85); font-style: italic;
+    }
+    .brand-taglines .tag-rot {
+      position: absolute; left: 0; right: 0; opacity: 0;
+      animation: tagline-rot 10.5s ease-in-out infinite;
+      text-shadow: 0 0 12px rgba(127,219,218,0.25);
+    }
+    .brand-taglines .tag-rot:nth-child(1) { animation-delay: 0s; }
+    .brand-taglines .tag-rot:nth-child(2) { animation-delay: 3.5s; }
+    .brand-taglines .tag-rot:nth-child(3) { animation-delay: 7s; }
+    @keyframes tagline-rot {
+      0%, 3% { opacity: 0; transform: translateY(4px); }
+      8%, 28% { opacity: 1; transform: translateY(0); }
+      33%, 100% { opacity: 0; transform: translateY(-4px); }
+    }
+
+    .btn-icon-help {
+      width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border-light);
+      background: var(--stone-3); color: var(--amber); font-family: 'MedievalSharp', serif;
+      font-size: 1rem; line-height: 1; display: grid; place-items: center;
+      flex-shrink: 0; transition: border-color .15s, box-shadow .15s;
+    }
+    .btn-icon-help:hover { border-color: var(--amber-dim); box-shadow: var(--glow-amber); }
+
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 100; display: none; place-items: center;
+      padding: 24px; background: rgba(6,5,14,0.82); backdrop-filter: blur(8px);
+    }
+    .modal-overlay.open { display: grid; }
+    .modal-sheet {
+      max-width: 420px; width: 100%; border-radius: 12px; border: 1px solid var(--border);
+      background: linear-gradient(165deg,#1e1b28 0%,#12101c 100%);
+      box-shadow: var(--shadow), 0 0 40px rgba(244,185,66,0.12);
+      padding: 22px 22px 18px;
+    }
+    .modal-sheet h3 { font-family: 'MedievalSharp', serif; color: var(--gold); font-size: 1rem; margin-bottom: 14px; }
+    .shortcut-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(74,63,107,0.45); font-size: 0.88rem; }
+    .shortcut-row:last-child { border-bottom: 0; }
+    .shortcut-row kbd {
+      font-family: 'Share Tech Mono', monospace; font-size: 0.78rem;
+      padding: 3px 8px; border-radius: 5px; border: 1px solid var(--border); background: #0f0d12; color: var(--teal);
+    }
+    .modal-close { margin-top: 16px; width: 100%; }
+
+    .queue-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 4px; flex-wrap: wrap; }
+    .queue-toolbar input {
+      flex: 1; min-width: 160px; max-width: 100%; font-size: 0.88rem; padding: 8px 11px;
+    }
+    .queue-filter-hint { font-size: 0.75rem; color: var(--muted); width: 100%; }
+
+    .empty-queue-visual { display: grid; place-items: center; gap: 14px; padding: 20px 16px 24px; }
+    .empty-queue-visual p { font-style: normal; color: rgba(245,245,245,0.82); font-size: 0.92rem; max-width: 28em; text-align: center; line-height: 1.45; }
+
+    .detail-empty-state {
+      border: 1px dashed rgba(244,185,66,0.35); border-radius: 10px; padding: 22px 16px;
+      background: rgba(244,185,66,0.04); display: grid; gap: 12px; justify-items: center; text-align: center;
+    }
+    .detail-empty-state p { color: var(--muted); font-size: 0.88rem; line-height: 1.45; max-width: 22em; }
+    .detail-empty-state .arrow-left { color: var(--amber); opacity: 0.85; }
+
+    .perf-panel .perf-metric { margin-bottom: 10px; }
+    .perf-panel .perf-label { font-size: 0.78rem; color: var(--muted); margin-bottom: 4px; }
+    .perf-bar-track {
+      height: 8px; border-radius: 4px; background: rgba(255,255,255,0.06); overflow: hidden;
+      border: 1px solid rgba(74,63,107,0.5);
+    }
+    .perf-bar-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--teal), var(--amber)); transition: width .4s ease; }
+    .perf-top-cat { font-size: 0.8rem; color: var(--amber); font-family: 'Share Tech Mono', monospace; }
+
     *, *::before, *::after { box-sizing: border-box; }
     html { color-scheme: dark; scroll-behavior: smooth; }
 
@@ -73,8 +201,10 @@
     }
     .brand-text h1 {
       font-family: 'MedievalSharp','IM Fell English',serif;
-      font-size: clamp(1rem, 2.2vw, 1.5rem);
-      color: var(--gold); text-shadow: 0 0 12px rgba(212,168,67,0.5); letter-spacing: 0.03em;
+      font-size: clamp(1.2rem, 2.8vw, 1.8rem);
+      color: var(--gold);
+      text-shadow: 0 0 20px rgba(244,185,66,0.55), 0 0 40px rgba(244,185,66,0.2), 0 2px 0 rgba(0,0,0,0.5);
+      letter-spacing: 0.03em;
     }
     .brand-sub { font-size: 0.75rem; color: var(--muted); font-style: italic; }
     .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -94,7 +224,7 @@
     /* Layout */
     .layout {
       display: grid;
-      grid-template-columns: minmax(270px, 340px) minmax(0, 1fr) minmax(260px, 330px);
+      grid-template-columns: minmax(260px, 320px) minmax(420px, 1fr) minmax(250px, 320px);
       gap: 16px; padding: clamp(14px, 2.5vw, 28px); align-items: start;
     }
 
@@ -107,7 +237,7 @@
     }
     .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 14px 0; }
     .panel-title {
-      font-family: 'MedievalSharp',serif; font-size: 0.88rem; color: var(--gold);
+      font-family: 'MedievalSharp',serif; font-size: clamp(0.8rem, 2.1vw, 0.95rem); color: var(--gold);
       letter-spacing: 0.04em; text-shadow: 0 0 8px rgba(212,168,67,0.3);
     }
 
@@ -192,16 +322,21 @@
     }
 
     .char-sprite {
-      font-size: 3.2rem; line-height: 1; display: block;
+      line-height: 0; display: block; color: rgba(200,190,220,0.92);
       filter: drop-shadow(0 5px 12px rgba(0,0,0,0.85));
-      transition: filter .25s;
+      transition: filter .25s, color .25s;
     }
-    .agent-char.idle    .char-sprite { animation: breathe 3.5s ease-in-out infinite; }
-    .agent-char.active  .char-sprite { animation: bobbing 1.2s ease-in-out infinite;
+    .char-sprite svg { width: clamp(64px, 5.5vw, 88px); height: auto; display: block; }
+    #agent-supervisor.idle .char-sprite { color: #c9a04a; }
+    #agent-builder.idle .char-sprite { color: #8a93a8; }
+    #agent-tester.idle .char-sprite { color: #8ab8b6; }
+    #agent-handoff.idle .char-sprite { color: #9ab8a8; }
+    .agent-char.idle    .char-sprite { animation: breathe 3.5s ease-in-out infinite; color: rgba(200,190,220,0.88); }
+    .agent-char.active  .char-sprite { animation: bobbing 1.2s ease-in-out infinite; color: #7FDBDA;
       filter: drop-shadow(0 5px 12px rgba(0,0,0,0.85)) drop-shadow(0 0 16px rgba(127,219,218,0.6)); }
-    .agent-char.warning .char-sprite {
+    .agent-char.warning .char-sprite { color: #F4B942;
       filter: drop-shadow(0 5px 12px rgba(0,0,0,0.85)) drop-shadow(0 0 12px rgba(244,185,66,0.55)); }
-    .agent-char.done    .char-sprite {
+    .agent-char.done    .char-sprite { color: #7ec88a;
       filter: drop-shadow(0 5px 12px rgba(0,0,0,0.85)) drop-shadow(0 0 10px rgba(126,200,138,0.45)); }
 
     .char-orb { width: 34px; height: 8px; border-radius: 50%; filter: blur(3px); background: rgba(0,0,0,0.45); }
@@ -297,7 +432,11 @@
     .btn-resync:hover { background: rgba(244,185,66,0.2); }
 
     /* Operator Studio */
-    .operator-studio { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; padding: 0 clamp(14px,2.5vw,28px) clamp(14px,2.5vw,28px); }
+    .operator-studio {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px; padding: 0 clamp(14px,2.5vw,28px) clamp(14px,2.5vw,28px);
+    }
     .studio-panel { background: linear-gradient(160deg,#1e1b16 0%,#161310 100%); border: 1px solid var(--border); border-radius: 10px; padding: 13px; box-shadow: 0 8px 28px rgba(0,0,0,0.5); contain: layout style; }
     .studio-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
     .studio-title { font-family: 'MedievalSharp',serif; font-size: 0.8rem; color: var(--gold); letter-spacing: 0.04em; }
@@ -337,8 +476,13 @@
         animation-duration: 0.01ms !important;
         transition-duration: 0.01ms !important;
       }
+      .brand-taglines .tag-rot { animation: none !important; opacity: 1 !important; position: relative !important; }
+      .brand-taglines .tag-rot:nth-child(2), .brand-taglines .tag-rot:nth-child(3) { display: none; }
     }
 
+    @media (max-width: 1320px) {
+      .operator-studio { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
     @media (max-width: 1100px) {
       .layout { grid-template-columns: minmax(260px,.9fr) minmax(0,1.1fr); }
       .right-rail { grid-column: 1 / -1; }
@@ -349,8 +493,11 @@
       .agents-row { gap: 10px; padding: 0 12px; }
       .operator-studio { grid-template-columns: 1fr; }
     }
+    @media (min-width: 1280px) and (max-width: 1400px) {
+      .layout { grid-template-columns: minmax(260px, 300px) minmax(420px, 1fr) minmax(240px, 300px); }
+    }
     @media (max-width: 480px) {
-      .char-sprite { font-size: 2.4rem; }
+      .char-sprite svg { width: 52px; }
       .rune-floor { min-height: 260px; }
     }
 
@@ -421,6 +568,45 @@
   </style>
 </head>
 <body>
+
+<section id="landing-view" class="landing-view" aria-label="Welcome">
+  <div class="landing-inner">
+    <svg class="landing-hero-svg" viewBox="0 0 800 280" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <defs>
+        <linearGradient id="lh-sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#0D0D1A"/><stop offset="100%" stop-color="#1a1530"/>
+        </linearGradient>
+        <linearGradient id="lh-gold" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#F4B942"/><stop offset="100%" stop-color="#9A6E10"/>
+        </linearGradient>
+        <radialGradient id="lh-glow" cx="50%" cy="40%" r="60%">
+          <stop offset="0%" stop-color="#F4B942" stop-opacity="0.35"/><stop offset="100%" stop-color="#F4B942" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width="800" height="280" fill="url(#lh-sky)"/>
+      <rect width="800" height="280" fill="url(#lh-glow)"/>
+      <path d="M0,180 L0,120 Q80,100 160,115 L360,95 Q400,88 440,95 L640,115 Q720,100 800,120 L800,280 L0,280 Z" fill="#12102a" stroke="#4A3F6B" stroke-width="1.2"/>
+      <rect x="280" y="40" width="240" height="120" rx="6" fill="#0a0818" stroke="url(#lh-gold)" stroke-width="2"/>
+      <path d="M300,60 L500,60 M300,85 L500,85 M300,110 L420,110" stroke="rgba(127,219,218,0.25)" stroke-width="1.2"/>
+      <text x="400" y="150" text-anchor="middle" fill="#F4B942" font-family="Georgia,serif" font-size="22" font-weight="700">The Coworker Tavern</text>
+      <ellipse cx="400" cy="210" rx="140" ry="18" fill="rgba(127,219,218,0.12)" stroke="rgba(127,219,218,0.35)" stroke-width="1"/>
+      <path d="M400,198 L388,232 L412,232 Z" fill="#7FDBDA" opacity="0.9"/>
+    </svg>
+    <div class="landing-copy">
+      <h2>The Coworker Tavern</h2>
+      <p class="landing-value">Deploy an AI coding team to your GitHub repo &mdash; from a single prompt.</p>
+      <button type="button" class="landing-cta" onclick="enterTavern()">Enter the Tavern</button>
+      <ul class="landing-strip" aria-label="Highlights">
+        <li><strong>Autonomous PR creation</strong>Branch, commit, and open pull requests without leaving the flow.</li>
+        <li><strong>Real-time agent stream</strong>Watch tools and logs stream live over SSE.</li>
+        <li><strong>Multi-agent orchestration</strong>Supervisor, builder, tester, and handoff roles in one run.</li>
+        <li><strong>Budget guardrails</strong>Per-task and daily spend caps keep runs predictable.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<div id="dashboard-root">
 <div class="lantern-ambient" aria-hidden="true"></div>
 <div class="shell">
 
@@ -430,12 +616,18 @@
       <div class="brand-text">
         <h1>The Coworker Tavern</h1>
         <p id="conn-status" class="brand-sub">Seeking adventurers&#x2026;</p>
+        <div class="brand-taglines" aria-live="polite">
+          <span class="tag-rot">Quests accepted 24/7</span>
+          <span class="tag-rot">AI coworkers, no meetings</span>
+          <span class="tag-rot">Ship while you sleep</span>
+        </div>
       </div>
     </div>
     <div class="top-actions">
       <div class="inn-stat"><span>&#x1F4DC;</span><span>Quests</span><strong id="metric-total">0</strong></div>
       <div class="inn-stat"><span>&#x2694;&#xFE0F;</span><span>Active</span><strong id="metric-active">0</strong></div>
       <div class="inn-stat"><span>&#x1FA99;</span><span>Week</span><strong id="metric-week">$0.0000</strong></div>
+      <button class="btn-icon-help" type="button" onclick="openShortcutsModal()" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
       <button class="btn-refresh" type="button" onclick="loadAll()">&#x21BB; Refresh</button>
     </div>
   </header>
@@ -518,6 +710,10 @@
                   <stop offset="100%" stop-color="#7FDBDA" stop-opacity="0"/>
                 </radialGradient>
                 <filter id="sg-blur-sm"><feGaussianBlur stdDeviation="2"/></filter>
+                <clipPath id="sg-win-clip"><rect x="352" y="96" width="96" height="72" rx="4"/></clipPath>
+                <linearGradient id="sg-floor-plank" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#2a1c10"/><stop offset="100%" stop-color="#1a120c"/>
+                </linearGradient>
               </defs>
 
               <!-- Wall background -->
@@ -574,6 +770,39 @@
               <rect x="518" y="158" width="16" height="44" rx="2" fill="#0F0E22" stroke="rgba(127,219,218,0.12)" stroke-width="1"/>
               <rect x="262" y="196" width="24" height="6" rx="1" fill="#1A1836" stroke="rgba(127,219,218,0.1)" stroke-width="1"/>
               <rect x="514" y="196" width="24" height="6" rx="1" fill="#1A1836" stroke="rgba(127,219,218,0.1)" stroke-width="1"/>
+
+              <!-- Extra stone columns (flanking arch) -->
+              <rect x="232" y="118" width="22" height="84" rx="3" fill="#0E0D1F" stroke="rgba(127,219,218,0.14)" stroke-width="1.1"/>
+              <rect x="546" y="118" width="22" height="84" rx="3" fill="#0E0D1F" stroke="rgba(127,219,218,0.14)" stroke-width="1.1"/>
+              <line x1="243" y1="118" x2="243" y2="202" stroke="rgba(255,255,255,0.04)" stroke-width="0.8"/>
+              <line x1="557" y1="118" x2="557" y2="202" stroke="rgba(255,255,255,0.04)" stroke-width="0.8"/>
+
+              <!-- Window cutout with starfield -->
+              <rect x="350" y="94" width="100" height="76" rx="5" fill="#05040c" stroke="rgba(244,185,66,0.35)" stroke-width="1.2"/>
+              <g clip-path="url(#sg-win-clip)">
+                <rect x="348" y="94" width="104" height="78" fill="#050818"/>
+                <circle cx="372" cy="118" r="0.9" fill="#e8f4ff" opacity="0.9"/><circle cx="388" cy="108" r="0.7" fill="#e8f4ff" opacity="0.75"/>
+                <circle cx="412" cy="122" r="1.1" fill="#e8f4ff" opacity="0.85"/><circle cx="430" cy="112" r="0.6" fill="#e8f4ff" opacity="0.7"/>
+                <circle cx="404" cy="104" r="0.5" fill="#e8f4ff" opacity="0.65"/><circle cx="368" cy="138" r="0.55" fill="#e8f4ff" opacity="0.8"/>
+                <circle cx="420" cy="140" r="0.65" fill="#e8f4ff" opacity="0.72"/><circle cx="396" cy="150" r="0.5" fill="#e8f4ff" opacity="0.6"/>
+                <circle cx="360" cy="152" r="0.45" fill="#e8f4ff" opacity="0.55"/><circle cx="438" cy="150" r="0.5" fill="#e8f4ff" opacity="0.58"/>
+              </g>
+
+              <!-- Ceiling lantern chains (centre) -->
+              <line x1="400" y1="0" x2="400" y2="38" stroke="#5c4a32" stroke-width="1.2"/>
+              <line x1="396" y1="6" x2="404" y2="6" stroke="#5c4a32" stroke-width="0.9"/>
+              <line x1="396" y1="14" x2="404" y2="14" stroke="#5c4a32" stroke-width="0.9"/>
+              <path d="M392,38 Q400,32 408,38" fill="none" stroke="#6B5A3E" stroke-width="1.3"/>
+              <ellipse cx="400" cy="52" rx="11" ry="8" fill="#F4B942" opacity="0.85"/>
+              <ellipse cx="400" cy="50" rx="6" ry="4" fill="#FFECA8" opacity="0.9"/>
+
+              <!-- Wooden floor plank strip -->
+              <g stroke="#3d2e18" stroke-width="0.9" opacity="0.85">
+                <line x1="0" y1="206" x2="800" y2="206"/><line x1="0" y1="214" x2="800" y2="214"/>
+                <line x1="0" y1="222" x2="800" y2="222"/><line x1="0" y1="230" x2="800" y2="230"/>
+                <line x1="0" y1="238" x2="800" y2="238"/><line x1="0" y1="246" x2="800" y2="246"/>
+              </g>
+              <rect x="0" y="204" width="800" height="16" fill="url(#sg-floor-plank)" opacity="0.35"/>
 
               <!-- Left hanging lantern -->
               <line x1="128" y1="0" x2="128" y2="54" stroke="#6B5A3E" stroke-width="1.5" stroke-dasharray="3,3"/>
@@ -632,6 +861,9 @@
                 <circle cx="0" cy="0" r="62" fill="none" stroke="rgba(127,219,218,0.17)" stroke-width="1"/>
                 <circle cx="0" cy="0" r="22" fill="none" stroke="rgba(127,219,218,0.14)" stroke-width="0.8"/>
                 <circle cx="0" cy="0" r="7" fill="rgba(127,219,218,0.25)"/>
+                <!-- Inlaid teal sigil -->
+                <path d="M0,-14 L5,-4 L14,-3 L6,3 L8,14 L0,8 L-8,14 L-6,3 L-14,-3 L-5,-4 Z"
+                  fill="none" stroke="rgba(127,219,218,0.55)" stroke-width="1.2" stroke-linejoin="round"/>
                 <!-- Radial spokes -->
                 <line x1="0" y1="-62" x2="0" y2="-92" stroke="rgba(127,219,218,0.2)" stroke-width="0.9"/>
                 <line x1="62" y1="0" x2="92" y2="0" stroke="rgba(127,219,218,0.2)" stroke-width="0.9"/>
@@ -657,28 +889,70 @@
             <div class="agents-row" aria-label="Agent party">
               <div class="agent-char idle" data-stage="supervisor" id="agent-supervisor" aria-label="Rex the Supervisor — idle">
                 <span class="char-nameplate">Rex</span>
-                <span class="char-sprite" aria-hidden="true">&#x1F9D9;</span>
+                <span class="char-sprite" aria-hidden="true">
+                  <svg viewBox="0 0 64 80" width="64" height="80" xmlns="http://www.w3.org/2000/svg" focusable="false">
+                    <ellipse cx="32" cy="74" rx="18" ry="4" fill="rgba(0,0,0,0.45)"/>
+                    <path d="M18 68 Q32 58 46 68 L44 78 H20Z" fill="currentColor" opacity="0.85"/>
+                    <path d="M24 40 Q32 36 40 40 L42 68 H22Z" fill="currentColor"/>
+                    <circle cx="32" cy="28" r="10" fill="#c9a882"/>
+                    <path d="M22 14 Q32 4 42 14 L40 22 Q32 18 24 22Z" fill="currentColor"/>
+                    <ellipse cx="32" cy="12" rx="14" ry="6" fill="currentColor"/>
+                    <line x1="44" y1="30" x2="54" y2="8" stroke="#4a3020" stroke-width="3" stroke-linecap="round"/>
+                    <circle cx="54" cy="7" r="3" fill="#F4B942"/>
+                  </svg>
+                </span>
                 <div class="char-orb" aria-hidden="true"></div>
                 <span class="char-role">Supervisor</span>
                 <div class="char-status-dot" aria-hidden="true"></div>
               </div>
               <div class="agent-char idle" data-stage="builder" id="agent-builder" aria-label="Forge the Builder — idle">
                 <span class="char-nameplate">Forge</span>
-                <span class="char-sprite" aria-hidden="true">&#x2692;&#xFE0F;</span>
+                <span class="char-sprite" aria-hidden="true">
+                  <svg viewBox="0 0 64 80" width="64" height="80" xmlns="http://www.w3.org/2000/svg" focusable="false">
+                    <ellipse cx="32" cy="74" rx="18" ry="4" fill="rgba(0,0,0,0.45)"/>
+                    <path d="M20 68 H44 L42 42 L22 42Z" fill="#1e1f2e" stroke="currentColor" stroke-width="1.2"/>
+                    <circle cx="32" cy="30" r="11" fill="#b8a090"/>
+                    <path d="M26 18 H38 V26 H26Z" fill="#2a2c38"/>
+                    <path d="M14 36 L22 32 L26 50 L18 54Z" fill="#7FDBDA" stroke="#5ec4c2" stroke-width="0.8"/>
+                    <path d="M50 36 L42 32 L38 50 L46 54Z" fill="#7FDBDA" stroke="#5ec4c2" stroke-width="0.8"/>
+                    <rect x="30" y="44" width="4" height="22" fill="#4a3020"/>
+                  </svg>
+                </span>
                 <div class="char-orb" aria-hidden="true"></div>
                 <span class="char-role">Builder</span>
                 <div class="char-status-dot" aria-hidden="true"></div>
               </div>
               <div class="agent-char idle" data-stage="tester" id="agent-tester" aria-label="Sage the Tester — idle">
                 <span class="char-nameplate">Sage</span>
-                <span class="char-sprite" aria-hidden="true">&#x1F9D9;&#x200D;&#x2640;&#xFE0F;</span>
+                <span class="char-sprite" aria-hidden="true">
+                  <svg viewBox="0 0 64 80" width="64" height="80" xmlns="http://www.w3.org/2000/svg" focusable="false">
+                    <ellipse cx="32" cy="74" rx="18" ry="4" fill="rgba(0,0,0,0.45)"/>
+                    <path d="M18 70 Q32 52 46 70 V76 H18Z" fill="currentColor" opacity="0.75"/>
+                    <rect x="24" y="38" width="16" height="30" rx="2" fill="currentColor"/>
+                    <circle cx="32" cy="28" r="10" fill="#d8c4b0"/>
+                    <rect x="38" y="44" width="14" height="18" rx="1" fill="#1a1830" stroke="#7FDBDA" stroke-width="0.8"/>
+                    <line x1="40" y1="48" x2="50" y2="48" stroke="#7FDBDA" stroke-width="0.6"/>
+                    <line x1="40" y1="52" x2="50" y2="52" stroke="#7FDBDA" stroke-width="0.6"/>
+                    <path d="M26 10 Q32 4 38 10 L36 18 H28Z" fill="currentColor"/>
+                  </svg>
+                </span>
                 <div class="char-orb" aria-hidden="true"></div>
                 <span class="char-role">Tester</span>
                 <div class="char-status-dot" aria-hidden="true"></div>
               </div>
               <div class="agent-char idle" data-stage="handoff" id="agent-handoff" aria-label="Myra the Handoff — idle">
                 <span class="char-nameplate">Myra</span>
-                <span class="char-sprite" aria-hidden="true">&#x1F9DD;</span>
+                <span class="char-sprite" aria-hidden="true">
+                  <svg viewBox="0 0 64 80" width="64" height="80" xmlns="http://www.w3.org/2000/svg" focusable="false">
+                    <ellipse cx="32" cy="74" rx="16" ry="3.5" fill="rgba(0,0,0,0.45)"/>
+                    <path d="M14 48 Q10 62 20 70 L44 70 Q54 62 50 48 Q32 40 14 48Z" fill="#3d5c48"/>
+                    <path d="M22 48 Q32 42 42 48 L40 68 H24Z" fill="rgba(244,185,66,0.35)"/>
+                    <ellipse cx="32" cy="26" rx="9" ry="10" fill="#e8d5c4"/>
+                    <path d="M24 8 Q32 2 40 8 L38 16 Q32 12 26 16Z" fill="#5a9070"/>
+                    <path d="M18 22 Q14 30 22 34" fill="none" stroke="#c9a882" stroke-width="2"/>
+                    <circle cx="46" cy="30" r="4" fill="#F4B942" opacity="0.9"/>
+                  </svg>
+                </span>
                 <div class="char-orb" aria-hidden="true"></div>
                 <span class="char-role">Handoff</span>
                 <div class="char-status-dot" aria-hidden="true"></div>
@@ -689,6 +963,11 @@
       </div>
 
       <div class="rune-divider" aria-hidden="true">&#x2500;&#x2500; &#x16A0; ACTIVE QUESTS &#x16A0; &#x2500;&#x2500;</div>
+      <div class="queue-toolbar" role="search">
+        <label for="queue-filter" class="hidden">Filter quests</label>
+        <input id="queue-filter" type="search" placeholder="Search quests by title&#x2026;" autocomplete="off" oninput="onQueueFilterInput(event)" />
+        <span id="queue-filter-hint" class="queue-filter-hint hidden" aria-live="polite"></span>
+      </div>
       <div class="queue" id="task-list"></div>
     </section>
 
@@ -699,9 +978,17 @@
         <span id="selected-status" class="status status-pending">None</span>
       </div>
       <div class="details">
+        <div id="detail-empty" class="detail-empty-state">
+          <svg class="arrow-left" width="72" height="36" viewBox="0 0 72 36" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+            <path d="M52 18 H14 M24 8 L12 18 24 28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <p><strong class="task-title" style="color:var(--gold);font-size:0.95rem">Select a quest from the board</strong></p>
+          <p>Pick any active quest card on the left to stream its log, steps, and handoff here.</p>
+        </div>
+        <div id="detail-content" class="hidden">
         <div>
           <p id="selected-title" class="task-title">No quest selected</p>
-          <p id="selected-id" class="task-id">Select a quest from the board.</p>
+          <p id="selected-id" class="task-id"></p>
           <p id="stream-status-row" class="stream-status hidden" aria-live="polite">
             <span id="stream-dot" class="stream-dot closed" aria-hidden="true"></span>
             <span id="stream-label">Stream closed</span>
@@ -716,6 +1003,8 @@
         <div class="step-panel-hdr" id="step-panel-hdr" style="display:none">&#x2692;&#xFE0F; Steps</div>
         <div id="step-panel" class="step-list"></div>
         <div id="log-panel" class="log-box" aria-live="polite"></div>
+        </div>
+        </div>
       </div>
     </aside>
 
@@ -743,8 +1032,36 @@
       </div>
       <div id="run-preview" class="studio-body"><p>The chronicle is blank.</p></div>
     </div>
+    <div class="studio-panel perf-panel" aria-labelledby="perf-title">
+      <div class="studio-header">
+        <span id="perf-title" class="studio-title">&#x2696;&#xFE0F; Performance</span>
+        <span class="studio-count" id="perf-window-label">24h</span>
+      </div>
+      <div id="perf-body" class="studio-body" style="font-style:normal">
+        <p id="perf-loading" class="subtle">Loading metrics&#x2026;</p>
+        <div id="perf-metrics" class="hidden">
+          <div class="perf-metric"><div class="perf-label">Total tasks (window)</div><strong id="perf-total">0</strong></div>
+          <div class="perf-metric"><div class="perf-label">Avg duration (completed)</div><strong id="perf-avg">0s</strong><div class="perf-bar-track" aria-hidden="true"><div id="perf-bar-avg" class="perf-bar-fill" style="width:0%"></div></div></div>
+          <div class="perf-metric"><div class="perf-label">p95 duration</div><strong id="perf-p95">0s</strong><div class="perf-bar-track" aria-hidden="true"><div id="perf-bar-p95" class="perf-bar-fill" style="width:0%"></div></div></div>
+          <div class="perf-metric"><div class="perf-label">Failure rate</div><strong id="perf-failrate">0%</strong><div class="perf-bar-track" aria-hidden="true"><div id="perf-bar-fail" class="perf-bar-fill" style="width:0%;background:linear-gradient(90deg,var(--rose),var(--amber))"></div></div></div>
+          <div class="perf-metric"><div class="perf-label">Top failure category</div><p id="perf-topcat" class="perf-top-cat">none</p></div>
+        </div>
+        <p id="perf-error" class="error hidden"></p>
+      </div>
+    </div>
   </div>
 
+</div>
+</div>
+
+<div id="shortcuts-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="shortcut-modal-title" onclick="if(event.target===this)closeShortcutsModal()">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <h3 id="shortcut-modal-title">Keyboard shortcuts</h3>
+    <div class="shortcut-row"><span>Dispatch quest</span><kbd>Ctrl</kbd>+<kbd>Enter</kbd></div>
+    <div class="shortcut-row"><span>Clear quest selection</span><kbd>Esc</kbd></div>
+    <div class="shortcut-row"><span>Refresh board</span><kbd>R</kbd></div>
+    <button type="button" class="btn-primary modal-close" onclick="closeShortcutsModal()">Close</button>
+  </div>
 </div>
 
 <script>
@@ -775,6 +1092,95 @@
   const TITLE_MAX_LEN = 72;
   const STEP_PREVIEW_CHARS = 400;
   let tasks = [], logsByTask = {}, stepsByTask = {}, activeStreams = {}, budgetCap = null, selectedTaskId = null, workspace = 'personal';
+  let queueFilterQuery = '';
+  let _queueFilterTimer = null;
+
+  function enterTavern() {
+    try { sessionStorage.setItem('coworker_tavern_entered', '1'); } catch (e) {}
+    document.documentElement.dataset.dashboard = '1';
+    var lv = document.getElementById('landing-view');
+    var dr = document.getElementById('dashboard-root');
+    if (lv) lv.style.display = 'none';
+    if (dr) dr.style.display = 'block';
+  }
+
+  function openShortcutsModal() {
+    var m = document.getElementById('shortcuts-modal');
+    if (m) { m.classList.add('open'); m.setAttribute('aria-hidden', 'false'); }
+  }
+  function closeShortcutsModal() {
+    var m = document.getElementById('shortcuts-modal');
+    if (m) { m.classList.remove('open'); m.setAttribute('aria-hidden', 'true'); }
+  }
+
+  function onQueueFilterInput() {
+    if (_queueFilterTimer) clearTimeout(_queueFilterTimer);
+    _queueFilterTimer = setTimeout(function() {
+      var inp = document.getElementById('queue-filter');
+      queueFilterQuery = inp ? inp.value : '';
+      renderTasks();
+    }, 200);
+  }
+
+  function _filteredTasks() {
+    var q = (queueFilterQuery || '').trim().toLowerCase();
+    if (!q) return tasks;
+    return tasks.filter(function(t) { return (t.title || '').toLowerCase().indexOf(q) !== -1; });
+  }
+
+  var _WANTED_POSTER_SVG = '<svg width="160" height="100" viewBox="0 0 160 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="max-width:100%;height:auto">'
+    + '<rect x="8" y="6" width="144" height="88" rx="4" fill="#2a2418" stroke="#8b6914" stroke-width="1.5"/>'
+    + '<rect x="14" y="12" width="132" height="76" fill="#1a1610" stroke="#4A3F6B" stroke-width="0.8"/>'
+    + '<line x1="22" y1="24" x2="130" y2="24" stroke="rgba(127,219,218,0.25)" stroke-width="0.8"/>'
+    + '<line x1="22" y1="34" x2="118" y2="34" stroke="rgba(244,185,66,0.2)" stroke-width="0.8"/>'
+    + '<text x="80" y="22" text-anchor="middle" fill="#F4B942" font-size="8" font-family="Georgia,serif">WANTED</text>'
+    + '<rect x="48" y="40" width="64" height="38" fill="#141210" stroke="#5a4a32"/>'
+    + '<text x="80" y="62" text-anchor="middle" fill="#7A7A8C" font-size="7" font-family="Georgia,serif">???</text>'
+    + '</svg>';
+
+  async function loadPerfMetrics() {
+    var loadEl = document.getElementById('perf-loading');
+    var box = document.getElementById('perf-metrics');
+    var errEl = document.getElementById('perf-error');
+    if (!loadEl || !box) return;
+    errEl.classList.add('hidden');
+    loadEl.classList.remove('hidden');
+    box.classList.add('hidden');
+    try {
+      var res = await fetch(API + '/metrics?window=24', { headers: readHeaders(false) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var d = await res.json();
+      loadEl.classList.add('hidden');
+      box.classList.remove('hidden');
+      var wh = document.getElementById('perf-window-label');
+      if (wh) wh.textContent = (d.window_hours || 24) + 'h';
+      document.getElementById('perf-total').textContent = String(d.total_tasks != null ? d.total_tasks : 0);
+      var lat = d.latency || {};
+      var avgS = lat.avg_s;
+      var p95S = lat.p95_s;
+      var avgStr = avgS == null ? 'n/a' : (Number(avgS).toFixed(1) + 's');
+      var p95Str = p95S == null ? 'n/a' : (Number(p95S).toFixed(1) + 's');
+      document.getElementById('perf-avg').textContent = avgStr;
+      document.getElementById('perf-p95').textContent = p95Str;
+      var fr = d.failure_rate;
+      var frPct = fr == null ? 0 : Math.round(Number(fr) * 1000) / 10;
+      document.getElementById('perf-failrate').textContent = fr == null ? 'n/a' : (frPct + '%');
+      var cats = d.failure_categories || {};
+      var topCat = 'none', topN = 0;
+      Object.keys(cats).forEach(function(k) {
+        if (cats[k] > topN) { topN = cats[k]; topCat = k; }
+      });
+      document.getElementById('perf-topcat').textContent = topN ? topCat + ' (' + topN + ')' : 'none';
+      var maxDur = Math.max(avgS || 0, p95S || 0, 1);
+      document.getElementById('perf-bar-avg').style.width = (avgS != null ? Math.min(100, (avgS / maxDur) * 100) : 0) + '%';
+      document.getElementById('perf-bar-p95').style.width = (p95S != null ? Math.min(100, (p95S / maxDur) * 100) : 0) + '%';
+      document.getElementById('perf-bar-fail').style.width = Math.min(100, frPct) + '%';
+    } catch (e) {
+      loadEl.classList.add('hidden');
+      errEl.textContent = 'Could not load metrics.';
+      errEl.classList.remove('hidden');
+    }
+  }
 
   // State-driven visuals — track live tool and stream health per task
   const activeToolByTask = {};      // taskId -> current tool name (cleared on tool_done)
@@ -910,20 +1316,37 @@
   }
 
   function renderTasks() {
-    const list = document.getElementById('task-list');
+    var list = document.getElementById('task-list');
+    var hint = document.getElementById('queue-filter-hint');
     if (!tasks.length) {
-      list.innerHTML = '<div class="first-run-guide">'
-        + '<h3>&#x1F31F; Getting Started</h3>'
-        + '<ol>'
-        + '<li>Type what you want your coworker to do in the <strong>What should your coworker do?</strong> box on the left.</li>'
-        + '<li>Optionally give the task a short name. If you skip it, one will be generated.</li>'
-        + '<li>Click <strong>Send to Coworker</strong> (or press Ctrl+Enter).</li>'
-        + '<li>Watch live progress appear here — click any task to see its log.</li>'
-        + '</ol>'
+      if (hint) { hint.classList.add('hidden'); hint.textContent = ''; }
+      list.innerHTML = '<div class="empty-queue-visual">'
+        + _WANTED_POSTER_SVG
+        + '<p>No quests on the board. Dispatch your first adventurer above.</p>'
+        + '<details class="advanced-section" style="max-width:32em;text-align:left;margin-top:8px"><summary class="advanced-toggle">Tips for your first dispatch</summary>'
+        + '<div class="advanced-body"><ol style="margin:0;padding-left:18px;display:grid;gap:6px;font-size:0.85rem;color:var(--muted)">'
+        + '<li>Describe the change in the left panel &mdash; repo and workspace live under Advanced.</li>'
+        + '<li>Use <kbd style="font-family:monospace">Ctrl+Enter</kbd> to send quickly.</li>'
+        + '</ol></div></details>'
         + '</div>';
       updateMetrics(); renderSelectedTask(); return;
     }
-    list.innerHTML = tasks.map(renderTaskCard).join('');
+    var filtered = _filteredTasks();
+    if (hint) {
+      if ((queueFilterQuery || '').trim() && filtered.length < tasks.length) {
+        hint.classList.remove('hidden');
+        hint.textContent = 'Showing ' + filtered.length + ' of ' + tasks.length + ' quests.';
+      } else { hint.classList.add('hidden'); hint.textContent = ''; }
+    }
+    if (!filtered.length) {
+      list.innerHTML = '<div class="empty-queue-visual"><p>No quests match your search. Try a different title phrase.</p></div>';
+      if (selectedTaskId) selectedTaskId = null;
+      updateMetrics(); renderSelectedTask(); return;
+    }
+    if (selectedTaskId && !filtered.some(function(t) { return t.id === selectedTaskId; })) {
+      selectedTaskId = null;
+    }
+    list.innerHTML = filtered.map(renderTaskCard).join('');
     updateMetrics(); renderSelectedTask();
   }
 
@@ -966,16 +1389,17 @@
     const healthBar = document.getElementById('stream-health-bar');
     const healthLabel = document.getElementById('stream-health-label');
     const resyncBtn = document.getElementById('btn-resync');
+    var emptyEl = document.getElementById('detail-empty');
+    var contentEl = document.getElementById('detail-content');
     if (!task) {
+      if (emptyEl) emptyEl.classList.remove('hidden');
+      if (contentEl) contentEl.classList.add('hidden');
       statusEl.className = 'status status-pending'; statusEl.textContent = 'None';
-      titleEl.textContent = 'No quest selected'; idEl.textContent = 'Select a quest from the board.';
-      logsEl.innerHTML = '<p class="log-line">Awaiting the party&#x2026;</p>';
-      artEl.innerHTML  = '<div class="artifact-chip">Treasures appear after handoff.</div>';
-      if (stepHdr)  stepHdr.style.display  = 'none';
-      if (stepPanel) stepPanel.innerHTML = '';
       _updateStreamStatusRow(null);
       return;
     }
+    if (emptyEl) emptyEl.classList.add('hidden');
+    if (contentEl) contentEl.classList.remove('hidden');
     statusEl.className = statusClass(task.status); statusEl.textContent = task.status;
     titleEl.textContent = task.title || 'Untitled quest'; idEl.textContent = task.id;
     const tl = logsByTask[task.id] || [];
@@ -1267,7 +1691,12 @@
       const d = await res.json();
       tasks = d.tasks || [];
       budgetCap = d.max_task_usd == null ? budgetCap : d.max_task_usd;
-      selectedTaskId = tasks[0] ? tasks[0].id : null;
+      var prevSel = selectedTaskId;
+      if (prevSel && tasks.some(function(t) { return t.id === prevSel; })) {
+        selectedTaskId = prevSel;
+      } else {
+        selectedTaskId = tasks[0] ? tasks[0].id : null;
+      }
       for (const t of tasks) { if (['pending','running'].includes(t.status)) await subscribeSSE(t.id); }
       document.getElementById('conn-status').textContent = tasks.length
         ? tasks.length + ' quest' + (tasks.length === 1 ? '' : 's') + ' on the board'
@@ -1311,11 +1740,23 @@
     } catch {}
   }
 
-  function loadAll() { loadTasks(); loadSummary(); loadOperatorStudio(); }
+  function loadAll() { loadTasks(); loadSummary(); loadOperatorStudio(); loadPerfMetrics(); }
 
   // Ctrl+Enter to submit the form from anywhere on the page
   document.addEventListener('keydown', function(e) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); createTask(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); createTask(); return; }
+    if (e.key === 'Escape') {
+      var modal = document.getElementById('shortcuts-modal');
+      if (modal && modal.classList.contains('open')) { closeShortcutsModal(); e.preventDefault(); return; }
+      if (selectedTaskId) { selectedTaskId = null; renderTasks(); e.preventDefault(); }
+      return;
+    }
+    if (e.key === 'r' || e.key === 'R') {
+      var tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      loadAll();
+    }
   });
 
   // Pre-fill API key field if already saved
