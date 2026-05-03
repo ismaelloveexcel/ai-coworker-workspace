@@ -17,6 +17,7 @@ from typing import Dict, FrozenSet, List
 CATEGORY_FILESYSTEM = "filesystem"
 CATEGORY_BROWSER = "browser"
 CATEGORY_SHELL_ALLOWLISTED = "shell_allowlisted"
+CATEGORY_SHELL_SANDBOXED = "shell_sandboxed"
 CATEGORY_REMOTE_OR_SUPPORT = "remote_or_support"
 
 
@@ -98,6 +99,11 @@ TOOL_CATALOG: List[ToolEntry] = [
         category=CATEGORY_SHELL_ALLOWLISTED,
         description="Run an allowlisted test suite in the task sandbox.",
     ),
+    ToolEntry(
+        id="run_shell",
+        category=CATEGORY_SHELL_SANDBOXED,
+        description="Run a restricted argv-only shell command with timeout (no shell metacharacters).",
+    ),
     # Security
     ToolEntry(
         id="secret_scan",
@@ -161,6 +167,11 @@ BROWSER_IDS: FrozenSet[str] = frozenset(
 #: Tools that run shell commands (suite allowlist applies).
 SHELL_ALLOWLISTED_IDS: FrozenSet[str] = frozenset(
     entry.id for entry in TOOL_CATALOG if entry.category == CATEGORY_SHELL_ALLOWLISTED
+)
+
+#: Sandboxed argv-only subprocess tools (policy applies per tool).
+SHELL_SANDBOXED_IDS: FrozenSet[str] = frozenset(
+    entry.id for entry in TOOL_CATALOG if entry.category == CATEGORY_SHELL_SANDBOXED
 )
 
 #: Remote / support tools: no local side-effects; allowed by default.

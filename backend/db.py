@@ -134,6 +134,43 @@ ALTER TABLE tasks ADD COLUMN failure_category TEXT NULL;
 """
 _MIGRATIONS.append(_SCHEMA_V5)
 
+_SCHEMA_V6 = """
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    workspace TEXT NOT NULL DEFAULT 'personal',
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_projects_workspace ON projects (workspace, created_at);
+CREATE TABLE IF NOT EXISTS revenue_log (
+    id TEXT PRIMARY KEY,
+    workspace TEXT NOT NULL DEFAULT 'personal',
+    project_id TEXT,
+    amount_usd REAL NOT NULL,
+    source TEXT NOT NULL,
+    note TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_revenue_workspace ON revenue_log (workspace, created_at);
+CREATE INDEX IF NOT EXISTS idx_revenue_project ON revenue_log (project_id);
+CREATE TABLE IF NOT EXISTS clients (
+    id TEXT PRIMARY KEY,
+    workspace TEXT NOT NULL DEFAULT 'work',
+    name TEXT NOT NULL,
+    github_org TEXT,
+    budget_usd REAL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_clients_workspace ON clients (workspace, created_at);
+ALTER TABLE tasks ADD COLUMN project_id TEXT;
+ALTER TABLE tasks ADD COLUMN client_id TEXT;
+ALTER TABLE tasks ADD COLUMN public INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN notes TEXT;
+ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+"""
+_MIGRATIONS.append(_SCHEMA_V6)
+
 # Valid failure categories — explicit set prevents fragile free-text parsing (A1)
 VALID_FAILURE_CATEGORIES = frozenset({
     "branch_creation_failed",
@@ -154,6 +191,7 @@ _TASK_UPDATABLE = frozenset({
     "status", "pr_url", "error", "updated_at", "heartbeat_at", "usd_spent",
     "branch", "current_step", "last_action", "last_tool", "recovery_note", "reconciled_at",
     "workspace", "checkpoint_phase", "started_at", "ended_at", "failure_category",
+    "project_id", "client_id", "public", "notes", "pinned",
 })
 _STEP_UPDATABLE = frozenset({"status", "tool_name", "tool_input", "tool_output", "reasoning", "updated_at"})
 _ARTIFACT_TYPES = frozenset({
@@ -249,15 +287,23 @@ def _now() -> str:
 
 
 
-async def create_task(title: str, prompt: str, repo_url: Optional[str] = None, workspace: str = "personal") -> Dict:
+async def create_task(
+    title: str,
+    prompt: str,
+    repo_url: Optional[str] = None,
+    workspace: str = "personal",
+    project_id: Optional[str] = None,
+    client_id: Optional[str] = None,
+) -> Dict:
     task_id = str(uuid.uuid4())
     safe_title = _redact_text(title) or title
     safe_prompt = _redact_text(prompt) or prompt
     workspace = normalize_workspace(workspace)
     async with _get_db() as db:
         await db.execute(
-            "INSERT INTO tasks (id, title, prompt, repo_url, status, workspace) VALUES (?,?,?,?, 'pending', ?)",
-            (task_id, safe_title, safe_prompt, repo_url, workspace),
+            "INSERT INTO tasks (id, title, prompt, repo_url, status, workspace, project_id, client_id) "
+            "VALUES (?,?,?,?, 'pending', ?, ?, ?)",
+            (task_id, safe_title, safe_prompt, repo_url, workspace, project_id, client_id),
         )
     return {
         "id": task_id,
@@ -265,6 +311,8 @@ async def create_task(title: str, prompt: str, repo_url: Optional[str] = None, w
         "prompt": safe_prompt,
         "repo_url": repo_url,
         "workspace": workspace,
+        "project_id": project_id,
+        "client_id": client_id,
         "status": "pending",
         "created_at": _now(),
     }
@@ -281,18 +329,20 @@ async def get_task(task_id: str, workspace: Optional[str] = None) -> Optional[Di
 
 
 async def list_tasks(limit: int = 50, offset: int = 0, workspace: str = "personal") -> List[Dict]:
-    """Paginated — F29."""
+    """Paginated — F29. Pinned tasks sort first."""
     workspace = normalize_workspace(workspace)
     async with _get_db() as db:
         rows = await (await db.execute(
-            "SELECT * FROM tasks WHERE workspace=? ORDER BY created_at DESC LIMIT ? OFFSET ?", (workspace, limit, offset)
+            "SELECT * FROM tasks WHERE workspace=? "
+            "ORDER BY COALESCE(pinned,0) DESC, created_at DESC LIMIT ? OFFSET ?",
+            (workspace, limit, offset),
         )).fetchall()
     return [dict(r) for r in rows]
 
 
 async def update_task(task_id: str, **kwargs) -> None:
     kwargs = _safe_cols(_TASK_UPDATABLE, kwargs)
-    for key in ("error", "recovery_note"):
+    for key in ("error", "recovery_note", "notes"):
         if key in kwargs:
             kwargs[key] = _redact_text(kwargs[key])
     kwargs["updated_at"] = _now()
@@ -831,4 +881,306 @@ async def get_metrics(window_hours: int = 24) -> Dict:
             "total_usd": total_usd,
             "avg_usd_per_task": avg_usd,
         },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Growth: projects, revenue, clients, analytics, public tasks, activity
+# ---------------------------------------------------------------------------
+
+_CLIENT_UPDATABLE = frozenset({"name", "github_org", "budget_usd"})
+
+
+async def create_project(
+    name: str,
+    workspace: str = "personal",
+    description: Optional[str] = None,
+) -> Dict:
+    workspace = normalize_workspace(workspace)
+    pid = str(uuid.uuid4())
+    safe_name = _redact_text(name) or name
+    safe_desc = _redact_text(description) if description else description
+    async with _get_db() as db:
+        await db.execute(
+            "INSERT INTO projects (id, workspace, name, description) VALUES (?,?,?,?)",
+            (pid, workspace, safe_name, safe_desc),
+        )
+    return {"id": pid, "workspace": workspace, "name": safe_name, "description": safe_desc, "created_at": _now()}
+
+
+async def list_projects(workspace: str = "personal", limit: int = 200) -> List[Dict]:
+    workspace = normalize_workspace(workspace)
+    limit = max(1, min(int(limit), 500))
+    async with _get_db() as db:
+        rows = await (await db.execute(
+            "SELECT * FROM projects WHERE workspace=? ORDER BY created_at DESC LIMIT ?",
+            (workspace, limit),
+        )).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def get_project(project_id: str, workspace: Optional[str] = None) -> Optional[Dict]:
+    async with _get_db() as db:
+        if workspace is None:
+            row = await (await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))).fetchone()
+        else:
+            w = normalize_workspace(workspace)
+            row = await (await db.execute(
+                "SELECT * FROM projects WHERE id=? AND workspace=?", (project_id, w)
+            )).fetchone()
+    return dict(row) if row else None
+
+
+async def create_revenue_log(
+    workspace: str,
+    amount_usd: float,
+    source: str,
+    note: Optional[str] = None,
+    project_id: Optional[str] = None,
+) -> Dict:
+    workspace = normalize_workspace(workspace)
+    rid = str(uuid.uuid4())
+    safe_source = _redact_text(source) or source
+    safe_note = _redact_text(note) if note else note
+    async with _get_db() as db:
+        await db.execute(
+            "INSERT INTO revenue_log (id, workspace, project_id, amount_usd, source, note) VALUES (?,?,?,?,?,?)",
+            (rid, workspace, project_id, float(amount_usd), safe_source, safe_note),
+        )
+    return {
+        "id": rid,
+        "workspace": workspace,
+        "project_id": project_id,
+        "amount_usd": float(amount_usd),
+        "source": safe_source,
+        "note": safe_note,
+        "created_at": _now(),
+    }
+
+
+async def list_revenue_logs(workspace: str = "personal", limit: int = 200) -> List[Dict]:
+    workspace = normalize_workspace(workspace)
+    limit = max(1, min(int(limit), 500))
+    async with _get_db() as db:
+        rows = await (await db.execute(
+            "SELECT * FROM revenue_log WHERE workspace=? ORDER BY created_at DESC LIMIT ?",
+            (workspace, limit),
+        )).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def revenue_totals_by_source(workspace: str = "personal") -> Dict:
+    workspace = normalize_workspace(workspace)
+    async with _get_db() as db:
+        rows = await (await db.execute(
+            """SELECT source, SUM(amount_usd) as total, COUNT(*) as n
+               FROM revenue_log WHERE workspace=? GROUP BY source ORDER BY total DESC""",
+            (workspace,),
+        )).fetchall()
+        grand = await (await db.execute(
+            "SELECT COALESCE(SUM(amount_usd),0) as t FROM revenue_log WHERE workspace=?",
+            (workspace,),
+        )).fetchone()
+    total_all = float(grand["t"]) if grand else 0.0
+    by_source = [{"source": r["source"], "total_usd": round(float(r["total"]), 2), "count": int(r["n"])} for r in rows]
+    return {"workspace": workspace, "total_usd": round(total_all, 2), "by_source": by_source}
+
+
+async def create_client(
+    name: str,
+    workspace: str = "work",
+    github_org: Optional[str] = None,
+    budget_usd: Optional[float] = None,
+) -> Dict:
+    workspace = normalize_workspace(workspace)
+    cid = str(uuid.uuid4())
+    safe_name = _redact_text(name) or name
+    safe_org = _redact_text(github_org) if github_org else github_org
+    async with _get_db() as db:
+        await db.execute(
+            "INSERT INTO clients (id, workspace, name, github_org, budget_usd) VALUES (?,?,?,?,?)",
+            (cid, workspace, safe_name, safe_org, budget_usd),
+        )
+    return {
+        "id": cid,
+        "workspace": workspace,
+        "name": safe_name,
+        "github_org": safe_org,
+        "budget_usd": budget_usd,
+        "created_at": _now(),
+    }
+
+
+async def list_clients(workspace: str = "work", limit: int = 200) -> List[Dict]:
+    workspace = normalize_workspace(workspace)
+    limit = max(1, min(int(limit), 500))
+    async with _get_db() as db:
+        rows = await (await db.execute(
+            "SELECT * FROM clients WHERE workspace=? ORDER BY created_at DESC LIMIT ?",
+            (workspace, limit),
+        )).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def get_client(client_id: str, workspace: Optional[str] = None) -> Optional[Dict]:
+    async with _get_db() as db:
+        if workspace is None:
+            row = await (await db.execute("SELECT * FROM clients WHERE id=?", (client_id,))).fetchone()
+        else:
+            w = normalize_workspace(workspace)
+            row = await (await db.execute(
+                "SELECT * FROM clients WHERE id=? AND workspace=?", (client_id, w)
+            )).fetchone()
+    return dict(row) if row else None
+
+
+async def update_client(client_id: str, workspace: str, **kwargs) -> Optional[Dict]:
+    kwargs = _safe_cols(_CLIENT_UPDATABLE, kwargs)
+    if "name" in kwargs:
+        kwargs["name"] = _redact_text(kwargs["name"]) or kwargs["name"]
+    if "github_org" in kwargs and kwargs["github_org"] is not None:
+        kwargs["github_org"] = _redact_text(kwargs["github_org"])
+    if not kwargs:
+        return await get_client(client_id, workspace=workspace)
+    sets = ", ".join(f"{k}=?" for k in kwargs)
+    vals = list(kwargs.values()) + [client_id, normalize_workspace(workspace)]
+    async with _get_db() as db:
+        await db.execute(
+            f"UPDATE clients SET {sets} WHERE id=? AND workspace=?",
+            tuple(vals),
+        )
+    return await get_client(client_id, workspace=workspace)
+
+
+async def delete_client(client_id: str, workspace: str) -> bool:
+    workspace = normalize_workspace(workspace)
+    async with _get_db() as db:
+        cur = await db.execute("DELETE FROM clients WHERE id=? AND workspace=?", (client_id, workspace))
+        return cur.rowcount > 0
+
+
+async def count_steps(task_id: str) -> int:
+    async with _get_db() as db:
+        row = await (await db.execute(
+            "SELECT COUNT(*) as c FROM steps WHERE task_id=?", (task_id,)
+        )).fetchone()
+    return int(row["c"]) if row else 0
+
+
+async def get_public_task(task_id: str) -> Optional[Dict]:
+    async with _get_db() as db:
+        row = await (await db.execute(
+            "SELECT id, title, status, pr_url, public FROM tasks WHERE id=?", (task_id,)
+        )).fetchone()
+    if not row or not int(row["public"] or 0):
+        return None
+    n = await count_steps(task_id)
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "status": row["status"],
+        "pr_url": row["pr_url"],
+        "step_count": n,
+    }
+
+
+async def list_public_tasks_done(limit: int = 50) -> List[Dict]:
+    limit = max(1, min(int(limit), 200))
+    async with _get_db() as db:
+        rows = await (await db.execute(
+            """SELECT t.id, t.title, t.status, t.pr_url, t.usd_spent, t.created_at, t.ended_at, t.workspace,
+                      (SELECT COUNT(*) FROM steps s WHERE s.task_id = t.id) as step_count
+               FROM tasks t
+               WHERE COALESCE(t.public,0)=1 AND t.status='done'
+               ORDER BY datetime(COALESCE(t.updated_at, t.created_at)) DESC LIMIT ?""",
+            (limit,),
+        )).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def list_recent_activity(limit: int = 20) -> List[Dict]:
+    limit = max(1, min(int(limit), 100))
+    async with _get_db() as db:
+        rows = await (await db.execute(
+            """SELECT l.id, l.task_id, l.level, l.message, l.created_at, t.title as task_title, t.workspace
+               FROM logs l
+               JOIN tasks t ON t.id = l.task_id
+               ORDER BY datetime(l.created_at) DESC LIMIT ?""",
+            (limit,),
+        )).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def get_analytics(workspace: Optional[str] = None) -> Dict:
+    """Operator growth dashboard: last 30 days tasks, costs, PRs, tools."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    scoped = workspace and str(workspace).lower() != "all"
+    async with _get_db() as db:
+        if scoped:
+            w = normalize_workspace(str(workspace))
+            day_rows = await (await db.execute(
+                """SELECT substr(created_at, 1, 10) as day, COUNT(*) as n
+                   FROM tasks WHERE created_at >= ? AND workspace=?
+                   GROUP BY day ORDER BY day""",
+                (cutoff, w),
+            )).fetchall()
+            stat_row = await (await db.execute(
+                """SELECT COUNT(*) as total,
+                          SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) as done_n,
+                          SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as fail_n,
+                          COALESCE(AVG(CASE WHEN status IN ('done','failed') THEN usd_spent END), 0) as avg_cost,
+                          SUM(CASE WHEN pr_url IS NOT NULL AND pr_url != '' THEN 1 ELSE 0 END) as prs
+                   FROM tasks WHERE created_at >= ? AND workspace=?""",
+                (cutoff, w),
+            )).fetchone()
+            tool_rows = await (await db.execute(
+                """SELECT s.tool_name, COUNT(*) as c
+                   FROM steps s JOIN tasks t ON t.id = s.task_id
+                   WHERE s.created_at >= ? AND t.workspace=?
+                     AND s.tool_name IS NOT NULL AND s.tool_name != ''
+                   GROUP BY s.tool_name ORDER BY c DESC LIMIT 12""",
+                (cutoff, w),
+            )).fetchall()
+            filt = w
+        else:
+            day_rows = await (await db.execute(
+                """SELECT substr(created_at, 1, 10) as day, COUNT(*) as n
+                   FROM tasks WHERE created_at >= ?
+                   GROUP BY day ORDER BY day""",
+                (cutoff,),
+            )).fetchall()
+            stat_row = await (await db.execute(
+                """SELECT COUNT(*) as total,
+                          SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) as done_n,
+                          SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as fail_n,
+                          COALESCE(AVG(CASE WHEN status IN ('done','failed') THEN usd_spent END), 0) as avg_cost,
+                          SUM(CASE WHEN pr_url IS NOT NULL AND pr_url != '' THEN 1 ELSE 0 END) as prs
+                   FROM tasks WHERE created_at >= ?""",
+                (cutoff,),
+            )).fetchone()
+            tool_rows = await (await db.execute(
+                """SELECT s.tool_name, COUNT(*) as c
+                   FROM steps s JOIN tasks t ON t.id = s.task_id
+                   WHERE s.created_at >= ? AND s.tool_name IS NOT NULL AND s.tool_name != ''
+                   GROUP BY s.tool_name ORDER BY c DESC LIMIT 12""",
+                (cutoff,),
+            )).fetchall()
+            filt = "all"
+
+    tasks_per_day = [{"day": r["day"], "count": int(r["n"])} for r in day_rows]
+    total = int(stat_row["total"]) if stat_row else 0
+    done_n = int(stat_row["done_n"] or 0) if stat_row else 0
+    fail_n = int(stat_row["fail_n"] or 0) if stat_row else 0
+    finished = done_n + fail_n
+    success_rate = round(done_n / finished, 4) if finished else None
+    most_used_tools = [{"tool": r["tool_name"], "count": int(r["c"])} for r in tool_rows]
+
+    return {
+        "workspace_filter": filt,
+        "tasks_per_day": tasks_per_day,
+        "avg_cost_per_task_usd": round(float(stat_row["avg_cost"] or 0), 4) if stat_row else 0.0,
+        "total_tasks_window": total,
+        "total_prs_with_url": int(stat_row["prs"] or 0) if stat_row else 0,
+        "success_rate": success_rate,
+        "most_used_tools": most_used_tools,
     }

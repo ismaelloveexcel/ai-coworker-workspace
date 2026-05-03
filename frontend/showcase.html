@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shipped work — AI Coworker</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=MedievalSharp&family=IM+Fell+English&display=swap');
+    :root {
+      --bg: #0D0D1A;
+      --card: #1A1A2E;
+      --border: #4A3F6B;
+      --text: #F5F5F5;
+      --muted: #7A7A8C;
+      --amber: #F4B942;
+      --teal: #7FDBDA;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+      font-family: 'IM Fell English', Georgia, serif;
+      padding: clamp(20px, 4vw, 48px);
+    }
+    h1 {
+      font-family: 'MedievalSharp', serif; color: var(--amber); font-size: clamp(1.4rem, 3vw, 2rem);
+      margin: 0 0 8px;
+    }
+    p.lead { color: var(--muted); margin: 0 0 28px; max-width: 40em; }
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px;
+    }
+    article {
+      border: 1px solid var(--border); border-radius: 12px; padding: 16px;
+      background: linear-gradient(160deg, #1e1b28 0%, #12101c 100%);
+    }
+    article h2 { font-family: 'MedievalSharp', serif; font-size: 1rem; color: var(--teal); margin: 0 0 10px; line-height: 1.3; }
+    .badge { display: inline-block; font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+    .badge.done { color: var(--teal); border-color: var(--teal); }
+    a { color: var(--amber); }
+    .meta { font-size: 0.78rem; color: var(--muted); margin-top: 10px; }
+    #err { color: #f88; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Public build log</h1>
+  <p class="lead">Completed tasks marked public in AI Coworker Tavern. No prompts or internal logs are shown here.</p>
+  <div id="grid" class="grid"></div>
+  <p id="err" class="hidden"></p>
+  <script>
+    function esc(v) {
+      if (v == null) return '';
+      return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+    var API = '/api';
+    function params() {
+      var u = new URLSearchParams(location.search);
+      return u.get('task') || '';
+    }
+    async function load() {
+      var focus = params();
+      var err = document.getElementById('err');
+      var grid = document.getElementById('grid');
+      err.classList.add('hidden');
+      try {
+        var res = await fetch(API + '/tasks/public/portfolio?limit=48');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        var d = await res.json();
+        var tasks = d.tasks || [];
+        if (!tasks.length) {
+          grid.innerHTML = '<p style="color:var(--muted);grid-column:1/-1">No public completed tasks yet.</p>';
+          return;
+        }
+        grid.innerHTML = tasks.map(function(t) {
+          var pr = t.pr_url ? '<a href="' + esc(t.pr_url) + '" target="_blank" rel="noopener">View PR</a>' : '—';
+          var cost = t.usd_spent != null ? '$' + Number(t.usd_spent).toFixed(3) : '—';
+          var steps = t.step_count != null ? t.step_count : '—';
+          var hi = focus && t.id === focus ? ' style="outline:2px solid var(--amber)"' : '';
+          return '<article' + hi + '><h2>' + esc(t.title || 'Untitled') + '</h2>'
+            + '<span class="badge done">' + esc(t.status || '') + '</span>'
+            + '<div class="meta">Steps: ' + esc(String(steps)) + ' · Build cost: ' + esc(cost) + '</div>'
+            + '<div class="meta">' + pr + '</div></article>';
+        }).join('');
+      } catch (e) {
+        err.textContent = 'Could not load portfolio (open this page from the same host as the API).';
+        err.classList.remove('hidden');
+      }
+    }
+    load();
+  </script>
+</body>
+</html>

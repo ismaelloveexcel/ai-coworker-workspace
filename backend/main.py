@@ -26,7 +26,7 @@ import structlog.stdlib
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from backend import db
 from backend.agents.registry import list_agents
@@ -201,7 +201,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "DELETE"],
+    allow_methods=["GET", "POST", "DELETE", "PATCH"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -392,14 +392,33 @@ async def _active_task_count_for_workspace(workspace: str) -> int:
     return count
 
 
-async def _create_and_start_task(req) -> Dict:
+async def _validate_task_workspace_refs(req: CreateTaskRequest) -> None:
+    if req.project_id:
+        proj = await db.get_project(req.project_id, workspace=req.workspace)
+        if not proj:
+            raise HTTPException(status_code=422, detail="project_id not found for this workspace")
+    if req.client_id:
+        cl = await db.get_client(req.client_id, workspace=req.workspace)
+        if not cl:
+            raise HTTPException(status_code=422, detail="client_id not found for this workspace")
+
+
+async def _create_and_start_task(req: CreateTaskRequest) -> Dict:
+    await _validate_task_workspace_refs(req)
     active_count = await _active_task_count_for_workspace(req.workspace)
     if active_count >= settings.max_concurrent_tasks:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"A task is already active in this workspace ({active_count}/{settings.max_concurrent_tasks}). Wait for it to finish, then try again.",
         )
-    task = await db.create_task(req.title, req.prompt, req.repo_url, workspace=req.workspace)
+    task = await db.create_task(
+        req.title,
+        req.prompt,
+        req.repo_url,
+        workspace=req.workspace,
+        project_id=req.project_id,
+        client_id=req.client_id,
+    )
     task_id = task["id"]
     t = asyncio.create_task(run_task(task_id))
     _running[task_id] = t
@@ -459,6 +478,8 @@ class CreateTaskRequest(BaseModel):
     prompt: str
     repo_url: Optional[str] = None
     workspace: str = "personal"
+    project_id: Optional[str] = None
+    client_id: Optional[str] = None
 
     @field_validator("title")
     @classmethod
@@ -486,6 +507,79 @@ class CreateTaskRequest(BaseModel):
             return normalize_workspace(v)
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
+
+
+class TaskPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    notes: Optional[str] = None
+    pinned: Optional[bool] = None
+    public: Optional[bool] = None
+    project_id: Optional[str] = None
+
+
+class TaskEstimateRequest(BaseModel):
+    prompt: str
+
+    @field_validator("prompt")
+    @classmethod
+    def validate_prompt(cls, v: str) -> str:
+        if len(v) > 8000:
+            raise ValueError("prompt must be <= 8000 characters")
+        return v
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    workspace: str = "personal"
+
+    @field_validator("workspace")
+    @classmethod
+    def validate_workspace(cls, v: str) -> str:
+        try:
+            return normalize_workspace(v)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+
+class RevenueCreateRequest(BaseModel):
+    amount_usd: float
+    source: str
+    note: Optional[str] = None
+    project_id: Optional[str] = None
+    workspace: str = "personal"
+
+    @field_validator("workspace")
+    @classmethod
+    def validate_workspace(cls, v: str) -> str:
+        try:
+            return normalize_workspace(v)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+
+class ClientCreateRequest(BaseModel):
+    name: str
+    workspace: str = "work"
+    github_org: Optional[str] = None
+    budget_usd: Optional[float] = None
+
+    @field_validator("workspace")
+    @classmethod
+    def validate_workspace(cls, v: str) -> str:
+        try:
+            return normalize_workspace(v)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+
+class ClientPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = None
+    github_org: Optional[str] = None
+    budget_usd: Optional[float] = None
 
 
 class SupervisorPlanRequest(BaseModel):
@@ -854,6 +948,8 @@ async def retry_task(task_id: str, request: Request, workspace: str = Depends(_w
         prompt=original["prompt"],
         repo_url=original.get("repo_url"),
         workspace=original["workspace"],
+        project_id=original.get("project_id"),
+        client_id=original.get("client_id"),
     )
     await _check_task_create_rate_limit(request)
     async with _task_creation_lock:
@@ -915,3 +1011,124 @@ async def stream_task(task_id: str, request: Request, workspace: str = Depends(_
 
     return StreamingResponse(event_generator(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.patch("/tasks/{task_id}", dependencies=[Depends(require_auth)])
+async def patch_task(task_id: str, req: TaskPatchRequest, workspace: str = Depends(_workspace_query)):
+    task = await db.get_task(task_id, workspace=workspace)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    payload = req.model_dump(exclude_unset=True)
+    if "project_id" in payload and payload["project_id"]:
+        proj = await db.get_project(payload["project_id"], workspace=workspace)
+        if not proj:
+            raise HTTPException(status_code=422, detail="project_id not found for this workspace")
+    if "pinned" in payload:
+        payload["pinned"] = 1 if payload["pinned"] else 0
+    if "public" in payload:
+        payload["public"] = 1 if payload["public"] else 0
+    await db.update_task(task_id, **payload)
+    updated = await db.get_task(task_id, workspace=workspace)
+    return {"task": updated}
+
+
+@app.post("/tasks/estimate", dependencies=[Depends(require_auth)])
+async def estimate_task(req: TaskEstimateRequest):
+    words = len(req.prompt.split())
+    estimated_minutes = max(1, int(words * 0.4))
+    estimated_cost_usd = round(estimated_minutes * 0.05, 2)
+    return {
+        "word_count": words,
+        "estimated_minutes": estimated_minutes,
+        "estimated_cost_usd": estimated_cost_usd,
+    }
+
+
+@app.get("/tasks/{task_id}/public")
+async def get_task_public(task_id: str):
+    data = await db.get_public_task(task_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Not found")
+    return data
+
+
+@app.get("/tasks/public/portfolio")
+async def public_task_portfolio(limit: int = Query(default=50, ge=1, le=200)):
+    return {"tasks": await db.list_public_tasks_done(limit=limit)}
+
+
+@app.get("/analytics", dependencies=[Depends(require_auth)])
+async def analytics(workspace: str = Query(default="all")):
+    return await db.get_analytics(workspace=workspace)
+
+
+@app.get("/activity", dependencies=[Depends(require_auth)])
+async def activity_feed(limit: int = Query(default=20, ge=1, le=100)):
+    return {"events": await db.list_recent_activity(limit=limit)}
+
+
+@app.post("/projects", status_code=201, dependencies=[Depends(require_auth)])
+async def create_project_api(req: ProjectCreateRequest):
+    return await db.create_project(req.name, workspace=req.workspace, description=req.description)
+
+
+@app.get("/projects", dependencies=[Depends(require_auth)])
+async def list_projects_api(workspace: str = Depends(_workspace_query)):
+    return {"projects": await db.list_projects(workspace=workspace)}
+
+
+@app.post("/revenue", status_code=201, dependencies=[Depends(require_auth)])
+async def create_revenue(req: RevenueCreateRequest):
+    if req.project_id:
+        proj = await db.get_project(req.project_id, workspace=req.workspace)
+        if not proj:
+            raise HTTPException(status_code=422, detail="project_id not found for this workspace")
+    return await db.create_revenue_log(
+        workspace=req.workspace,
+        amount_usd=req.amount_usd,
+        source=req.source,
+        note=req.note,
+        project_id=req.project_id,
+    )
+
+
+@app.get("/revenue", dependencies=[Depends(require_auth)])
+async def list_revenue(workspace: str = Depends(_workspace_query)):
+    return {
+        "entries": await db.list_revenue_logs(workspace=workspace),
+        "summary": await db.revenue_totals_by_source(workspace=workspace),
+    }
+
+
+@app.post("/clients", status_code=201, dependencies=[Depends(require_auth)])
+async def create_client_api(req: ClientCreateRequest):
+    return await db.create_client(
+        req.name, workspace=req.workspace, github_org=req.github_org, budget_usd=req.budget_usd
+    )
+
+
+@app.get("/clients", dependencies=[Depends(require_auth)])
+async def list_clients_api(workspace: str = Depends(_workspace_query)):
+    return {"clients": await db.list_clients(workspace=workspace)}
+
+
+@app.patch("/clients/{client_id}", dependencies=[Depends(require_auth)])
+async def patch_client_api(client_id: str, req: ClientPatchRequest, workspace: str = Depends(_workspace_query)):
+    payload = req.model_dump(exclude_unset=True)
+    if not payload:
+        row = await db.get_client(client_id, workspace=workspace)
+        if not row:
+            raise HTTPException(status_code=404, detail="Client not found")
+        return row
+    updated = await db.update_client(client_id, workspace, **payload)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return updated
+
+
+@app.delete("/clients/{client_id}", dependencies=[Depends(require_auth)])
+async def delete_client_api(client_id: str, workspace: str = Depends(_workspace_query)):
+    ok = await db.delete_client(client_id, workspace)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return {"deleted": True}
