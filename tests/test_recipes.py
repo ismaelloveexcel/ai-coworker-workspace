@@ -17,12 +17,28 @@ def test_select_recipe_respects_work_workspace():
 
 
 def test_plan_task_returns_recipe_agents_and_stages():
-    plan = plan_task("turn this SOP into a workflow", "work")
+    plan = plan_task("turn this SOP into a workflow", "work", company="ARIE Finance")
 
     assert plan["workspace"] == "work"
     assert plan["recipe"]["id"] == "sop_to_workflow"
     assert any(agent["id"] == "sop_digitiser" for agent in plan["agents"])
+    assert any(agent["id"] == "arie_compliance_expert" for agent in plan["agents"])
+    assert plan["agent_ids"][-1] == "arie_compliance_expert"
     assert plan["stages"]
+
+
+def test_plan_task_work_non_arie_skips_compliance_experts():
+    plan = plan_task("turn this SOP into a workflow", "work", company="Independent Ltd")
+
+    ids = [a["id"] for a in plan["agents"]]
+    assert "arie_compliance_expert" not in ids
+
+
+def test_plan_task_personal_has_no_arie_compliance_expert():
+    plan = plan_task("research competitors", "personal")
+
+    ids = [a["id"] for a in plan["agents"]]
+    assert "arie_compliance_expert" not in ids
 
 
 def test_list_recipes_filters_by_workspace():

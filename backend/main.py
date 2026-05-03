@@ -21,7 +21,7 @@ import re
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from typing import Deque, Dict, Optional
+from typing import Any, Deque, Dict, List, Optional
 
 import structlog
 import structlog.stdlib
@@ -31,8 +31,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from backend import db
+from backend.arie_compliance import (
+    default_company_for_workspace,
+    is_arie_compliance_gated,
+    validate_compliance_review_outcome,
+)
 from backend.agents.registry import list_agents
-from backend.agent_loop import _running, request_cancel, run_task
+from backend.agent_loop import _running, finalize_pr_after_compliance, request_cancel, run_task
 from backend.config import settings
 from backend.events import subscribe, unsubscribe
 from backend.notifier import notify_task_failure
@@ -413,6 +418,9 @@ async def _create_and_start_task(req: CreateTaskRequest) -> Dict:
             status_code=status.HTTP_409_CONFLICT,
             detail=f"A task is already active in this workspace ({active_count}/{settings.max_concurrent_tasks}). Wait for it to finish, then try again.",
         )
+    company = req.company
+    if req.workspace == "work" and company is None:
+        company = default_company_for_workspace("work")
     task = await db.create_task(
         req.title,
         req.prompt,
@@ -420,6 +428,7 @@ async def _create_and_start_task(req: CreateTaskRequest) -> Dict:
         workspace=req.workspace,
         project_id=req.project_id,
         client_id=req.client_id,
+        company=company,
     )
     task_id = task["id"]
     t = asyncio.create_task(run_task(task_id))
@@ -482,6 +491,15 @@ class CreateTaskRequest(BaseModel):
     workspace: str = "personal"
     project_id: Optional[str] = None
     client_id: Optional[str] = None
+    company: Optional[str] = None
+
+    @field_validator("company")
+    @classmethod
+    def strip_company(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        s = v.strip()
+        return s or None
 
     @field_validator("title")
     @classmethod
@@ -587,6 +605,7 @@ class ClientPatchRequest(BaseModel):
 class SupervisorPlanRequest(BaseModel):
     prompt: str
     workspace: str = "personal"
+    company: Optional[str] = None
 
     @field_validator("workspace")
     @classmethod
@@ -595,6 +614,30 @@ class SupervisorPlanRequest(BaseModel):
             return normalize_workspace(v)
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
+
+    @field_validator("company")
+    @classmethod
+    def strip_plan_company(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        s = v.strip()
+        return s or None
+
+
+class ComplianceReviewRequest(BaseModel):
+    """Structured compliance outcome for ARIE Finance gated work tasks."""
+
+    outcome: str  # passed | issues_found | needs_information
+    risk_level: str = "unspecified"
+    summary: str = ""
+    reviewer: str = ""
+    issues: Optional[List[Dict[str, Any]]] = None
+    categories_reviewed: Optional[List[str]] = None
+
+    @field_validator("outcome")
+    @classmethod
+    def lower_outcome(cls, v: str) -> str:
+        return (v or "").strip().lower()
 
 
 class ArtifactCreateRequest(BaseModel):
@@ -684,7 +727,10 @@ async def recipes(workspace: Optional[str] = None):
 
 @app.post("/supervisor/plan", dependencies=[Depends(require_auth)])
 async def supervisor_plan(req: SupervisorPlanRequest):
-    return plan_task(req.prompt, req.workspace)
+    company = req.company
+    if req.workspace == "work" and company is None:
+        company = default_company_for_workspace("work")
+    return plan_task(req.prompt, req.workspace, company)
 
 
 @app.post("/tasks", status_code=201, dependencies=[Depends(require_auth)])
@@ -952,6 +998,7 @@ async def retry_task(task_id: str, request: Request, workspace: str = Depends(_w
         workspace=original["workspace"],
         project_id=original.get("project_id"),
         client_id=original.get("client_id"),
+        company=original.get("company"),
     )
     await _check_task_create_rate_limit(request)
     async with _task_creation_lock:
@@ -1006,7 +1053,12 @@ async def stream_task(task_id: str, request: Request, workspace: str = Depends(_
                 yield f"{seq_line}event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
 
                 # Terminal events — close stream
-                if event["type"] in ("task_done", "task_failed", "task_cancelled"):
+                if event["type"] in (
+                    "task_done",
+                    "task_failed",
+                    "task_cancelled",
+                    "compliance_blocked",
+                ):
                     break
         finally:
             unsubscribe(task_id, queue)
@@ -1032,6 +1084,65 @@ async def patch_task(task_id: str, req: TaskPatchRequest, workspace: str = Depen
     await db.update_task(task_id, **payload)
     updated = await db.get_task(task_id, workspace=workspace)
     return {"task": updated}
+
+
+@app.post("/tasks/{task_id}/compliance-review", dependencies=[Depends(require_auth)])
+async def post_compliance_review(
+    task_id: str, req: ComplianceReviewRequest, workspace: str = Depends(_workspace_query)
+):
+    """Record ARIE Finance compliance outcome for gated work tasks (human-in-the-loop)."""
+    from backend.arie_compliance import (
+        READINESS_COMPLIANCE_ISSUES,
+        READINESS_NEEDS_INFORMATION,
+        READINESS_READY_FINAL,
+    )
+
+    task = await db.get_task(task_id, workspace=workspace)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not is_arie_compliance_gated(
+        workspace=str(task.get("workspace") or ""),
+        company=task.get("company"),
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Compliance review applies only to ARIE Finance gated work tasks.",
+        )
+    try:
+        comp_status, blob = validate_compliance_review_outcome(req.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    outcome = blob["outcome"]
+    passed_int = 1 if outcome == "passed" else 0
+    if outcome == "passed":
+        readiness = READINESS_READY_FINAL
+    elif outcome == "issues_found":
+        readiness = READINESS_COMPLIANCE_ISSUES
+    else:
+        readiness = READINESS_NEEDS_INFORMATION
+
+    await db.update_task(
+        task_id,
+        compliance_status=comp_status,
+        compliance_review_json=json.dumps(blob),
+        compliance_passed=passed_int,
+        readiness_status=readiness,
+    )
+    updated = await db.get_task(task_id, workspace=workspace)
+    return {"task": updated, "compliance": blob}
+
+
+@app.post("/tasks/{task_id}/finalize-after-compliance", dependencies=[Depends(require_auth)])
+async def post_finalize_after_compliance(task_id: str, workspace: str = Depends(_workspace_query)):
+    """Open PR and mark task done after compliance_passed (compliance_hold tasks only)."""
+    task = await db.get_task(task_id, workspace=workspace)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    try:
+        return await finalize_pr_after_compliance(task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/tasks/estimate", dependencies=[Depends(require_auth)])

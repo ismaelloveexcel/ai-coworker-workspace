@@ -198,6 +198,16 @@ ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
 """
 _MIGRATIONS.append(_SCHEMA_V6)
 
+_SCHEMA_V7 = """
+ALTER TABLE tasks ADD COLUMN company TEXT;
+ALTER TABLE tasks ADD COLUMN readiness_status TEXT;
+ALTER TABLE tasks ADD COLUMN compliance_status TEXT;
+ALTER TABLE tasks ADD COLUMN compliance_passed INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN compliance_review_json TEXT;
+ALTER TABLE tasks ADD COLUMN pending_finalize_json TEXT;
+"""
+_MIGRATIONS.append(_SCHEMA_V7)
+
 # Valid failure categories — explicit set prevents fragile free-text parsing (A1)
 VALID_FAILURE_CATEGORIES = frozenset({
     "branch_creation_failed",
@@ -219,6 +229,8 @@ _TASK_UPDATABLE = frozenset({
     "branch", "current_step", "last_action", "last_tool", "recovery_note", "reconciled_at",
     "workspace", "checkpoint_phase", "started_at", "ended_at", "failure_category",
     "project_id", "client_id", "public", "notes", "pinned",
+    "company", "readiness_status", "compliance_status", "compliance_passed",
+    "compliance_review_json", "pending_finalize_json",
 })
 _STEP_UPDATABLE = frozenset({"status", "tool_name", "tool_input", "tool_output", "reasoning", "updated_at"})
 _ARTIFACT_TYPES = frozenset({
@@ -340,6 +352,7 @@ async def create_task(
     workspace: str = "personal",
     project_id: Optional[str] = None,
     client_id: Optional[str] = None,
+    company: Optional[str] = None,
 ) -> Dict:
     task_id = str(uuid.uuid4())
     safe_title = _redact_text(title) or title
@@ -347,9 +360,22 @@ async def create_task(
     workspace = normalize_workspace(workspace)
     async with _get_db() as db:
         await db.execute(
-            "INSERT INTO tasks (id, title, prompt, repo_url, status, workspace, project_id, client_id) "
-            "VALUES (?,?,?,?, 'pending', ?, ?, ?)",
-            (task_id, safe_title, safe_prompt, repo_url, workspace, project_id, client_id),
+            "INSERT INTO tasks (id, title, prompt, repo_url, status, workspace, project_id, client_id, company, "
+            "compliance_passed, readiness_status, compliance_status) "
+            "VALUES (?,?,?,?, 'pending', ?, ?, ?, ?, ?, ?, ?)",
+            (
+                task_id,
+                safe_title,
+                safe_prompt,
+                repo_url,
+                workspace,
+                project_id,
+                client_id,
+                company,
+                0,
+                "draft" if workspace == "work" else None,
+                None,
+            ),
         )
     return {
         "id": task_id,
@@ -359,6 +385,7 @@ async def create_task(
         "workspace": workspace,
         "project_id": project_id,
         "client_id": client_id,
+        "company": company,
         "status": "pending",
         "created_at": _now(),
     }

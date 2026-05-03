@@ -36,6 +36,7 @@ from backend.cost_tracker import BudgetExceeded, BudgetPreflightError, estimate_
 from backend.events import destroy_bus, emit, emit_log
 from backend.model_router import infer_task_profile
 from backend.notifier import notify_task_failure
+from backend.arie_compliance import assert_pr_allowed_for_arie
 from backend.task_webhook import fire_terminal_webhook
 from backend.tool_adapters import _redact, execute_tool, github_compare_branch, github_create_branch, github_create_pr, humanize_error, run_tests
 
@@ -400,6 +401,38 @@ async def run_task(task_id: str) -> None:
                         fire_terminal_webhook(task_id, "failed")
                         return
 
+                task_latest = await db.get_task(task_id) or task
+                allowed_pr, block_payload = assert_pr_allowed_for_arie(task_latest)
+                if not allowed_pr:
+                    suite = _suite_for_changed_files(changed_files)
+                    pending = {
+                        "reasoning": reasoning,
+                        "changed_files": changed_files,
+                        "suite": suite,
+                        "repo": repo,
+                        "branch": branch,
+                        "incomplete_pr": False,
+                    }
+                    await db.update_task(
+                        task_id,
+                        status="compliance_hold",
+                        readiness_status="compliance_review_required",
+                        compliance_status="compliance_review_required",
+                        pending_finalize_json=json.dumps(pending),
+                    )
+                    await db.update_step(
+                        step_id,
+                        status="done",
+                        tool_output=_json_redacted({"compliance_gate": True, "detail": block_payload}),
+                    )
+                    await emit(task_id, "compliance_blocked", block_payload)
+                    await emit_log(
+                        task_id,
+                        "warning",
+                        "PR creation blocked — ARIE Finance compliance review required before finalisation",
+                    )
+                    return
+
                 await _check_cancel_checkpoint(task_id, "pr_creation")
                 try:
                     pr_result = await loop.run_in_executor(
@@ -531,6 +564,33 @@ async def run_task(task_id: str) -> None:
         try:
             compare_result = await loop.run_in_executor(_tool_executor, github_compare_branch, branch, "main", repo)
             if compare_result.get("success") and compare_result.get("data", {}).get("has_changes"):
+                task_latest = await db.get_task(task_id) or task
+                allowed_pr, block_payload = assert_pr_allowed_for_arie(task_latest)
+                if not allowed_pr:
+                    changed_files_max = compare_result.get("data", {}).get("files", [])
+                    suite = _suite_for_changed_files(changed_files_max)
+                    pending = {
+                        "reasoning": human_err,
+                        "changed_files": changed_files_max,
+                        "suite": suite,
+                        "repo": repo,
+                        "branch": branch,
+                        "incomplete_pr": True,
+                    }
+                    await db.update_task(
+                        task_id,
+                        status="compliance_hold",
+                        readiness_status="compliance_review_required",
+                        compliance_status="compliance_review_required",
+                        pending_finalize_json=json.dumps(pending),
+                    )
+                    await emit(task_id, "compliance_blocked", block_payload)
+                    await emit_log(
+                        task_id,
+                        "warning",
+                        "Max-steps PR blocked — ARIE Finance compliance review required",
+                    )
+                    return
                 await _check_cancel_checkpoint(task_id, "pr_creation")
                 try:
                     pr_result = await loop.run_in_executor(
@@ -605,3 +665,112 @@ async def run_task(task_id: str) -> None:
         _running.pop(task_id, None)
         await asyncio.sleep(5)   # brief grace period for SSE consumers to drain
         destroy_bus(task_id)
+
+
+async def finalize_pr_after_compliance(task_id: str) -> Dict[str, object]:
+    """Open PR and mark task done after ARIE compliance has been recorded as passed.
+
+    Only for ``compliance_hold`` tasks with ``pending_finalize_json`` from a blocked
+    PR gate; requires ``POST /tasks/{id}/compliance-review`` with ``outcome=passed``.
+    """
+    from datetime import date as _date
+
+    from backend.arie_compliance import (
+        assert_pr_allowed_for_arie,
+        is_arie_compliance_gated,
+        parse_pending_finalize,
+        READINESS_COMPLIANCE_PASSED,
+        READINESS_READY_FINAL,
+    )
+    from backend.tool_adapters import github_commit_files, github_read_file
+
+    task = await db.get_task(task_id)
+    if not task:
+        raise ValueError("task not found")
+    ws = str(task.get("workspace") or "personal")
+    if not is_arie_compliance_gated(workspace=ws, company=task.get("company")):
+        raise ValueError("task is not subject to the ARIE compliance gate")
+    allowed, _ = assert_pr_allowed_for_arie(task)
+    if not allowed:
+        raise ValueError("compliance has not been marked as passed for this task")
+    if str(task.get("status") or "") != "compliance_hold":
+        raise ValueError("task must be in compliance_hold status to finalize after compliance")
+    if task.get("pr_url"):
+        raise ValueError("task already has a PR URL")
+    pending = parse_pending_finalize(task.get("pending_finalize_json"))
+    if not pending:
+        raise ValueError("missing pending finalize payload — cannot open PR")
+
+    repo = pending.get("repo") or task.get("repo_url") or settings.github_default_repo
+    branch = pending.get("branch") or task.get("branch")
+    if not branch:
+        raise ValueError("branch is not set on task or pending payload")
+
+    reasoning = str(pending.get("reasoning") or "")
+    changed_files = pending.get("changed_files") or []
+    suite = pending.get("suite") or _suite_for_changed_files(changed_files)
+    incomplete_pr = bool(pending.get("incomplete_pr"))
+
+    loop = asyncio.get_running_loop()
+    test_result = await loop.run_in_executor(_tool_executor, run_tests, suite)
+    if not test_result.get("success") or not test_result.get("data", {}).get("success"):
+        raise ValueError("validation failed before PR finalize — fix tests and try again")
+
+    pr_title = f"[Agent incomplete] {task['title']}" if incomplete_pr else f"[Agent] {task['title']}"
+    pr_body = _redact(
+        (f"Task {task_id} reached max steps before finalizing.\n\n{reasoning}")
+        if incomplete_pr
+        else f"Automated PR for task {task_id}\n\n{reasoning}"
+    )
+    pr_result = await loop.run_in_executor(
+        _tool_executor,
+        github_create_pr,
+        branch,
+        pr_title,
+        pr_body,
+        repo,
+        incomplete_pr,
+    )
+    if not pr_result.get("success"):
+        raise ValueError(_human_error(pr_result.get("error", "PR creation failed")))
+
+    pr_url = pr_result.get("data", {}).get("pr_url", "")
+    await db.update_task(task_id, pr_url=pr_url, checkpoint_phase="post_pr")
+
+    try:
+        cl_result = await loop.run_in_executor(
+            _tool_executor, github_read_file, "CHANGELOG.md", branch, repo
+        )
+        existing_cl = cl_result.get("data", {}).get("content", "") if cl_result.get("success") else ""
+        changed = ", ".join(str(f.get("filename", "")) for f in (changed_files or [])[:5]) or "no files"
+        entry = (
+            f"\n## [{task_id[:8]}] {task['title']} — {_date.today()}\n"
+            f"- PR: {pr_url}\n"
+            f"- Changed: {changed}\n"
+            f"- Reasoning: {_redact(reasoning[:300])}\n"
+        )
+        new_cl = existing_cl + entry
+        await loop.run_in_executor(
+            _tool_executor,
+            github_commit_files,
+            branch,
+            [{"path": "CHANGELOG.md", "content": new_cl}],
+            f"chore: update CHANGELOG for task {task_id[:8]}",
+            repo,
+            False,
+        )
+    except Exception:
+        pass
+
+    await db.update_task(
+        task_id,
+        status="done",
+        pr_url=pr_url,
+        ended_at=_utcnow(),
+        readiness_status=READINESS_READY_FINAL,
+        compliance_status=READINESS_COMPLIANCE_PASSED,
+    )
+    await emit_log(task_id, "info", f"Task complete after compliance. PR: {pr_url}")
+    await emit(task_id, "task_done", {"pr_url": pr_url})
+    fire_terminal_webhook(task_id, "done")
+    return {"task_id": task_id, "pr_url": pr_url, "status": "done"}
