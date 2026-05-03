@@ -17,6 +17,22 @@ import aiosqlite
 
 from backend.config import settings
 
+# ---------------------------------------------------------------------------
+# Shared connection for :memory: mode (each new connect() creates an empty DB)
+# ---------------------------------------------------------------------------
+_memory_conn: Optional[aiosqlite.Connection] = None
+
+
+async def _get_memory_conn() -> aiosqlite.Connection:
+    global _memory_conn
+    if _memory_conn is None:
+        _memory_conn = await aiosqlite.connect(":memory:", timeout=30)
+        _memory_conn.row_factory = aiosqlite.Row
+        await _memory_conn.execute("PRAGMA journal_mode=WAL")
+        await _memory_conn.execute("PRAGMA synchronous=NORMAL")
+        await _memory_conn.execute("PRAGMA foreign_keys=ON")
+    return _memory_conn
+
 
 def _redact_text(value: Optional[str]) -> Optional[str]:
     if value is None:
@@ -228,7 +244,17 @@ def _safe_cols(allowed: frozenset, kwargs: dict) -> dict:
 
 @asynccontextmanager
 async def _get_db():
-    """Single-use WAL connection; commits on clean exit, rolls back on error."""
+    """Single-use WAL connection; commits on clean exit, rolls back on error.
+    For :memory: databases a shared connection is reused to preserve state."""
+    if settings.db_path == ":memory:":
+        db = await _get_memory_conn()
+        try:
+            yield db
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+        return
     os.makedirs(os.path.dirname(os.path.abspath(settings.db_path)), exist_ok=True)
     async with aiosqlite.connect(settings.db_path, timeout=30) as db:
         db.row_factory = aiosqlite.Row
@@ -249,6 +275,11 @@ async def _get_db():
 # ---------------------------------------------------------------------------
 
 async def init_db() -> None:
+    if settings.db_path == ":memory:":
+        db = await _get_memory_conn()
+        await _apply_migrations(db)
+        await db.commit()
+        return
     os.makedirs(os.path.dirname(os.path.abspath(settings.db_path)), exist_ok=True)
     async with aiosqlite.connect(settings.db_path, timeout=30) as db:
         db.row_factory = aiosqlite.Row
@@ -256,26 +287,30 @@ async def init_db() -> None:
         await db.execute("PRAGMA synchronous=NORMAL")
         await db.execute("PRAGMA foreign_keys=ON")
         await db.execute("PRAGMA busy_timeout=30000")
-        await db.execute(
+        await _apply_migrations(db)
+        await db.commit()
+
+
+async def _apply_migrations(db: aiosqlite.Connection) -> None:
+    await db.execute(
             "CREATE TABLE IF NOT EXISTS schema_version "
             "(version INTEGER PRIMARY KEY, applied_at TEXT DEFAULT (datetime('now')))"
         )
-        row = await (await db.execute("SELECT COALESCE(MAX(version),0) FROM schema_version")).fetchone()
-        current = row[0]
-        for idx, sql in enumerate(_MIGRATIONS, 1):
-            if idx > current:
-                stmts = [s.strip() for s in sql.split(";") if s.strip()]
-                for stmt in stmts:
-                    if stmt.upper().startswith("ALTER TABLE"):
-                        try:
-                            await db.execute(stmt)
-                        except sqlite3.OperationalError as exc:
-                            if "duplicate column" not in str(exc).lower():
-                                raise
-                    else:
+    row = await (await db.execute("SELECT COALESCE(MAX(version),0) FROM schema_version")).fetchone()
+    current = row[0]
+    for idx, sql in enumerate(_MIGRATIONS, 1):
+        if idx > current:
+            stmts = [s.strip() for s in sql.split(";") if s.strip()]
+            for stmt in stmts:
+                if stmt.upper().startswith("ALTER TABLE"):
+                    try:
                         await db.execute(stmt)
-                await db.execute("INSERT INTO schema_version (version) VALUES (?)", (idx,))
-        await db.commit()
+                    except sqlite3.OperationalError as exc:
+                        if "duplicate column" not in str(exc).lower():
+                            raise
+                else:
+                    await db.execute(stmt)
+            await db.execute("INSERT INTO schema_version (version) VALUES (?)", (idx,))
 
 
 # ---------------------------------------------------------------------------

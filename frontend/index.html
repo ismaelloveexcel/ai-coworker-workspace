@@ -1208,7 +1208,7 @@
     } catch { return null; }
   }
 
-  const API = '/api';
+  const API = localStorage.getItem('coworker_api_url') || 'http://127.0.0.1:8765';
   const terminalStatuses = new Set(['done','failed','cancelled']);
   const DISPATCH_BTN_HTML = '\u2694\uFE0F Send to Coworker <span class="key-hint">Ctrl+Enter</span>';
   const TITLE_MAX_LEN = 72;
