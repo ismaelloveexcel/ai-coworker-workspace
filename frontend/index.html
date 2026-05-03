@@ -658,6 +658,12 @@
       </div>
       <div class="intake">
         <div class="field">
+          <div class="workspace-tabs" aria-label="Workspace">
+            <button id="workspace-personal" class="ws-tab active" type="button" onclick="setWorkspace('personal')">&#x1F3E0; Personal</button>
+            <button id="workspace-work" class="ws-tab" type="button" onclick="setWorkspace('work')">&#x2694;&#xFE0F; Work</button>
+          </div>
+        </div>
+        <div class="field">
           <label for="prompt-input">What should your coworker do?</label>
           <textarea id="prompt-input" rows="5" placeholder="Describe the task: what to build, fix, or investigate. The more detail, the better.&#10;&#10;Example: Add a /ping endpoint to backend/main.py that returns {&quot;ok&quot;: true}."></textarea>
         </div>
@@ -671,13 +677,6 @@
             <div class="field">
               <label for="repo-input">Repository <span class="field-hint">(optional — owner/repo)</span></label>
               <input id="repo-input" type="text" placeholder="owner/repo" autocomplete="off" />
-            </div>
-            <div class="field">
-              <label>Workspace</label>
-              <div class="workspace-tabs" aria-label="Workspace">
-                <button id="workspace-personal" class="ws-tab active" type="button" onclick="setWorkspace('personal')">&#x1F3E0; Personal</button>
-                <button id="workspace-work" class="ws-tab" type="button" onclick="setWorkspace('work')">&#x2694;&#xFE0F; Work</button>
-              </div>
             </div>
             <div class="field" id="api-key-row">
               <label for="api-key-input">API Key <span class="field-hint">(if required by your server)</span></label>
