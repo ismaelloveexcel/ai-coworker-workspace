@@ -196,9 +196,10 @@
     .tavern-sign {
       width: 44px; height: 44px; display: grid; place-items: center;
       background: radial-gradient(circle at 35% 35%, #6b4a1c, #2e1e08);
-      border: 2px solid var(--gold-dim); border-radius: 8px; font-size: 1.4rem;
+      border: 2px solid var(--gold-dim); border-radius: 8px;
       box-shadow: var(--glow-amber), inset 0 0 12px rgba(0,0,0,0.5);
     }
+    .tavern-sign svg { width: 30px; height: 30px; display: block; }
     .brand-text h1 {
       font-family: 'MedievalSharp','IM Fell English',serif;
       font-size: clamp(1.2rem, 2.8vw, 1.8rem);
@@ -503,7 +504,7 @@
 
     /* PR-C1: Step inspection panel */
     .step-panel-hdr {
-      font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+      font-size: 0.8rem; font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.08em; color: var(--muted); padding: 0 0 4px;
     }
     .step-list { display: grid; gap: 5px; }
@@ -515,15 +516,15 @@
       display: flex; align-items: center; gap: 7px;
       padding: 5px 8px; cursor: pointer;
       transition: background .15s;
-      font-family: 'Share Tech Mono', monospace; font-size: 0.7rem;
+      font-family: 'Share Tech Mono', monospace; font-size: 0.8rem;
     }
     .step-hdr:hover { background: rgba(255,255,255,0.04); }
     .step-num { color: var(--muted); min-width: 22px; flex-shrink: 0; }
     .step-tool { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .step-status { font-size: 0.62rem; padding: 2px 6px; flex-shrink: 0; }
+    .step-status { font-size: 0.8rem; padding: 2px 6px; flex-shrink: 0; }
     .btn-expand {
       border: 1px solid var(--border); border-radius: 4px; padding: 0 5px;
-      background: var(--stone-2); color: var(--muted); font-size: 0.65rem;
+      background: var(--stone-2); color: var(--muted); font-size: 0.8rem;
       cursor: pointer; flex-shrink: 0; transition: border-color .15s, color .15s;
       font-family: 'Share Tech Mono', monospace;
     }
@@ -535,20 +536,20 @@
     .step-detail.open { display: flex; }
     .step-detail-section { display: flex; flex-direction: column; gap: 4px; }
     .step-detail-label {
-      font-size: 0.63rem; font-weight: 700; text-transform: uppercase;
+      font-size: 0.8rem; font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.07em; color: var(--muted);
       display: flex; align-items: center; justify-content: space-between; gap: 4px;
     }
     .step-raw {
       background: #080604; border: 1px solid var(--border); border-radius: 5px;
       padding: 7px 8px; max-height: 220px; overflow-y: auto;
-      font-family: 'Share Tech Mono', monospace; font-size: 0.67rem; color: #c5c5d3;
+      font-family: 'Share Tech Mono', monospace; font-size: 0.8rem; color: #c5c5d3;
       white-space: pre-wrap; word-break: break-all; line-height: 1.4;
       transition: max-height .2s;
     }
     .btn-raw {
       border: 1px solid var(--border); border-radius: 4px; padding: 1px 7px;
-      background: var(--stone-2); color: var(--muted); font-size: 0.6rem;
+      background: var(--stone-2); color: var(--muted); font-size: 0.8rem;
       transition: border-color .15s, color .15s; cursor: pointer;
     }
     .btn-raw:hover { border-color: var(--border-light); color: var(--text); }
@@ -612,7 +613,23 @@
 
   <header class="topbar">
     <div class="brand">
-      <div class="tavern-sign" aria-hidden="true">&#x1F37A;</div>
+      <div class="tavern-sign" aria-hidden="true">
+        <svg viewBox="0 0 48 48" role="img" aria-label="Tavern crest" focusable="false">
+          <defs>
+            <linearGradient id="crest-gold" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#F4B942"/>
+              <stop offset="100%" stop-color="#C47D10"/>
+            </linearGradient>
+            <linearGradient id="crest-shield" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#2A2556"/>
+              <stop offset="100%" stop-color="#161733"/>
+            </linearGradient>
+          </defs>
+          <path d="M24 4 L39 10 V24 C39 33 33 39 24 44 C15 39 9 33 9 24 V10 Z" fill="url(#crest-shield)" stroke="url(#crest-gold)" stroke-width="2"/>
+          <path d="M24 11 L30 22 H26 V34 H22 V22 H18 Z" fill="url(#crest-gold)"/>
+          <circle cx="24" cy="18" r="2.2" fill="#7FDBDA" opacity="0.9"/>
+        </svg>
+      </div>
       <div class="brand-text">
         <h1>The Coworker Tavern</h1>
         <p id="conn-status" class="brand-sub">Seeking adventurers&#x2026;</p>
