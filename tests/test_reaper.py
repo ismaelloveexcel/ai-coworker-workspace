@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch
 
 from backend import db
+from backend.config import settings
 
 
 # ---------------------------------------------------------------------------
@@ -217,3 +218,30 @@ async def test_reconcile_does_not_touch_terminal_tasks():
     assert (await db.get_task(cancelled["id"]))["recovery_note"] == "keep cancelled"
     assert (await db.get_task(failed["id"]))["recovery_note"] == "keep failed"
     mock_notify.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Threshold-alignment tests (PR-B3)
+# ---------------------------------------------------------------------------
+
+def test_zombie_stale_threshold_exceeds_step_timeout():
+    """Zombie stale threshold (10 min = 600 s) must be greater than the
+    configured step timeout so a single step never triggers false reaping
+    even without periodic heartbeats."""
+    stale_seconds = db.get_zombie_tasks.__defaults__[0] * 60   # default stale_minutes → seconds
+    assert stale_seconds > settings.step_timeout_seconds, (
+        f"zombie stale threshold ({stale_seconds}s) must exceed "
+        f"step_timeout_seconds ({settings.step_timeout_seconds}s)"
+    )
+
+
+def test_heartbeat_interval_well_within_zombie_threshold():
+    """Heartbeat interval must be significantly shorter than the zombie
+    stale threshold so the worker fires multiple times before a task could
+    be considered a zombie."""
+    stale_seconds = db.get_zombie_tasks.__defaults__[0] * 60
+    assert settings.heartbeat_interval_seconds * 2 < stale_seconds, (
+        f"heartbeat_interval_seconds ({settings.heartbeat_interval_seconds}s) * 2 "
+        f"should be less than zombie threshold ({stale_seconds}s)"
+    )
+
