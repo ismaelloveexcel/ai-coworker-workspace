@@ -99,11 +99,6 @@ TOOL_CATALOG: List[ToolEntry] = [
         category=CATEGORY_SHELL_ALLOWLISTED,
         description="Run an allowlisted test suite in the task sandbox.",
     ),
-    ToolEntry(
-        id="run_shell",
-        category=CATEGORY_SHELL_SANDBOXED,
-        description="Run a restricted argv-only shell command with timeout (no shell metacharacters).",
-    ),
     # Security
     ToolEntry(
         id="secret_scan",

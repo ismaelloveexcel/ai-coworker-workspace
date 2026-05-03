@@ -1208,7 +1208,23 @@
     } catch { return null; }
   }
 
-  const API = localStorage.getItem('coworker_api_url') || 'http://127.0.0.1:8765';
+  // Validate a stored API URL against an explicit allowlist of safe origins.
+  // Only http(s)://127.0.0.1 and http(s)://localhost (any port) are accepted.
+  // This prevents XSS or a rogue script from redirecting all API traffic to an
+  // attacker-controlled host via localStorage.
+  function _validateApiUrl(raw) {
+    if (!raw) return null;
+    try {
+      const u = new URL(raw);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      const host = u.hostname.toLowerCase();
+      if (host !== '127.0.0.1' && host !== 'localhost') return null;
+      // Reconstruct a clean origin+pathname (strip credentials/fragments)
+      return u.origin + (u.pathname !== '/' ? u.pathname.replace(/\/+$/, '') : '');
+    } catch { return null; }
+  }
+
+  const API = _validateApiUrl(localStorage.getItem('coworker_api_url')) || 'http://127.0.0.1:8765';
   const terminalStatuses = new Set(['done','failed','cancelled']);
   const DISPATCH_BTN_HTML = '\u2694\uFE0F Send to Coworker <span class="key-hint">Ctrl+Enter</span>';
   const TITLE_MAX_LEN = 72;
@@ -1418,7 +1434,7 @@
       + '<h1>' + escHtml(task.title) + '</h1>'
       + '<p><strong>Client:</strong> ' + escHtml(client) + '</p>'
       + '<p><strong>Status:</strong> ' + escHtml(task.status) + '</p>'
-      + '<p><strong>PR:</strong> ' + (task.pr_url ? '<a href="' + escHtml(task.pr_url) + '">' + escHtml(task.pr_url) + '</a>' : '—') + '</p>'
+      + '<p><strong>PR:</strong> ' + (task.pr_url ? (function(){ var safe = safePrUrl(task.pr_url); return safe ? '<a href="' + safe + '">' + escHtml(task.pr_url) + '</a>' : escHtml(task.pr_url); })() : '—') + '</p>'
       + '<p><strong>Approx. cost:</strong> $' + spent.toFixed(4) + '</p>'
       + '<h2>Objective</h2><pre style="white-space:pre-wrap;background:#f4f4f8;padding:12px;border-radius:8px">' + escHtml(task.prompt || '') + '</pre>'
       + '<h2>Steps</h2><table border="1" cellpadding="6" cellspacing="0" width="100%"><thead><tr><th>#</th><th>Tool</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>'
@@ -1565,6 +1581,7 @@
   // State-driven visuals — track live tool and stream health per task
   const activeToolByTask = {};      // taskId -> current tool name (cleared on tool_done)
   const streamHealthByTask = {};    // taskId -> { lastHb: timestamp, dropped: count }
+  const streamRetryCount = {};      // taskId -> number of reconnect attempts (capped at 5)
 
   // Deterministic tool-to-agent mapping (AC1: no hard-coded active-state illusions)
   const TOOL_AGENT_MAP = {
@@ -2046,8 +2063,9 @@
     }
     const es = new EventSource(streamUrl);
     activeStreams[taskId] = es;
-    // Initialise stream health entry on connect
+    // Initialise stream health entry on connect; reset retry counter on success
     streamHealthByTask[taskId] = { lastHb: Date.now(), dropped: 0 };
+    streamRetryCount[taskId] = 0;
     if (selectedTaskId === taskId) _updateStreamStatusRow(tasks.find(t => t.id === taskId) || null);
 
     ['task_done','task_failed','task_cancelled','tool_start','tool_done','log','heartbeat','stream_warning','plan'].forEach(type => {
@@ -2096,6 +2114,20 @@
       addLog(taskId, 'Stream disconnected', 'warning');
       if (streamHealthByTask[taskId]) streamHealthByTask[taskId].lastHb = 0;
       if (selectedTaskId === taskId) _updateStreamStatusRow(tasks.find(t => t.id === taskId) || null);
+      // Close the broken EventSource and schedule a reconnect with a fresh
+      // stream-token so that a reconnect after the 120 s token TTL doesn't
+      // loop forever with 401 responses.
+      es.close();
+      delete activeStreams[taskId];
+      const retryCount = (streamRetryCount[taskId] || 0) + 1;
+      streamRetryCount[taskId] = retryCount;
+      if (retryCount > 5) {
+        addLog(taskId, 'Stream lost after 5 retries — refresh the page to reconnect', 'error');
+        if (selectedTaskId === taskId) _updateStreamStatusRow(tasks.find(t => t.id === taskId) || null);
+        return;
+      }
+      const backoffMs = Math.min(1000 * Math.pow(2, retryCount - 1), 30000);
+      setTimeout(() => subscribeSSE(taskId), backoffMs);
     };
   }
 

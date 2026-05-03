@@ -66,7 +66,6 @@ BUILTIN_AGENTS = [
             "github_list_files",
             "github_commit_files",
             "run_tests",
-            "run_shell",
             "web_search",
         ],
         can_commit=True,

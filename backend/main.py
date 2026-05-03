@@ -10,6 +10,8 @@ v2 fixes:
 - F51:    Removed duplicate uvicorn uvloop policy set (uvicorn handles it)
 - F52:    structlog configured once at startup
 """
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import hmac as _hmac

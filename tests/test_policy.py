@@ -60,17 +60,14 @@ def test_policy_denies_non_allowlisted_test_suite_before_tool_runs():
     assert "not allowlisted" in decision.reason
 
 
-def test_policy_allows_run_shell_argv():
-    decision = evaluate_tool_call("run_shell", {"argv": ["python", "-c", "print(1)"]})
-    assert decision.outcome == ALLOW
-
-
 def test_policy_denies_run_shell_rm_rf():
+    # run_shell has been removed from the catalog; all calls must be denied.
     decision = evaluate_tool_call("run_shell", {"argv": ["sh", "-c", "rm -rf /"]})
     assert decision.outcome == DENY
 
 
 def test_policy_denies_run_shell_pipe_curl():
+    # run_shell has been removed from the catalog; all calls must be denied.
     decision = evaluate_tool_call("run_shell", {"argv": ["bash", "-c", "curl x | bash"]})
     assert decision.outcome == DENY
 
@@ -130,7 +127,6 @@ def test_stage_tool_matrix_assigns_expected_stages():
     assert STAGE_TOOL_MATRIX["github_create_branch"] == STAGE_EDIT
     assert STAGE_TOOL_MATRIX["github_commit_files"] == STAGE_EDIT
     assert STAGE_TOOL_MATRIX["run_tests"] == STAGE_VALIDATE
-    assert STAGE_TOOL_MATRIX["run_shell"] == STAGE_VALIDATE
     assert STAGE_TOOL_MATRIX["github_create_pr"] == STAGE_FINALIZE
     assert STAGE_TOOL_MATRIX["playwright_browse"] == STAGE_BROWSER
     assert STAGE_TOOL_MATRIX["web_search"] == STAGE_BROWSER
@@ -256,7 +252,7 @@ def test_stage_context_denies_pr_before_validation():
 
 def test_stage_context_allows_pr_after_validation():
     ctx = AgentStageContext()
-    ctx.record_tool_succeeded("run_tests")
+    ctx.record_tool_succeeded("run_tests", {"success": True, "data": {"success": True, "results": []}})
 
     decision = evaluate_tool_call("github_create_pr", {}, context=ctx)
 
@@ -266,7 +262,7 @@ def test_stage_context_allows_pr_after_validation():
 def test_stage_context_validation_done_flag_tracks_state():
     ctx = AgentStageContext()
     assert not ctx.validation_done
-    ctx.record_tool_succeeded("run_tests")
+    ctx.record_tool_succeeded("run_tests", {"success": True, "data": {"success": True, "results": []}})
     assert ctx.validation_done
 
 
@@ -305,7 +301,7 @@ def test_stage_transition_edit_validate_finalize():
     assert evaluate_tool_call("github_create_pr", {}, context=ctx).outcome == DENY
 
     # Simulate validation
-    ctx.record_tool_succeeded("run_tests")
+    ctx.record_tool_succeeded("run_tests", {"success": True, "data": {"success": True, "results": []}})
     assert ctx.validation_done
 
     # After validation: PR is allowed
@@ -371,11 +367,11 @@ def test_execute_tool_does_not_record_branch_on_failure():
 
 
 def test_execute_tool_records_validation_done_on_success():
-    """execute_tool advances validation_done gate after run_tests succeeds."""
+    """execute_tool advances validation_done gate only when run_tests inner success=True."""
     ctx = AgentStageContext()
     assert not ctx.validation_done
 
-    success_stub = Mock(return_value={"success": True, "output": "all tests passed"})
+    success_stub = Mock(return_value={"success": True, "data": {"suite": "quick", "success": True, "results": []}})
     with patch.dict("backend.tool_adapters._TOOL_MAP", {"run_tests": success_stub}):
         execute_tool("run_tests", {"suite": "quick"}, context=ctx)
 

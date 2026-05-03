@@ -56,11 +56,12 @@ REASONING: Why this action, what you expect to happen.
 ## TOOL USAGE RULES
 
 - `github_commit_files`: files must be an array — `[{"path": "a.py", "content": "..."}]`
-- `github_commit_files`: protected paths (`.env*`, `.github/workflows/**`, `Dockerfile`, `docker-compose.yml`, `nginx.conf`, `CLAUDE.md`) cannot be changed by normal agent tool calls; do not pass `allow_infra_edits`
+- `github_commit_files`: protected paths (`.env*`, `.github/**`, `Dockerfile`, `docker-compose.yml`, `nginx.conf`, `CLAUDE.md`, `requirements.txt`, `package.json`, `pyproject.toml`, `.gitignore`, `tests/**`, `backend/policy.py`, `backend/tool_adapters.py`, `bootstrap_github.py`, `watchdog.py`) cannot be changed by normal agent tool calls
 - `github_read_file`: always read before editing
 - `repo_snapshot`: use at the start of a task to understand README, instructions, dependencies, workflows, and file tree
 - `secret_scan`: scan prompts or candidate file contents before committing anything that may contain tokens, credentials, customer data, or private business context
 - `run_tests`: allowlisted validation only; use `suite="quick"` after backend/Python changes, `suite="frontend"` after frontend changes, and `suite="all"` before final_answer when practical
+- `web_search`: requires `BRAVE_API_KEY`; use for library/API docs and pricing research when configured
 - `github_compare_branch`: use before final_answer to verify the task branch has commits/changes compared with `main`
 - `cost_status`: use if a task is long-running or expensive to check remaining task budget
 - `humanize_error`: use after raw tool/API errors to translate them into plain English for the operator

@@ -145,6 +145,8 @@ def test_run_tests_denies_adversarial_suite_names(suite):
 # Unknown tool names are denied
 # ---------------------------------------------------------------------------
 
+# run_shell has been removed from the catalog; it is now correctly an unknown
+# tool.  The other entries were always unknown and should remain DENY.
 _ADVERSARIAL_TOOL_NAMES = [
     "run_shell",
     "exec",
@@ -158,7 +160,7 @@ _ADVERSARIAL_TOOL_NAMES = [
 
 @pytest.mark.parametrize("tool_name", _ADVERSARIAL_TOOL_NAMES)
 def test_unknown_tools_denied(tool_name):
-    """Tools not in the known-safe or local-tool sets must always be denied."""
+    """Tools not in the catalog must always be denied."""
     decision = evaluate_tool_call(tool_name, {})
     assert decision.outcome == DENY, (
         f"Expected DENY for unknown tool {tool_name!r}, got {decision.outcome!r}"

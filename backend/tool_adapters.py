@@ -70,9 +70,13 @@ def _err(msg: str) -> Dict:
 
 _SECRET_PATTERNS = [
     ("anthropic_api_key", re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}")),
+    ("openai_api_key", re.compile(r"sk-[A-Za-z0-9]{32,}")),
     ("github_pat", re.compile(r"github_pat_[A-Za-z0-9_\-]{20,}")),
     ("github_token", re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}")),
     ("aws_access_key", re.compile(r"AKIA[0-9A-Z]{16}")),
+    ("stripe_key", re.compile(r"(?:sk_live_|pk_live_|rk_live_|whsec_)[A-Za-z0-9]{16,}")),
+    ("slack_webhook", re.compile(r"https://hooks\.slack\.com/services/[A-Za-z0-9/]{20,}")),
+    ("jwt", re.compile(r"ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")),
     ("generic_assignment", re.compile(r"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*['\"]?([^\s'\"]{12,})")),
     ("generic_high_entropy", re.compile(r"\b[A-Za-z0-9_\-]{32,}\b")),
 ]
@@ -277,8 +281,19 @@ def github_create_branch(task_id: str, repo: str = None) -> Dict:
         return _err(f"GitHub error creating branch: {e.data}")
 
 
-_PROTECTED_EXACT_PATHS = {".env", "Dockerfile", "docker-compose.yml", "nginx.conf", "CLAUDE.md"}
-_PROTECTED_PREFIXES = (".github/workflows/",)
+_PROTECTED_EXACT_PATHS = {
+    ".env", "Dockerfile", "docker-compose.yml", "nginx.conf", "CLAUDE.md",
+    # Dependency manifests — agent must not alter pinned deps silently
+    "requirements.txt", "package.json", "pyproject.toml", ".gitignore",
+    # Core infra scripts
+    "bootstrap_github.py", "watchdog.py",
+    # Security-critical backend modules
+    "backend/policy.py", "backend/tool_adapters.py",
+}
+_PROTECTED_PREFIXES = (
+    ".github/",       # entire .github dir (workflows, CODEOWNERS, etc.)
+    "tests/",         # test files — agent must not silence the validation gate
+)
 
 
 def _normalize_repo_path(path: str) -> str:
@@ -286,7 +301,7 @@ def _normalize_repo_path(path: str) -> str:
 
 
 def _is_protected_repo_path(path: str) -> bool:
-    normalized = _normalize_repo_path(path)
+    normalized = os.path.normpath(_normalize_repo_path(path)).replace("\\", "/").lstrip("/")
     segments = normalized.split("/")
     has_env_segment = any(segment == ".env" or segment.startswith(".env.") for segment in segments)
     return (
@@ -537,6 +552,16 @@ def cost_status(task_id: str = "") -> Dict:
         return _err(f"Cost status error: {e}")
 
 
+# Minimal environment for subprocess calls — prevents GH_PAT / ANTHROPIC_API_KEY
+# from leaking into child processes via environment inheritance.
+_SAFE_SUBPROCESS_ENV = {
+    k: os.environ[k]
+    for k in ("PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "TEMP", "TMP",
+               "LANG", "LC_ALL", "PYTHONUTF8", "VIRTUAL_ENV", "PYTHONPATH")
+    if k in os.environ
+}
+
+
 def _run_command(args: List[str], timeout_seconds: int) -> Dict:
     started = time.time()
     try:
@@ -547,6 +572,7 @@ def _run_command(args: List[str], timeout_seconds: int) -> Dict:
             text=True,
             timeout=timeout_seconds,
             shell=False,
+            env=_SAFE_SUBPROCESS_ENV,
         )
         output = ((completed.stdout or "") + (completed.stderr or "")).strip()
         return {
@@ -644,7 +670,10 @@ def _task_root(task_id: str) -> str:
 
 def _sanitize_path(path: str, task_id: str = "") -> str:
     """Resolve path inside the task sandbox; reject traversal and symlinks."""
-    if os.path.isabs(path):
+    # Reject both POSIX absolute paths and Windows drive-rooted paths, plus
+    # paths starting with / on Windows (rooted to current drive but still
+    # escaping the sandbox via realpath).
+    if os.path.isabs(path) or path.startswith("/") or path.startswith("\\"):
         raise ValueError(f"Path traversal denied (absolute path): {path!r}")
     safe_root = _task_root(task_id) if task_id else _WORKSPACE_BASE
     candidate = os.path.normpath(os.path.join(safe_root, path))
@@ -997,7 +1026,6 @@ _TOOL_MAP = {
     "playwright_browse": playwright_browse,
     "repo_snapshot": repo_snapshot,
     "run_tests": run_tests,
-    "run_shell": run_shell,
     "secret_scan": secret_scan,
     "humanize_error": humanize_error,
     "cost_status": cost_status,
@@ -1039,7 +1067,7 @@ def execute_tool(
         # All registered tools return {"success": True/False, ...} dicts.
         # Only advance gate state when the underlying call actually succeeded.
         if context is not None and isinstance(result, dict) and result.get("success") is True:
-            context.record_tool_succeeded(tool_name)
+            context.record_tool_succeeded(tool_name, result)
         return result
     except TypeError as e:
         return _err(f"Tool {tool_name!r} called with wrong arguments: {e}")

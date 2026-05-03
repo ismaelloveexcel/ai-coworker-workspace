@@ -53,7 +53,6 @@ STAGE_TOOL_MATRIX: Dict[str, str] = {
     "secret_scan": STAGE_EDIT,
     # test / validation
     "run_tests": STAGE_VALIDATE,
-    "run_shell": STAGE_VALIDATE,
     # PR / finalization
     "github_create_pr": STAGE_FINALIZE,
     # browser / network
@@ -98,12 +97,21 @@ class AgentStageContext:
 
     # -- state setters -------------------------------------------------------
 
-    def record_tool_succeeded(self, tool_name: str) -> None:
+    def record_tool_succeeded(self, tool_name: str, result: Dict[str, Any] | None = None) -> None:
         """Update gate state after a successful tool execution."""
         if tool_name == "github_create_branch":
             self._branch_created = True
         elif tool_name == "run_tests":
-            self._validation_done = True
+            # Only mark validation done if the test suite itself passed.
+            # result is the full _ok({...}) wrapper; inner data.success holds
+            # the actual suite outcome.
+            inner_success = (
+                isinstance(result, dict)
+                and isinstance(result.get("data"), dict)
+                and result["data"].get("success") is True
+            )
+            if inner_success:
+                self._validation_done = True
 
     def enable_browser(self) -> None:
         """Explicitly opt-in to browser/network tools for this run."""

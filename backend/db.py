@@ -7,6 +7,7 @@ v2: F18/E10 schema versioning + migrations, F19 column allowlist,
     Added usd_spent / heartbeat_at columns (operator survival kit).
 """
 import os
+import asyncio
 import sqlite3
 import uuid
 from contextlib import asynccontextmanager
@@ -21,16 +22,26 @@ from backend.config import settings
 # Shared connection for :memory: mode (each new connect() creates an empty DB)
 # ---------------------------------------------------------------------------
 _memory_conn: Optional[aiosqlite.Connection] = None
+_memory_conn_lock: asyncio.Lock | None = None
+
+
+def _get_memory_lock() -> asyncio.Lock:
+    """Return (lazily creating) the per-event-loop lock for _memory_conn init."""
+    global _memory_conn_lock
+    if _memory_conn_lock is None:
+        _memory_conn_lock = asyncio.Lock()
+    return _memory_conn_lock
 
 
 async def _get_memory_conn() -> aiosqlite.Connection:
     global _memory_conn
-    if _memory_conn is None:
-        _memory_conn = await aiosqlite.connect(":memory:", timeout=30)
-        _memory_conn.row_factory = aiosqlite.Row
-        await _memory_conn.execute("PRAGMA journal_mode=WAL")
-        await _memory_conn.execute("PRAGMA synchronous=NORMAL")
-        await _memory_conn.execute("PRAGMA foreign_keys=ON")
+    async with _get_memory_lock():
+        if _memory_conn is None:
+            _memory_conn = await aiosqlite.connect(":memory:", timeout=30)
+            _memory_conn.row_factory = aiosqlite.Row
+            await _memory_conn.execute("PRAGMA journal_mode=WAL")
+            await _memory_conn.execute("PRAGMA synchronous=NORMAL")
+            await _memory_conn.execute("PRAGMA foreign_keys=ON")
     return _memory_conn
 
 
