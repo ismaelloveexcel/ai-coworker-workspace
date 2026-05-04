@@ -247,6 +247,10 @@
     .plan-preview-loading { color: var(--teal); font-style: italic; }
     .plan-preview-error { color: #ffc4c4; }
     .plan-preview-debug { margin-top: 12px; padding-top: 8px; border-top: 1px dashed rgba(74,90,120,0.4); font-size: 0.65rem; color: rgba(122,122,140,0.85); font-family: 'Share Tech Mono', monospace; }
+    .supervisor-plan-warning {
+      margin-top: 8px; font-size: 0.74rem; color: var(--amber); line-height: 1.45; max-width: 42em;
+    }
+    .supervisor-plan-warning.hidden { display: none !important; }
 
     .compliance-panel {
       margin: 12px 0; padding: 14px; border-radius: 10px;
@@ -871,9 +875,10 @@
               </div>
               <div class="supervisor-actions">
                 <button type="button" class="btn-supervisor-secondary" id="btn-supervisor-preview" onclick="previewSupervisorPlan()">Preview plan</button>
-                <button type="button" class="btn-supervisor-go" onclick="startSupervisorWork()">Prepare work item</button>
+                <button type="button" class="btn-supervisor-go" id="btn-supervisor-prepare" onclick="startSupervisorWork()">Prepare work item</button>
               </div>
             </div>
+            <p id="supervisor-plan-warning" class="supervisor-plan-warning hidden" role="status" aria-live="polite"></p>
             <div id="supervisor-plan-preview" class="plan-preview hidden" role="region" aria-label="Supervisor plan preview"></div>
           </div>
         </div>
@@ -1818,7 +1823,8 @@
 
   function _agentDisplayMapFromPlan(plan) {
     var m = {};
-    (plan.agents || []).forEach(function(a) {
+    var agents = Array.isArray(plan && plan.agents) ? plan.agents : [];
+    agents.forEach(function(a) {
       if (a && a.id) m[a.id] = a.display_name || a.id.replace(/_/g, ' ');
     });
     return m;
@@ -1826,7 +1832,11 @@
 
   function _expertNamesPlain(plan, expertIds) {
     var map = _agentDisplayMapFromPlan(plan);
-    return (expertIds || []).map(function(id) { return map[id] || id.replace(/^arie_/i, '').replace(/_/g, ' '); });
+    var ids = Array.isArray(expertIds) ? expertIds : [];
+    return ids.map(function(id) {
+      var key = String(id || '');
+      return map[key] || key.replace(/^arie_/i, '').replace(/_/g, ' ');
+    }).filter(Boolean);
   }
 
   function _renderPlanPreviewHtml(plan) {
@@ -1917,6 +1927,164 @@
     return parts.join('');
   }
 
+  /** Same POST body as Preview plan / Prepare work item (current workspace + company when work). */
+  function _supervisorPlanRequestBody(userLine, outputMode) {
+    var compInp = document.getElementById('company-input');
+    var company = null;
+    var ws = workspace;
+    if (ws === 'work') {
+      company = (compInp && compInp.value.trim()) ? compInp.value.trim() : 'ARIE Finance';
+    }
+    var body = { prompt: userLine, workspace: ws, output_mode: outputMode };
+    if (company) body.company = company;
+    return { body: body, company: company };
+  }
+
+  function buildPersonalFallbackBrief(userLine, outputMode) {
+    var lines = [
+      'SUPERVISOR REQUEST (personal workspace)',
+      '',
+      'What you asked for:',
+      userLine,
+      '',
+      'Requested deliverable type: ' + outputMode + '.',
+      '',
+      'Keep the tone friendly and practical. Use plain language the operator can skim in one pass.',
+      'Include only light research when it clearly helps; do not assume finance-sector compliance gates unless the topic is clearly sensitive.',
+      ''
+    ];
+    return lines.join('\n');
+  }
+
+  function buildGenericSupervisorBrief(plan, userLine, outputMode, ws, company) {
+    plan = plan || {};
+    var ap = plan.arie_plan || null;
+    var out = [];
+    out.push('WORK ITEM BRIEF FOR THE SUPERVISOR');
+    out.push('');
+    out.push('What you asked for (your words):');
+    out.push(userLine);
+    out.push('');
+    if (company && ws === 'work') {
+      out.push('Company: ' + company);
+      out.push('');
+    }
+    out.push('Workspace: ' + (ws === 'work' ? 'work (ARIE programme)' : 'personal'));
+    out.push('');
+    out.push('Requested deliverable type: ' + outputMode + '.');
+    out.push('');
+
+    if (ap) {
+      var gaps = Array.isArray(ap.related_gaps) ? ap.related_gaps : [];
+      var builds = Array.isArray(ap.related_builds) ? ap.related_builds : [];
+      if (gaps.length || builds.length) {
+        out.push('Related roadmap context (for alignment with ARIE):');
+        gaps.forEach(function(g) {
+          var t = (g.title || '').trim();
+          var id = (g.id || '').trim();
+          out.push('- ' + (id ? id + ' — ' : '') + t);
+        });
+        builds.forEach(function(b) {
+          var t = (b.title || '').trim();
+          var id = (b.id || '').trim();
+          out.push('- ' + (id ? id + ' — ' : '') + t);
+        });
+        out.push('');
+      } else if (ap.is_ad_hoc) {
+        out.push('Roadmap match: this reads as a new or exploratory idea.');
+        if (ap.suggested_category) out.push('Suggested focus area: ' + ap.suggested_category + '.');
+        out.push('');
+      }
+
+      var names = _expertNamesPlain(plan, ap.required_experts || []);
+      if (names.length) {
+        out.push('Specialists to involve (by role):');
+        names.forEach(function(n) { out.push('- ' + n); });
+        out.push('');
+      }
+      var departments = Array.isArray(ap.detected_departments) ? ap.detected_departments : [];
+      if (departments.length) {
+        out.push('Departments in play: ' + departments.join(', ') + '.');
+        out.push('');
+      }
+
+      out.push('Research before locking a blueprint or build: ' + (ap.research_required
+        ? 'Yes — include market and peer context unless you explicitly asked to skip it.'
+        : 'No extra research pass for this step (or the request is small and internal-only).'));
+      out.push('');
+
+      if (ap.compliance_required) {
+        out.push('Compliance review: required before anything is treated as final for production use.');
+        var complianceCategories = Array.isArray(ap.compliance_categories) ? ap.compliance_categories : [];
+        if (complianceCategories.length) {
+          out.push('Typical review lenses: ' + complianceCategories.slice(0, 12).join('; ') + '.');
+        }
+        out.push('');
+      } else {
+        out.push('Compliance review: not flagged as mandatory for this wording and workspace (still follow your normal sign-off if anything goes live).');
+        out.push('');
+      }
+
+      var mq = Array.isArray(ap.missing_questions) ? ap.missing_questions : [];
+      if (mq.length) {
+        out.push('Still to clarify:');
+        mq.forEach(function(q) { out.push('- ' + q); });
+        out.push('');
+      }
+
+      if (ap.recommended_next_action) {
+        out.push('Recommended next step:');
+        out.push(ap.recommended_next_action);
+        out.push('');
+      }
+    } else {
+      var rp = plan.recipe || {};
+      var recipeLabel = (rp.display_name || '').trim() || (rp.id || '').replace(/_/g, ' ') || 'Standard planning path';
+      out.push('How we will shape the work:');
+      out.push(recipeLabel + '.');
+      out.push('');
+      var agents = Array.isArray(plan.agents) ? plan.agents : [];
+      var anames = agents.map(function(a) {
+        return (a.display_name || '').trim() || (a.id || '').replace(/_/g, ' ');
+      }).filter(Boolean);
+      if (anames.length) {
+        out.push('People and roles likely involved:');
+        anames.forEach(function(n) { out.push('- ' + n); });
+        out.push('');
+      } else {
+        out.push('The Supervisor will assign the right specialists once the brief is in the queue.');
+        out.push('');
+      }
+      if (ws === 'personal') {
+        out.push('Research: use only what helps the personal goal; skip heavy market packs unless useful.');
+        out.push('');
+        out.push('Compliance: do not assume ARIE finance-sector gates apply to personal workspace items.');
+        out.push('');
+      } else {
+        out.push('Research: follow the usual ARIE path for external context when it materially affects the answer.');
+        out.push('');
+        out.push('Compliance: follow company policy before anything customer-facing ships.');
+        out.push('');
+      }
+    }
+
+    out.push('Delivery style:');
+    out.push('Write for a non-technical reader. Prefer short sections and concrete next actions instead of jargon.');
+    return out.join('\n').trim();
+  }
+
+  function buildBriefFromSupervisorPlan(plan, userLine, outputMode, company) {
+    plan = plan || {};
+    var ap = plan.arie_plan || null;
+    if (ap && ap.structured_prompt && String(ap.structured_prompt).trim()) {
+      return String(ap.structured_prompt).trim();
+    }
+    var ws = plan.workspace != null ? plan.workspace : workspace;
+    var co = company;
+    if (ws === 'work' && (!co || !String(co).trim())) co = 'ARIE Finance';
+    return buildGenericSupervisorBrief(plan, userLine, outputMode, ws, co);
+  }
+
   async function previewSupervisorPlan() {
     var box = document.getElementById('supervisor-plan-preview');
     var sup = document.getElementById('supervisor-chat-input');
@@ -1933,13 +2101,8 @@
       return;
     }
     if (!box) return;
-    var compInp = document.getElementById('company-input');
-    var company = null;
-    if (workspace === 'work') {
-      company = (compInp && compInp.value.trim()) ? compInp.value.trim() : 'ARIE Finance';
-    }
-    var body = { prompt: userLine, workspace: workspace, output_mode: outputMode };
-    if (company) body.company = company;
+    var pack = _supervisorPlanRequestBody(userLine, outputMode);
+    var body = pack.body;
     box.classList.remove('hidden');
     box.innerHTML = '<p class="plan-preview-loading">Checking what the Supervisor understood\u2026</p>';
     if (btnP) btnP.disabled = true;
@@ -1982,22 +2145,91 @@
       + '- Route through the Supervisor; do not expect the operator to configure tools manually.\n';
   }
 
-  function startSupervisorWork() {
+  async function startSupervisorWork() {
     var sup = document.getElementById('supervisor-chat-input');
     var modeEl = document.getElementById('supervisor-output-mode');
     var userLine = sup ? sup.value.trim() : '';
     var outputMode = modeEl ? modeEl.value : 'Blueprint';
     var compEl = document.getElementById('company-input');
-    var company = (compEl && compEl.value.trim()) ? compEl.value.trim() : 'ARIE Finance';
+    var btnPrep = document.getElementById('btn-supervisor-prepare');
+    var warn = document.getElementById('supervisor-plan-warning');
     if (!userLine) {
       if (sup) sup.focus();
       return;
     }
-    setWorkspace('work');
-    document.getElementById('prompt-input').value = buildSupervisorPrompt(userLine, outputMode, company);
-    document.getElementById('title-input').value = _autoTitle(userLine);
-    if (compEl) compEl.value = company;
-    document.getElementById('intake-title').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (warn) {
+      warn.textContent = '';
+      warn.classList.add('hidden');
+    }
+
+    var pack = _supervisorPlanRequestBody(userLine, outputMode);
+    var body = pack.body;
+    var companyStr = pack.company ? String(pack.company).trim() : '';
+
+    var brief = null;
+    var planOk = false;
+    var planErrorReason = '';
+
+    if (btnPrep) {
+      btnPrep.disabled = true;
+      if (!btnPrep.dataset._origLabel) btnPrep.dataset._origLabel = btnPrep.textContent;
+      btnPrep.textContent = 'Fetching plan\u2026';
+    }
+
+    try {
+      try {
+        var res = await fetch(API + '/supervisor/plan', { method: 'POST', headers: readHeaders(true), body: JSON.stringify(body) });
+        var data = await res.json().catch(function() { return {}; });
+        if (res.ok) {
+          var coForBrief = companyStr;
+          if (workspace === 'work' && !coForBrief) coForBrief = 'ARIE Finance';
+          brief = buildBriefFromSupervisorPlan(data, userLine, outputMode, coForBrief);
+          if (brief && String(brief).trim()) planOk = true;
+          else planErrorReason = 'the planning response did not include a usable brief';
+        } else if (res.status === 401) {
+          planErrorReason = 'the API key was missing or rejected';
+        } else {
+          planErrorReason = 'the planning service returned an error';
+        }
+      } catch (e) {
+        planErrorReason = 'the planning service could not be reached';
+      }
+
+      if (!planOk || !brief || !String(brief).trim()) {
+        if (workspace === 'work') {
+          var c = (compEl && compEl.value.trim()) ? compEl.value.trim() : 'ARIE Finance';
+          brief = buildSupervisorPrompt(userLine, outputMode, c);
+        } else {
+          brief = buildPersonalFallbackBrief(userLine, outputMode);
+        }
+        if (warn) {
+          warn.textContent = 'The live planning layer could not prepare a full brief because ' + (planErrorReason || 'planning was unavailable') + '. A standard brief was filled instead — review and edit it before sending.';
+          warn.classList.remove('hidden');
+        }
+      }
+
+      var promptInp = document.getElementById('prompt-input');
+      var titleInp = document.getElementById('title-input');
+      if (promptInp) promptInp.value = brief;
+      if (titleInp) titleInp.value = _autoTitle(userLine);
+
+      if (workspace === 'work' && compEl) {
+        if (!compEl.value.trim()) compEl.value = companyStr || 'ARIE Finance';
+      }
+
+      if (body.workspace && body.workspace !== workspace) {
+        setWorkspace(body.workspace);
+      }
+
+      var intakeTitle = document.getElementById('intake-title');
+      if (intakeTitle) intakeTitle.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } finally {
+      var btnNow = document.getElementById('btn-supervisor-prepare') || btnPrep;
+      if (btnNow) {
+        btnNow.disabled = false;
+        btnNow.textContent = btnNow.dataset._origLabel || 'Prepare work item';
+      }
+    }
   }
 
   function _parseComplianceReview(task) {
