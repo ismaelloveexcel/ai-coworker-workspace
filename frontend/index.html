@@ -224,6 +224,29 @@
       background: rgba(244,185,66,0.15); color: var(--amber); font-weight: 700; font-size: 0.82rem; cursor: pointer;
     }
     .btn-supervisor-go:hover { background: rgba(244,185,66,0.24); }
+    .btn-supervisor-secondary {
+      min-height: 40px; padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(127,219,218,0.35);
+      background: rgba(15,24,42,0.75); color: var(--teal); font-weight: 600; font-size: 0.82rem; cursor: pointer;
+    }
+    .btn-supervisor-secondary:hover { border-color: var(--teal); background: rgba(20,32,52,0.95); }
+    .btn-supervisor-go:disabled, .btn-supervisor-secondary:disabled { opacity: 0.55; cursor: not-allowed; }
+    .supervisor-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+    .plan-preview {
+      margin-top: 12px; padding: 14px; border-radius: 10px; border: 1px solid rgba(74,90,120,0.55);
+      background: rgba(10,16,28,0.88); font-size: 0.82rem; line-height: 1.5; color: rgba(232,236,245,0.92);
+    }
+    .plan-preview.hidden { display: none !important; }
+    .plan-preview h4 {
+      margin: 14px 0 6px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      color: rgba(127,219,218,0.9); border-bottom: 1px solid rgba(74,90,120,0.45); padding-bottom: 4px;
+    }
+    .plan-preview h4:first-child { margin-top: 0; }
+    .plan-preview ul { margin: 6px 0 0; padding-left: 1.15em; }
+    .plan-preview .plan-lead { margin: 0 0 8px; font-size: 0.88rem; color: #f0f4fc; }
+    .plan-preview .plan-muted { color: var(--muted); font-size: 0.74rem; margin-top: 4px; }
+    .plan-preview-loading { color: var(--teal); font-style: italic; }
+    .plan-preview-error { color: #ffc4c4; }
+    .plan-preview-debug { margin-top: 12px; padding-top: 8px; border-top: 1px dashed rgba(74,90,120,0.4); font-size: 0.65rem; color: rgba(122,122,140,0.85); font-family: 'Share Tech Mono', monospace; }
 
     .compliance-panel {
       margin: 12px 0; padding: 14px; border-radius: 10px;
@@ -846,8 +869,12 @@
                   <option value="Business agent">Business agent</option>
                 </select>
               </div>
-              <button type="button" class="btn-supervisor-go" onclick="startSupervisorWork()">Prepare work item</button>
+              <div class="supervisor-actions">
+                <button type="button" class="btn-supervisor-secondary" id="btn-supervisor-preview" onclick="previewSupervisorPlan()">Preview plan</button>
+                <button type="button" class="btn-supervisor-go" onclick="startSupervisorWork()">Prepare work item</button>
+              </div>
             </div>
+            <div id="supervisor-plan-preview" class="plan-preview hidden" role="region" aria-label="Supervisor plan preview"></div>
           </div>
         </div>
         <div id="personal-project-block" class="growth-row">
@@ -1787,6 +1814,155 @@
   function applySupervisorExample(line) {
     var ta = document.getElementById('supervisor-chat-input');
     if (ta) { ta.value = line; ta.focus(); }
+  }
+
+  function _agentDisplayMapFromPlan(plan) {
+    var m = {};
+    (plan.agents || []).forEach(function(a) {
+      if (a && a.id) m[a.id] = a.display_name || a.id.replace(/_/g, ' ');
+    });
+    return m;
+  }
+
+  function _expertNamesPlain(plan, expertIds) {
+    var map = _agentDisplayMapFromPlan(plan);
+    return (expertIds || []).map(function(id) { return map[id] || id.replace(/^arie_/i, '').replace(/_/g, ' '); });
+  }
+
+  function _renderPlanPreviewHtml(plan) {
+    var ap = plan.arie_plan;
+    var parts = [];
+    if (ap) {
+      var understood = (ap.user_prompt && String(ap.user_prompt).trim()) ? String(ap.user_prompt).trim() : '';
+      if (!understood && ap.structured_prompt) {
+        var sp = String(ap.structured_prompt).split('\n').filter(function(l) { return l.trim(); });
+        understood = sp.slice(0, 2).join(' ');
+      }
+      parts.push('<h4>What I understood</h4>');
+      parts.push('<p class="plan-lead">' + escHtml(understood || 'Your request will be interpreted using the full text you entered.') + '</p>');
+      if (ap.output_mode) parts.push('<p class="plan-muted">Requested output: ' + escHtml(ap.output_mode) + '</p>');
+
+      parts.push('<h4>Related ARIE items</h4>');
+      var gapLi = (ap.related_gaps || []).map(function(g) {
+        return '<li><strong>' + escHtml(g.id || '') + '</strong> — ' + escHtml(g.title || '') + '</li>';
+      }).join('');
+      var buildLi = (ap.related_builds || []).map(function(b) {
+        return '<li><strong>' + escHtml(b.id || '') + '</strong> — ' + escHtml(b.title || '') + '</li>';
+      }).join('');
+      if (gapLi || buildLi) {
+        parts.push('<ul>' + gapLi + buildLi + '</ul>');
+      } else if (ap.is_ad_hoc) {
+        parts.push('<p class="plan-muted">No strong match to a named gap or build yet — treating this as a new idea'
+          + (ap.suggested_category ? ' (suggested area: ' + escHtml(ap.suggested_category) + ').' : '.') + '</p>');
+      } else {
+        parts.push('<p class="plan-muted">No catalogue items scored highly for this wording; you can still proceed.</p>');
+      }
+
+      parts.push('<h4>Experts I\u2019ll involve</h4>');
+      var names = _expertNamesPlain(plan, ap.required_experts || []);
+      parts.push('<p class="plan-lead">' + escHtml(names.join(' \u00b7 ')) + '</p>');
+      if ((ap.detected_departments || []).length) {
+        parts.push('<p class="plan-muted">Departments: ' + escHtml((ap.detected_departments || []).join(', ')) + '</p>');
+      }
+
+      parts.push('<h4>Research needed</h4>');
+      parts.push('<p class="plan-lead">' + (ap.research_required
+        ? 'Yes — we will include market and peer context before locking a blueprint or build, unless you asked to skip research.'
+        : 'No — you asked to skip extra research for this pass, or this is a very small internal-only change.') + '</p>');
+
+      parts.push('<h4>Compliance review</h4>');
+      parts.push('<p class="plan-lead">' + (ap.compliance_required
+        ? 'Yes — finance-sector work needs an explicit compliance review before finalisation.'
+        : 'Not required for this workspace or company (standard path).') + '</p>');
+      if (ap.compliance_required && (ap.compliance_categories || []).length) {
+        var cc = ap.compliance_categories.slice(0, 8).map(function(c) { return '<li>' + escHtml(c) + '</li>'; }).join('');
+        parts.push('<p class="plan-muted">Typical lenses checked:</p><ul>' + cc + '</ul>');
+      }
+
+      parts.push('<h4>Questions I still need</h4>');
+      var mq = ap.missing_questions || [];
+      if (mq.length) parts.push('<ul>' + mq.map(function(q) { return '<li>' + escHtml(q) + '</li>'; }).join('') + '</ul>');
+      else parts.push('<p class="plan-muted">None critical right now — the Supervisor will ask only if something blocks execution.</p>');
+
+      parts.push('<h4>Recommended next step</h4>');
+      parts.push('<p class="plan-lead">' + escHtml(ap.recommended_next_action || 'Review the brief below, then use Prepare work item when you are ready.') + '</p>');
+
+      if (ap.suggested_recipe_id) {
+        parts.push('<div class="plan-preview-debug">Internal reference: recipe ' + escHtml(ap.suggested_recipe_id) + '</div>');
+      }
+    } else {
+      var rp = plan.recipe || {};
+      var promptEcho = (document.getElementById('supervisor-chat-input') || {}).value.trim() || '';
+      parts.push('<h4>What I understood</h4>');
+      parts.push('<p class="plan-lead">' + escHtml(promptEcho || 'Your request as entered.') + '</p>');
+      parts.push('<h4>How I\u2019ll approach it</h4>');
+      parts.push('<p class="plan-lead">' + escHtml(rp.display_name || rp.id || 'Standard planning') + '</p>');
+      parts.push('<h4>People involved</h4>');
+      var anames = (plan.agents || []).map(function(a) { return a.display_name || a.id; }).filter(Boolean);
+      parts.push('<p class="plan-lead">' + escHtml(anames.join(' \u00b7 ') || 'Supervisor and team') + '</p>');
+      parts.push('<h4>Research needed</h4>');
+      parts.push('<p class="plan-lead">The standard path may still include light research; details are in your full brief when you send the work item.</p>');
+      parts.push('<h4>Compliance review</h4>');
+      if (workspace === 'personal') {
+        parts.push('<p class="plan-lead">Not required for personal workspace in this preview.</p>');
+      } else {
+        parts.push('<p class="plan-lead">ARIE Finance compliance detail appears when the ARIE planning layer is active. For this company or mode, use your normal sign-off before anything goes live.</p>');
+      }
+      parts.push('<h4>Questions I still need</h4>');
+      parts.push('<p class="plan-muted">None listed in this short preview.</p>');
+      parts.push('<h4>Recommended next step</h4>');
+      parts.push('<p class="plan-lead">When the plan looks right, use Prepare work item to drop it into the full brief.</p>');
+      if (rp.id) parts.push('<div class="plan-preview-debug">Internal reference: recipe ' + escHtml(rp.id) + '</div>');
+    }
+    return parts.join('');
+  }
+
+  async function previewSupervisorPlan() {
+    var box = document.getElementById('supervisor-plan-preview');
+    var sup = document.getElementById('supervisor-chat-input');
+    var modeEl = document.getElementById('supervisor-output-mode');
+    var btnP = document.getElementById('btn-supervisor-preview');
+    var userLine = sup ? sup.value.trim() : '';
+    var outputMode = modeEl ? modeEl.value : 'Blueprint';
+    if (!userLine) {
+      if (sup) sup.focus();
+      if (box) {
+        box.classList.remove('hidden');
+        box.innerHTML = '<p class="plan-preview-error">Enter a short description first, then preview again.</p>';
+      }
+      return;
+    }
+    if (!box) return;
+    var compInp = document.getElementById('company-input');
+    var company = null;
+    if (workspace === 'work') {
+      company = (compInp && compInp.value.trim()) ? compInp.value.trim() : 'ARIE Finance';
+    }
+    var body = { prompt: userLine, workspace: workspace, output_mode: outputMode };
+    if (company) body.company = company;
+    box.classList.remove('hidden');
+    box.innerHTML = '<p class="plan-preview-loading">Checking what the Supervisor understood\u2026</p>';
+    if (btnP) btnP.disabled = true;
+    try {
+      var res = await fetch(API + '/supervisor/plan', { method: 'POST', headers: readHeaders(true), body: JSON.stringify(body) });
+      var data = await res.json().catch(function() { return {}; });
+      if (res.status === 401) {
+        box.innerHTML = '<p class="plan-preview-error">An API key is required. Open Advanced options, paste your key, save, then try Preview plan again.</p>';
+        var adv = document.getElementById('advanced-section');
+        if (adv) adv.open = true;
+        return;
+      }
+      if (!res.ok) {
+        box.innerHTML = '<p class="plan-preview-error">' + escHtml(_friendlyError(data.detail, res.status)) + '</p>';
+        return;
+      }
+      box.innerHTML = _renderPlanPreviewHtml(data);
+      try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e2) {}
+    } catch (e) {
+      box.innerHTML = '<p class="plan-preview-error">Could not reach the server. Check your connection and try again.</p>';
+    } finally {
+      if (btnP) btnP.disabled = false;
+    }
   }
 
   function buildSupervisorPrompt(userLine, outputMode, company) {
