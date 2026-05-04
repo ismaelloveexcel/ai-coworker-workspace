@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>The Coworker Tavern</title>
+  <title>AI Work Tool Factory</title>
   <script>
     try {
       if (sessionStorage.getItem('coworker_tavern_entered')) {
@@ -135,6 +135,127 @@
       box-shadow: inset 0 1px 0 rgba(127,219,218,0.06);
     }
     .landing-strip li strong { display: block; color: var(--teal); font-family: 'MedievalSharp', serif; font-size: 0.82rem; margin-bottom: 6px; letter-spacing: 0.06em; }
+
+    /* Professional start screen (ARIE work mode) */
+    .landing-view.landing-pro {
+      background:
+        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(30,58,95,0.45) 0%, transparent 55%),
+        linear-gradient(168deg, #0a1020 0%, #0d1528 38%, #0a0e18 100%);
+    }
+    .landing-pro-inner { max-width: 1040px; }
+    .start-header { text-align: center; display: grid; gap: 12px; }
+    .start-kicker {
+      font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(127,219,218,0.85);
+      margin: 0; font-weight: 600;
+    }
+    .start-heading {
+      margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, sans-serif;
+      font-size: clamp(1.65rem, 3.8vw, 2.35rem); font-weight: 700; color: #f0f4fc; letter-spacing: -0.02em;
+    }
+    .start-sub {
+      margin: 0 auto; max-width: 40em; font-size: clamp(0.95rem, 1.9vw, 1.08rem);
+      line-height: 1.55; color: rgba(232,236,245,0.88);
+    }
+    .start-question {
+      margin: 8px 0 0; font-size: 1.05rem; font-weight: 600; color: var(--amber);
+    }
+    .start-actions {
+      display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center;
+      margin-top: 8px;
+    }
+    .btn-start-primary {
+      min-height: 46px; padding: 11px 22px; border-radius: 9px; border: 1px solid rgba(244,185,66,0.55);
+      background: linear-gradient(135deg, #c9a227, #8a6a12); color: #0a0e18; font-weight: 700; font-size: 0.95rem;
+      cursor: pointer; box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+    }
+    .btn-start-primary:hover { filter: brightness(1.06); }
+    .btn-start-secondary {
+      min-height: 46px; padding: 11px 18px; border-radius: 9px; border: 1px solid rgba(127,219,218,0.35);
+      background: rgba(15,24,42,0.85); color: var(--teal); font-size: 0.88rem; cursor: pointer;
+    }
+    .btn-start-secondary:hover { border-color: var(--teal); background: rgba(20,32,52,0.95); }
+    .start-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;
+      margin-top: 22px; text-align: left;
+    }
+    .start-card {
+      display: grid; gap: 6px; padding: 14px 14px 16px; border-radius: 10px;
+      border: 1px solid rgba(74,90,120,0.65); background: rgba(12,18,32,0.88);
+      cursor: pointer; text-align: left; color: inherit; font: inherit;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .start-card:hover {
+      border-color: rgba(244,185,66,0.45); box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+    }
+    .start-card h3 { margin: 0; font-size: 0.95rem; font-weight: 700; color: #f5f7fb; }
+    .start-card p { margin: 0; font-size: 0.78rem; color: rgba(180,190,210,0.92); line-height: 1.45; }
+    .start-foot { text-align: center; margin-top: 22px; font-size: 0.76rem; max-width: 36em; margin-left: auto; margin-right: auto; }
+
+    .supervisor-panel {
+      border: 1px solid rgba(74,90,120,0.55); border-radius: 10px; padding: 14px;
+      background: linear-gradient(165deg, rgba(18,26,44,0.95) 0%, rgba(10,14,24,0.92) 100%);
+      margin-bottom: 14px;
+    }
+    .supervisor-panel .panel-kicker {
+      font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(127,219,218,0.8);
+      margin: 0 0 6px;
+    }
+    .supervisor-panel h3 { margin: 0 0 8px; font-size: 1.02rem; color: #eef2fa; }
+    .supervisor-panel .helper { margin: 0 0 10px; font-size: 0.8rem; color: var(--muted); line-height: 1.45; }
+    .supervisor-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .supervisor-chip {
+      font-size: 0.68rem; padding: 5px 9px; border-radius: 999px; border: 1px solid rgba(127,219,218,0.25);
+      background: rgba(20,32,52,0.75); color: rgba(220,228,240,0.92); cursor: pointer;
+    }
+    .supervisor-chip:hover { border-color: var(--teal); color: var(--text); }
+    .supervisor-io { display: grid; gap: 8px; }
+    .supervisor-io label { font-size: 0.72rem; color: var(--muted); font-weight: 600; }
+    .supervisor-io textarea {
+      width: 100%; min-height: 88px; padding: 10px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--stone); color: var(--text); font-size: 0.85rem; resize: vertical;
+    }
+    .supervisor-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+    .supervisor-row select {
+      flex: 1; min-width: 160px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--stone); color: var(--text); font-size: 0.82rem;
+    }
+    .btn-supervisor-go {
+      min-height: 40px; padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(244,185,66,0.5);
+      background: rgba(244,185,66,0.15); color: var(--amber); font-weight: 700; font-size: 0.82rem; cursor: pointer;
+    }
+    .btn-supervisor-go:hover { background: rgba(244,185,66,0.24); }
+
+    .compliance-panel {
+      margin: 12px 0; padding: 14px; border-radius: 10px;
+      border: 1px solid rgba(244,185,66,0.45); background: rgba(244,185,66,0.06);
+    }
+    .compliance-panel h3 { margin: 0 0 8px; font-size: 0.98rem; color: var(--amber); }
+    .compliance-panel .comp-msg { margin: 0 0 10px; font-size: 0.82rem; color: rgba(245,245,245,0.9); line-height: 1.45; }
+    .compliance-meta { font-size: 0.75rem; color: var(--muted); margin: 0 0 10px; line-height: 1.5; }
+    .compliance-form { display: grid; gap: 10px; }
+    .compliance-form .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 520px) { .compliance-form .row2 { grid-template-columns: 1fr; } }
+    .compliance-form label { font-size: 0.72rem; color: var(--muted); }
+    .compliance-form input[type="text"], .compliance-form textarea, .compliance-form select {
+      width: 100%; padding: 8px; border-radius: 7px; border: 1px solid var(--border); background: var(--stone); color: var(--text); font-size: 0.82rem;
+    }
+    .compliance-form textarea { min-height: 56px; resize: vertical; }
+    .compliance-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    .btn-compliance { min-height: 38px; padding: 7px 14px; border-radius: 7px; border: 1px solid var(--border-light); background: var(--stone-2); color: var(--text); font-weight: 600; font-size: 0.8rem; cursor: pointer; }
+    .btn-compliance.primary { border-color: rgba(244,185,66,0.55); background: rgba(244,185,66,0.12); color: var(--amber); }
+    .btn-compliance.finalize { border-color: rgba(126,200,138,0.45); background: rgba(126,200,138,0.1); color: var(--green); }
+
+    .status-compliance-hold {
+      background: rgba(244,185,66,0.16); color: var(--amber); border: 1px solid rgba(244,185,66,0.35);
+    }
+    .task-card.task-card-hold { border-color: rgba(244,185,66,0.45); box-shadow: 0 0 0 1px rgba(244,185,66,0.12); }
+
+    .queue-buckets { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+    .queue-bucket-btn {
+      font-size: 0.68rem; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border);
+      background: var(--stone-2); color: var(--muted); cursor: pointer;
+    }
+    .queue-bucket-btn.active { border-color: var(--teal); color: var(--teal); background: rgba(127,219,218,0.08); }
 
     .brand-taglines {
       position: relative; min-height: 1.35em; margin-top: 4px;
@@ -618,40 +739,49 @@
 </head>
 <body>
 
-<section id="landing-view" class="landing-view" aria-label="Welcome">
-  <div class="landing-inner">
-    <svg class="landing-hero-svg" viewBox="0 0 800 280" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-      <defs>
-        <linearGradient id="lh-sky" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#0D0D1A"/><stop offset="100%" stop-color="#1a1530"/>
-        </linearGradient>
-        <linearGradient id="lh-gold" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="#F4B942"/><stop offset="100%" stop-color="#9A6E10"/>
-        </linearGradient>
-        <radialGradient id="lh-glow" cx="50%" cy="40%" r="60%">
-          <stop offset="0%" stop-color="#F4B942" stop-opacity="0.35"/><stop offset="100%" stop-color="#F4B942" stop-opacity="0"/>
-        </radialGradient>
-      </defs>
-      <rect width="800" height="280" fill="url(#lh-sky)"/>
-      <rect width="800" height="280" fill="url(#lh-glow)"/>
-      <path d="M0,180 L0,120 Q80,100 160,115 L360,95 Q400,88 440,95 L640,115 Q720,100 800,120 L800,280 L0,280 Z" fill="#12102a" stroke="#4A3F6B" stroke-width="1.2"/>
-      <rect x="280" y="40" width="240" height="120" rx="6" fill="#0a0818" stroke="url(#lh-gold)" stroke-width="2"/>
-      <path d="M300,60 L500,60 M300,85 L500,85 M300,110 L420,110" stroke="rgba(127,219,218,0.25)" stroke-width="1.2"/>
-      <text x="400" y="150" text-anchor="middle" fill="#F4B942" font-family="Georgia,serif" font-size="22" font-weight="700">The Coworker Tavern</text>
-      <ellipse cx="400" cy="210" rx="140" ry="18" fill="rgba(127,219,218,0.12)" stroke="rgba(127,219,218,0.35)" stroke-width="1"/>
-      <path d="M400,198 L388,232 L412,232 Z" fill="#7FDBDA" opacity="0.9"/>
-    </svg>
-    <div class="landing-copy">
-      <h2>The Coworker Tavern</h2>
-      <p class="landing-value">Deploy an AI coding team to your GitHub repo &mdash; from a single prompt.</p>
-      <button type="button" class="landing-cta" onclick="enterTavern()">Enter the Tavern</button>
-      <ul class="landing-strip" aria-label="Highlights">
-        <li><strong>Autonomous PR creation</strong>Branch, commit, and open pull requests without leaving the flow.</li>
-        <li><strong>Real-time agent stream</strong>Watch tools and logs stream live over SSE.</li>
-        <li><strong>Multi-agent orchestration</strong>Supervisor, builder, tester, and handoff roles in one run.</li>
-        <li><strong>Budget guardrails</strong>Per-task and daily spend caps keep runs predictable.</li>
-      </ul>
+<section id="landing-view" class="landing-view landing-pro" aria-label="Start">
+  <div class="landing-inner landing-pro-inner">
+    <header class="start-header">
+      <p class="start-kicker">ARIE Finance · internal work mode</p>
+      <h1 class="start-heading">AI Work Tool Factory</h1>
+      <p class="start-sub">Talk to the Supervisor to research, plan, review, and build ARIE Finance tools with compliance checks built in.</p>
+      <p class="start-question">What do you want to create or improve today?</p>
+    </header>
+    <div class="start-actions">
+      <button type="button" class="btn-start-primary" onclick="enterWorkCommandCenter(true)">Open work command center</button>
+      <button type="button" class="btn-start-secondary" onclick="enterTavern(); setWorkspace('personal');">Personal product workspace</button>
     </div>
+    <div class="start-grid" role="list">
+      <button type="button" class="start-card" onclick="enterWorkCommandCenter(true)">
+        <h3>Start with Supervisor</h3>
+        <p>Describe the work in plain English. The Supervisor will route it to the right experts.</p>
+      </button>
+      <button type="button" class="start-card" onclick="enterWorkShortcut('arie_tool')">
+        <h3>Build an ARIE work tool</h3>
+        <p>Create a research pack, blueprint, or prototype for an internal tool.</p>
+      </button>
+      <button type="button" class="start-card" onclick="enterWorkShortcut('research')">
+        <h3>Research and compare solutions</h3>
+        <p>See how similar companies solve this and get a build or buy recommendation.</p>
+      </button>
+      <button type="button" class="start-card" onclick="enterWorkShortcut('roadmap')">
+        <h3>Turn roadmap item into blueprint</h3>
+        <p>Use ARIE roadmap context to prepare a decision-ready build brief.</p>
+      </button>
+      <button type="button" class="start-card" onclick="enterWorkShortcut('ideation')">
+        <h3>Add ad hoc ARIE idea</h3>
+        <p>Capture a new idea and classify it against ARIE priorities.</p>
+      </button>
+      <button type="button" class="start-card" onclick="enterWorkShortcut('biz_agent')">
+        <h3>Build a business agent</h3>
+        <p>Design an HR, customer service, onboarding, or knowledge agent.</p>
+      </button>
+      <button type="button" class="start-card" onclick="enterTavern(); setWorkspace('work');">
+        <h3>Review current work</h3>
+        <p>See active work, outputs, holds, approvals, and next actions.</p>
+      </button>
+    </div>
+    <p class="start-foot subtle">GitHub branches, review links, streaming diagnostics, and tool configuration stay under Advanced when you need them.</p>
   </div>
 </section>
 
@@ -661,20 +791,20 @@
 
   <header class="topbar">
     <div class="brand">
-      <div class="tavern-sign" aria-hidden="true">&#x1F37A;</div>
+      <div class="tavern-sign" aria-hidden="true">&#x25C8;</div>
       <div class="brand-text">
-        <h1>The Coworker Tavern</h1>
+        <h1>AI Work Tool Factory</h1>
         <p id="conn-status" class="brand-sub">Connecting…</p>
         <div class="brand-taglines" aria-live="polite">
-          <span class="tag-rot">Always on, always ready</span>
-          <span class="tag-rot">AI teammates, no overhead</span>
-          <span class="tag-rot">Ship while you sleep</span>
+          <span class="tag-rot">Supervisor-led ARIE work with compliance gates</span>
+          <span class="tag-rot">Research, blueprint, prototype — plain English in, structured delivery out</span>
+          <span class="tag-rot">Personal workspace still available for product experiments</span>
         </div>
       </div>
     </div>
     <div class="top-actions">
-      <div class="inn-stat"><span>&#x1F4DC;</span><span>Tasks</span><strong id="metric-total">0</strong></div>
-      <div class="inn-stat"><span>&#x2694;&#xFE0F;</span><span>Active</span><strong id="metric-active">0</strong></div>
+      <div class="inn-stat"><span>&#x1F4DC;</span><span>Work items</span><strong id="metric-total">0</strong></div>
+      <div class="inn-stat"><span>&#x2694;&#xFE0F;</span><span>In progress</span><strong id="metric-active">0</strong></div>
       <div class="inn-stat"><span>&#x1FA99;</span><span>Week</span><strong id="metric-week">$0.0000</strong></div>
       <button class="theme-btn" type="button" id="theme-cycle-btn" onclick="cycleTheme()" title="Theme: Nocturnal / Dim / High contrast" aria-label="Cycle color theme">&#x25D0;</button>
       <button class="btn-icon-help" type="button" onclick="openShortcutsModal()" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
@@ -687,9 +817,39 @@
     <!-- Quest Board -->
     <section class="panel" aria-labelledby="intake-title">
       <div class="panel-header">
-        <h2 id="intake-title" class="panel-title">&#x1F4CB; New Task</h2>
+        <h2 id="intake-title" class="panel-title">&#x1F4CB; New work item</h2>
       </div>
       <div class="intake">
+        <div class="supervisor-panel" id="supervisor-panel">
+          <p class="panel-kicker">ARIE work mode</p>
+          <h3>Talk to the Supervisor</h3>
+          <p class="helper">Say what you need. The Supervisor will use ARIE context, ask only what is missing, and involve the right experts.</p>
+          <div class="supervisor-chips" aria-label="Example requests">
+            <button type="button" class="supervisor-chip" onclick="applySupervisorExample('I need a lead generation tool for ARIE Finance.')">I need a lead generation tool for ARIE Finance.</button>
+            <button type="button" class="supervisor-chip" onclick="applySupervisorExample('Turn BP-016 into a blueprint.')">Turn BP-016 into a blueprint.</button>
+            <button type="button" class="supervisor-chip" onclick="applySupervisorExample('Research how similar firms handle client onboarding.')">Research how similar firms handle client onboarding.</button>
+            <button type="button" class="supervisor-chip" onclick="applySupervisorExample('Create an HR agent for staff questions.')">Create an HR agent for staff questions.</button>
+            <button type="button" class="supervisor-chip" onclick="applySupervisorExample('Build a customer service agent for support requests.')">Build a customer service agent for support requests.</button>
+            <button type="button" class="supervisor-chip" onclick="applySupervisorExample('Compare HubSpot vs custom CRM for ARIE.')">Compare HubSpot vs custom CRM for ARIE.</button>
+          </div>
+          <div class="supervisor-io">
+            <label for="supervisor-chat-input">Your request</label>
+            <textarea id="supervisor-chat-input" rows="4" placeholder="Example: I need a concise internal brief on how we should track introducer commissions."></textarea>
+            <div class="supervisor-row">
+              <div style="flex:1;min-width:160px">
+                <label for="supervisor-output-mode">Requested output</label>
+                <select id="supervisor-output-mode">
+                  <option value="Research pack">Research pack</option>
+                  <option value="Blueprint">Blueprint</option>
+                  <option value="Prototype">Prototype</option>
+                  <option value="Working tool">Working tool</option>
+                  <option value="Business agent">Business agent</option>
+                </select>
+              </div>
+              <button type="button" class="btn-supervisor-go" onclick="startSupervisorWork()">Prepare work item</button>
+            </div>
+          </div>
+        </div>
         <div id="personal-project-block" class="growth-row">
           <label for="project-select">Product project</label>
           <div class="growth-inline">
@@ -717,7 +877,7 @@
           </div>
         </div>
         <div class="field">
-          <label for="prompt-input">What should your coworker do?</label>
+          <label for="prompt-input">Brief for the Supervisor <span class="field-hint">(full instructions sent to the backend)</span></label>
           <div id="template-chips" class="tpl-chips"></div>
           <textarea id="prompt-input" rows="5" placeholder="Describe the task: what to build, fix, or investigate. The more detail, the better.&#10;&#10;Example: Add a /ping endpoint to backend/main.py that returns {&quot;ok&quot;: true}."></textarea>
           <div class="growth-inline" style="margin-top:6px">
@@ -726,7 +886,7 @@
           </div>
         </div>
         <div class="field">
-          <label for="title-input">Task name <span class="field-hint">(optional — auto-filled from your brief)</span></label>
+          <label for="title-input">Work item name <span class="field-hint">(optional — auto-filled from your brief)</span></label>
           <input id="title-input" type="text" placeholder="Leave blank to auto-name from brief" autocomplete="off" />
         </div>
         <details id="advanced-section" class="advanced-section">
@@ -739,9 +899,13 @@
             <div class="field">
               <label>Workspace</label>
               <div class="workspace-tabs" aria-label="Workspace">
-                <button id="workspace-personal" class="ws-tab active" type="button" onclick="setWorkspace('personal')">&#x1F3E0; Personal</button>
-                <button id="workspace-work" class="ws-tab" type="button" onclick="setWorkspace('work')">&#x2694;&#xFE0F; Work</button>
+                <button id="workspace-personal" class="ws-tab" type="button" onclick="setWorkspace('personal')">&#x1F3E0; Personal</button>
+                <button id="workspace-work" class="ws-tab active" type="button" onclick="setWorkspace('work')">&#x2694;&#xFE0F; Work (ARIE)</button>
               </div>
+            </div>
+            <div class="field" id="company-field-row">
+              <label for="company-input">Company <span class="field-hint">(ARIE Finance work stream)</span></label>
+              <input id="company-input" type="text" value="ARIE Finance" autocomplete="organization" />
             </div>
             <div class="field" id="api-key-row">
               <label for="api-key-input">API Key <span class="field-hint">(if required by your server)</span></label>
@@ -752,7 +916,7 @@
             </div>
           </div>
         </details>
-        <button id="dispatch-btn" class="btn-primary" type="button" onclick="createTask()">&#x2694;&#xFE0F; Send to Coworker <span class="key-hint">Ctrl+Enter</span></button>
+        <button id="dispatch-btn" class="btn-primary" type="button" onclick="createTask()">Send work item <span class="key-hint">Ctrl+Enter</span></button>
         <p id="form-error" class="error hidden"></p>
       </div>
     </section>
@@ -762,7 +926,7 @@
       <div class="panel">
         <div class="tavern-floor">
           <div class="panel-header" style="padding:0 0 8px">
-            <h2 class="panel-title">&#x1F3F0; Tavern Floor</h2>
+            <h2 class="panel-title">&#x1F3F0; Work queue</h2>
             <span id="factory-state" class="status status-pending">At Rest</span>
           </div>
           <div class="rune-floor">
@@ -967,7 +1131,7 @@
             </svg>
 
             <!-- Agents free-standing on scene floor -->
-            <div class="agents-row" aria-label="Agent party">
+            <div class="agents-row" aria-label="AI specialists on this run">
               <div class="agent-char idle" data-stage="supervisor" id="agent-supervisor" aria-label="Rex the Supervisor — idle">
                 <span class="char-nameplate">Rex</span>
                 <span class="char-sprite" aria-hidden="true">
@@ -1043,10 +1207,16 @@
         </div>
       </div>
 
-      <div class="rune-divider" aria-hidden="true">&#x2500;&#x2500; &#x16A0; ACTIVE TASKS &#x16A0; &#x2500;&#x2500;</div>
+      <div class="rune-divider" aria-hidden="true">&#x2500;&#x2500; &#x16A0; WORK ITEMS &#x16A0; &#x2500;&#x2500;</div>
+      <div class="queue-buckets" role="tablist" aria-label="Filter work items">
+        <button type="button" class="queue-bucket-btn active" data-bucket="all" onclick="setQueueBucket('all')">All</button>
+        <button type="button" class="queue-bucket-btn" data-bucket="decision" onclick="setQueueBucket('decision')">Waiting for your decision</button>
+        <button type="button" class="queue-bucket-btn" data-bucket="active" onclick="setQueueBucket('active')">In progress</button>
+        <button type="button" class="queue-bucket-btn" data-bucket="finished" onclick="setQueueBucket('finished')">Ready / completed</button>
+      </div>
       <div class="queue-toolbar" role="search">
-        <label for="queue-filter" class="hidden">Filter tasks</label>
-        <input id="queue-filter" type="search" placeholder="Search tasks by title&#x2026;" autocomplete="off" oninput="onQueueFilterInput(event)" />
+        <label for="queue-filter" class="hidden">Filter work items</label>
+        <input id="queue-filter" type="search" placeholder="Search work items by title&#x2026;" autocomplete="off" oninput="onQueueFilterInput(event)" />
         <span id="queue-filter-hint" class="queue-filter-hint hidden" aria-live="polite"></span>
       </div>
       <div class="queue" id="task-list"></div>
@@ -1055,7 +1225,7 @@
     <!-- Quest Detail -->
     <aside class="panel right-rail" aria-labelledby="details-title">
       <div class="panel-header">
-        <h2 id="details-title" class="panel-title">&#x1F4DC; Task Detail</h2>
+        <h2 id="details-title" class="panel-title">&#x1F4DC; Work item detail</h2>
         <span id="selected-status" class="status status-pending">None</span>
       </div>
       <div class="details">
@@ -1063,8 +1233,8 @@
           <svg class="arrow-left" width="72" height="36" viewBox="0 0 72 36" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
             <path d="M52 18 H14 M24 8 L12 18 24 28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          <p><strong class="task-title" style="color:var(--gold);font-size:0.95rem">Select a task to view details</strong></p>
-          <p>Pick any active task card on the left to stream its log, steps, and handoff here.</p>
+          <p><strong class="task-title" style="color:var(--gold);font-size:0.95rem">Select a work item</strong></p>
+          <p>Pick a card on the left to see activity, steps, outputs, and compliance status.</p>
         </div>
         <div id="detail-content" class="hidden">
         <div>
@@ -1082,13 +1252,75 @@
         </div>
         <div class="artifact-list" id="artifact-list"></div>
         <div id="plan-panel" class="hidden" style="margin:10px 0;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--stone)">
-          <div style="font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Agent plan</div>
+          <div style="font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Supervisor plan</div>
           <pre id="plan-panel-text" style="margin:0;white-space:pre-wrap;font-family:'Share Tech Mono',monospace;font-size:0.72rem;color:var(--text)"></pre>
         </div>
+        <div id="compliance-panel" class="compliance-panel hidden">
+          <h3>Compliance review required</h3>
+          <p class="comp-msg">Because this is ARIE Finance work, this cannot be finalised until compliance approval is recorded.</p>
+          <p id="compliance-readiness-line" class="compliance-meta"></p>
+          <p id="compliance-status-line" class="compliance-meta"></p>
+          <p id="compliance-pending-line" class="compliance-meta"></p>
+          <div id="compliance-issues-display" class="compliance-meta"></div>
+          <p id="compliance-next-step" class="comp-msg" style="font-size:0.8rem;color:var(--teal)"></p>
+          <p id="compliance-form-error" class="error hidden"></p>
+          <div class="compliance-form">
+            <div class="row2">
+              <div>
+                <label for="compliance-outcome">Review outcome</label>
+                <select id="compliance-outcome">
+                  <option value="passed">passed</option>
+                  <option value="issues_found">issues_found</option>
+                  <option value="needs_information">needs_information</option>
+                </select>
+              </div>
+              <div>
+                <label for="compliance-risk">Risk level</label>
+                <select id="compliance-risk">
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                  <option value="critical">critical</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label for="compliance-categories">Categories reviewed <span class="field-hint">(comma-separated)</span></label>
+              <input id="compliance-categories" type="text" placeholder="e.g. data protection, AML, communications" />
+            </div>
+            <div>
+              <label for="compliance-summary">Summary <span class="field-hint">(optional)</span></label>
+              <textarea id="compliance-summary" rows="2" placeholder="Short summary of the review"></textarea>
+            </div>
+            <div>
+              <label for="compliance-reviewer">Reviewer <span class="field-hint">(optional)</span></label>
+              <input id="compliance-reviewer" type="text" placeholder="Name or role" />
+            </div>
+            <div>
+              <label for="compliance-issue-text">Issue</label>
+              <textarea id="compliance-issue-text" rows="2" placeholder="Describe the issue, or enter &quot;none&quot; if outcome is passed with no findings"></textarea>
+            </div>
+            <div>
+              <label for="compliance-why">Why it matters</label>
+              <textarea id="compliance-why" rows="2" placeholder="Impact on clients, regulators, or operations"></textarea>
+            </div>
+            <div>
+              <label for="compliance-fix">Recommended fix</label>
+              <textarea id="compliance-fix" rows="2" placeholder="Concrete next step"></textarea>
+            </div>
+            <label class="growth-inline" style="display:flex;gap:8px;align-items:center">
+              <input type="checkbox" id="compliance-human-required" /> Human compliance or legal review required
+            </label>
+          </div>
+          <div class="compliance-actions">
+            <button type="button" class="btn-compliance primary" id="btn-compliance-submit" onclick="submitComplianceReview()">Record compliance review</button>
+            <button type="button" class="btn-compliance finalize hidden" id="btn-compliance-finalize" onclick="finalizeAfterCompliance()">Finalize after compliance approval</button>
+          </div>
+        </div>
         <div id="ship-checklist" class="hidden" style="margin:10px 0;padding:10px;border-radius:8px;border:1px dashed var(--amber-dim);background:rgba(244,185,66,0.06)">
-          <div style="font-size:0.72rem;color:var(--gold);margin-bottom:8px">Ship it</div>
-          <label class="growth-inline" style="display:flex;gap:8px;margin:4px 0"><input type="checkbox" data-ship="tests" onchange="onShipCheck(this)" /> Tests passing</label>
-          <label class="growth-inline" style="display:flex;gap:8px;margin:4px 0"><input type="checkbox" data-ship="review" onchange="onShipCheck(this)" /> PR reviewed</label>
+          <div style="font-size:0.72rem;color:var(--gold);margin-bottom:8px">Ship checklist</div>
+          <label class="growth-inline" style="display:flex;gap:8px;margin:4px 0"><input type="checkbox" data-ship="tests" onchange="onShipCheck(this)" /> Checks on the work passing</label>
+          <label class="growth-inline" style="display:flex;gap:8px;margin:4px 0"><input type="checkbox" data-ship="review" onchange="onShipCheck(this)" /> Review link reviewed</label>
           <label class="growth-inline" style="display:flex;gap:8px;margin:4px 0"><input type="checkbox" data-ship="deploy" onchange="onShipCheck(this)" /> Deployed</label>
           <label class="growth-inline" style="display:flex;gap:8px;margin:4px 0"><input type="checkbox" data-ship="revenue" onchange="onShipCheck(this)" /> Revenue logged</label>
         </div>
@@ -1104,6 +1336,7 @@
         </div>
         <div class="step-panel-hdr" id="step-panel-hdr" style="display:none">&#x2692;&#xFE0F; Steps</div>
         <div id="step-panel" class="step-list"></div>
+        <div style="font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin:10px 0 4px">Activity</div>
         <div id="log-panel" class="log-box" aria-live="polite"></div>
         </div>
         </div>
@@ -1115,24 +1348,24 @@
   <div class="operator-studio" role="region" aria-label="Operator Studio">
     <div class="studio-panel">
       <div class="studio-header">
-        <span class="studio-title">&#x1F5E1;&#xFE0F; Artifact Vault</span>
+        <span class="studio-title">&#x1F5E1;&#xFE0F; Outputs library</span>
         <span id="artifact-count" class="studio-count">0</span>
       </div>
-      <div id="artifact-preview" class="studio-body"><p>Vault is empty.</p></div>
+      <div id="artifact-preview" class="studio-body"><p>No outputs yet.</p></div>
     </div>
     <div class="studio-panel">
       <div class="studio-header">
-        <span class="studio-title">&#x1F4DA; Recipe Grimoire</span>
+        <span class="studio-title">&#x1F4DA; Saved workflows</span>
         <span id="recipe-count" class="studio-count">0</span>
       </div>
-      <div id="recipe-preview" class="studio-body"><p>No recipes inscribed.</p></div>
+      <div id="recipe-preview" class="studio-body"><p>No saved workflows yet.</p></div>
     </div>
     <div class="studio-panel">
       <div class="studio-header">
-        <span class="studio-title">&#x1F4D6; Chronicle</span>
+        <span class="studio-title">&#x1F4D6; Recent runs</span>
         <span id="run-count" class="studio-count">0</span>
       </div>
-      <div id="run-preview" class="studio-body"><p>The chronicle is blank.</p></div>
+      <div id="run-preview" class="studio-body"><p>No recent runs yet.</p></div>
     </div>
     <div class="studio-panel perf-panel" aria-labelledby="perf-title">
       <div class="studio-header">
@@ -1159,7 +1392,7 @@
       <div id="analytics-body" class="studio-body" style="font-style:normal">
         <p id="analytics-loading" class="subtle">Loading&#x2026;</p>
         <div id="analytics-metrics" class="hidden">
-          <p>Tasks in window: <strong id="analytics-total">0</strong> &middot; PRs with URL: <strong id="analytics-prs">0</strong></p>
+          <p>Work items in window: <strong id="analytics-total">0</strong> &middot; Review links with URL: <strong id="analytics-prs">0</strong></p>
           <p>Avg cost / task: <strong id="analytics-avg">$0</strong> &middot; Success rate: <strong id="analytics-rate">n/a</strong></p>
           <p class="subtle" id="analytics-tools" style="font-size:0.72rem"></p>
         </div>
@@ -1169,7 +1402,7 @@
   </div>
 
   <div class="activity-drawer" id="activity-drawer">
-    <button type="button" class="activity-drawer-toggle" onclick="document.getElementById('activity-drawer').classList.toggle('open')">&#x2692; Agent activity</button>
+    <button type="button" class="activity-drawer-toggle" onclick="document.getElementById('activity-drawer').classList.toggle('open')">&#x2692; AI specialist activity</button>
     <div class="activity-drawer-body" id="activity-feed-body"><p class="subtle">Loading feed&#x2026;</p></div>
   </div>
 
@@ -1179,7 +1412,7 @@
 <div id="shortcuts-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="shortcut-modal-title" onclick="if(event.target===this)closeShortcutsModal()">
   <div class="modal-sheet" onclick="event.stopPropagation()">
     <h3 id="shortcut-modal-title">Keyboard shortcuts</h3>
-    <div class="shortcut-row"><span>Start task</span><kbd>Ctrl</kbd>+<kbd>Enter</kbd></div>
+    <div class="shortcut-row"><span>Start work item</span><kbd>Ctrl</kbd>+<kbd>Enter</kbd></div>
     <div class="shortcut-row"><span>Clear selection</span><kbd>Esc</kbd></div>
     <div class="shortcut-row"><span>Refresh board</span><kbd>R</kbd></div>
     <button type="button" class="btn-primary modal-close" onclick="closeShortcutsModal()">Close</button>
@@ -1225,15 +1458,36 @@
   }
 
   const API = _validateApiUrl(localStorage.getItem('coworker_api_url')) || 'http://127.0.0.1:8765';
-  const terminalStatuses = new Set(['done','failed','cancelled']);
-  const DISPATCH_BTN_HTML = '\u2694\uFE0F Send to Coworker <span class="key-hint">Ctrl+Enter</span>';
+  const terminalStatuses = new Set(['done','failed','cancelled','compliance_hold']);
+  const DISPATCH_BTN_HTML = 'Send work item <span class="key-hint">Ctrl+Enter</span>';
   const TITLE_MAX_LEN = 72;
   const STEP_PREVIEW_CHARS = 400;
-  let tasks = [], logsByTask = {}, stepsByTask = {}, activeStreams = {}, budgetCap = null, selectedTaskId = null, workspace = 'personal';
+  let tasks = [], logsByTask = {}, stepsByTask = {}, activeStreams = {}, budgetCap = null, selectedTaskId = null, workspace = 'work';
   let queueFilterQuery = '';
+  let queueBucket = 'all';
   let _queueFilterTimer = null;
   let clientNameById = {};
   const lastPlanByTask = {};
+
+  function humanStatusLabel(status) {
+    var m = {
+      pending: 'Waiting',
+      running: 'In progress',
+      done: 'Complete',
+      failed: 'Needs attention',
+      cancelled: 'Cancelled',
+      compliance_hold: 'Compliance review required',
+    };
+    return m[status] || status;
+  }
+  function friendlyToolName(raw) {
+    if (raw === 'run_tests') return 'check the work';
+    return raw || '\u2014';
+  }
+  function _statusClassSlug(s) {
+    return String(s || 'pending').replace(/_/g, '-').replace(/[^a-z0-9-]/gi, '');
+  }
+
   const TASK_TEMPLATES = [
     'Build a REST API with FastAPI — [describe the endpoints]',
     'Create a Chrome extension that [describe the feature]',
@@ -1433,8 +1687,8 @@
     var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Deliverable — ' + escHtml(task.title) + '</title></head><body style="font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;line-height:1.5">'
       + '<h1>' + escHtml(task.title) + '</h1>'
       + '<p><strong>Client:</strong> ' + escHtml(client) + '</p>'
-      + '<p><strong>Status:</strong> ' + escHtml(task.status) + '</p>'
-      + '<p><strong>PR:</strong> ' + (task.pr_url ? (function(){ var safe = safePrUrl(task.pr_url); return safe ? '<a href="' + safe + '">' + escHtml(task.pr_url) + '</a>' : escHtml(task.pr_url); })() : '—') + '</p>'
+      + '<p><strong>Status:</strong> ' + escHtml(humanStatusLabel(task.status)) + '</p>'
+      + '<p><strong>Review link:</strong> ' + (task.pr_url ? (function(){ var safe = safePrUrl(task.pr_url); return safe ? '<a href="' + safe + '">' + escHtml(task.pr_url) + '</a>' : escHtml(task.pr_url); })() : '—') + '</p>'
       + '<p><strong>Approx. cost:</strong> $' + spent.toFixed(4) + '</p>'
       + '<h2>Objective</h2><pre style="white-space:pre-wrap;background:#f4f4f8;padding:12px;border-radius:8px">' + escHtml(task.prompt || '') + '</pre>'
       + '<h2>Steps</h2><table border="1" cellpadding="6" cellspacing="0" width="100%"><thead><tr><th>#</th><th>Tool</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>'
@@ -1500,6 +1754,177 @@
     if (dr) dr.style.display = 'block';
   }
 
+  function enterWorkCommandCenter(focusSupervisor) {
+    enterTavern();
+    setWorkspace('work');
+    if (focusSupervisor) {
+      setTimeout(function() {
+        var el = document.getElementById('supervisor-chat-input');
+        if (el) { el.focus(); try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} }
+      }, 120);
+    }
+  }
+
+  var _WORK_SHORTCUTS = {
+    arie_tool: 'I need an internal ARIE Finance tool. Please outline a research pack, a blueprint structure, and what we should validate before build.',
+    research: 'Research how peer firms solve this problem and give a clear build vs buy recommendation for ARIE Finance.',
+    roadmap: 'Turn roadmap item BP-___ into a decision-ready build brief with risks, dependencies, and compliance touchpoints.',
+    ideation: 'Capture a new ad hoc ARIE idea and classify it against current priorities and guardrails.',
+    biz_agent: 'Design a business agent (HR, customer service, onboarding, or internal knowledge) suited to ARIE Finance operations.',
+  };
+
+  function enterWorkShortcut(key) {
+    enterWorkCommandCenter(false);
+    var text = _WORK_SHORTCUTS[key] || '';
+    var ta = document.getElementById('supervisor-chat-input');
+    if (ta && text) ta.value = text;
+    setTimeout(function() {
+      var el = document.getElementById('supervisor-chat-input');
+      if (el) { el.focus(); try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} }
+    }, 120);
+  }
+
+  function applySupervisorExample(line) {
+    var ta = document.getElementById('supervisor-chat-input');
+    if (ta) { ta.value = line; ta.focus(); }
+  }
+
+  function buildSupervisorPrompt(userLine, outputMode, company) {
+    return 'ARIE WORK SUPERVISOR REQUEST\n'
+      + 'Company: ' + company + '\n'
+      + 'Workspace: work\n'
+      + 'Requested output: ' + outputMode + '\n'
+      + 'User request: ' + userLine + '\n\n'
+      + 'Instructions:\n'
+      + '- Use ARIE Finance context.\n'
+      + '- Map to related roadmap or ad hoc items where possible.\n'
+      + '- Ask only missing questions.\n'
+      + '- Involve relevant department experts internally.\n'
+      + '- Include market and competitor research unless the user explicitly skips it.\n'
+      + '- Include mandatory compliance review before finalisation.\n'
+      + '- Present output in plain English for a non-technical operator.\n'
+      + '- Route through the Supervisor; do not expect the operator to configure tools manually.\n';
+  }
+
+  function startSupervisorWork() {
+    var sup = document.getElementById('supervisor-chat-input');
+    var modeEl = document.getElementById('supervisor-output-mode');
+    var userLine = sup ? sup.value.trim() : '';
+    var outputMode = modeEl ? modeEl.value : 'Blueprint';
+    var compEl = document.getElementById('company-input');
+    var company = (compEl && compEl.value.trim()) ? compEl.value.trim() : 'ARIE Finance';
+    if (!userLine) {
+      if (sup) sup.focus();
+      return;
+    }
+    setWorkspace('work');
+    document.getElementById('prompt-input').value = buildSupervisorPrompt(userLine, outputMode, company);
+    document.getElementById('title-input').value = _autoTitle(userLine);
+    if (compEl) compEl.value = company;
+    document.getElementById('intake-title').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function _parseComplianceReview(task) {
+    var raw = task.compliance_review_json;
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }
+
+  function _parsePendingFinalize(task) {
+    var raw = task.pending_finalize_json;
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }
+
+  async function submitComplianceReview() {
+    var taskId = selectedTaskId;
+    var errEl = document.getElementById('compliance-form-error');
+    if (!taskId || !errEl) return;
+    errEl.classList.add('hidden');
+    errEl.textContent = '';
+    var outcome = (document.getElementById('compliance-outcome') || {}).value || 'passed';
+    var risk = (document.getElementById('compliance-risk') || {}).value || 'low';
+    var catsRaw = (document.getElementById('compliance-categories') || {}).value || '';
+    var categories = catsRaw.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+    var summary = (document.getElementById('compliance-summary') || {}).value.trim();
+    var reviewer = (document.getElementById('compliance-reviewer') || {}).value.trim();
+    var issueText = (document.getElementById('compliance-issue-text') || {}).value.trim();
+    var why = (document.getElementById('compliance-why') || {}).value.trim();
+    var fix = (document.getElementById('compliance-fix') || {}).value.trim();
+    var humanReq = !!(document.getElementById('compliance-human-required') || {}).checked;
+    var issues = [{
+      issue: issueText || '(none)',
+      risk_level: risk,
+      why_it_matters: why || '(not specified)',
+      recommended_fix: fix || '(not specified)',
+      human_compliance_or_legal_review_required: humanReq,
+    }];
+    var body = {
+      outcome: outcome,
+      risk_level: risk,
+      summary: summary,
+      reviewer: reviewer,
+      issues: issues,
+      categories_reviewed: categories,
+    };
+    var btn = document.getElementById('btn-compliance-submit');
+    if (btn) { btn.disabled = true; }
+    try {
+      var res = await fetch(API + '/tasks/' + encodeURIComponent(taskId) + '/compliance-review?workspace=' + encodeURIComponent(workspace), {
+        method: 'POST', headers: readHeaders(true), body: JSON.stringify(body),
+      });
+      var data = await res.json().catch(function() { return {}; });
+      if (!res.ok) {
+        errEl.textContent = _friendlyError(data.detail, res.status);
+        errEl.classList.remove('hidden');
+        return;
+      }
+      if (data.task) mergeTask(data.task);
+      await loadTaskDetail(taskId);
+      renderSelectedTask();
+    } catch (e) {
+      errEl.textContent = 'Could not reach the server. Check your connection and API key, then try again.';
+      errEl.classList.remove('hidden');
+    } finally {
+      if (btn) { btn.disabled = false; }
+    }
+  }
+
+  async function finalizeAfterCompliance() {
+    var taskId = selectedTaskId;
+    var errEl = document.getElementById('compliance-form-error');
+    var t = tasks.find(function(x) { return x.id === taskId; });
+    if (!taskId || !t || !errEl) return;
+    if (t.status !== 'compliance_hold' || Number(t.compliance_passed) !== 1) {
+      errEl.textContent = 'Finalise is only available after compliance is recorded as passed for a work item on compliance hold.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    errEl.classList.add('hidden');
+    var btn = document.getElementById('btn-compliance-finalize');
+    if (btn) { btn.disabled = true; }
+    try {
+      var res = await fetch(API + '/tasks/' + encodeURIComponent(taskId) + '/finalize-after-compliance?workspace=' + encodeURIComponent(workspace), {
+        method: 'POST', headers: readHeaders(true), body: JSON.stringify({}),
+      });
+      var data = await res.json().catch(function() { return {}; });
+      if (!res.ok) {
+        errEl.textContent = _friendlyError(data.detail, res.status);
+        errEl.classList.remove('hidden');
+        return;
+      }
+      patchTask(taskId, { status: data.status || 'done', pr_url: data.pr_url || t.pr_url });
+      await loadTasks();
+      await loadTaskDetail(taskId);
+      renderSelectedTask();
+    } catch (e) {
+      errEl.textContent = 'Could not reach the server. Try again in a moment.';
+      errEl.classList.remove('hidden');
+    } finally {
+      if (btn) { btn.disabled = false; }
+    }
+  }
+
   function openShortcutsModal() {
     var m = document.getElementById('shortcuts-modal');
     if (m) { m.classList.add('open'); m.setAttribute('aria-hidden', 'false'); }
@@ -1518,10 +1943,27 @@
     }, 200);
   }
 
+  function setQueueBucket(bucket) {
+    queueBucket = bucket || 'all';
+    document.querySelectorAll('.queue-bucket-btn').forEach(function(btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-bucket') === queueBucket);
+    });
+    renderTasks();
+  }
+
+  function _taskBucket(t) {
+    var st = t.status || '';
+    if (st === 'compliance_hold') return 'decision';
+    if (st === 'pending' || st === 'running') return 'active';
+    if (st === 'done' || st === 'failed' || st === 'cancelled') return 'finished';
+    return 'other';
+  }
+
   function _filteredTasks() {
     var q = (queueFilterQuery || '').trim().toLowerCase();
-    if (!q) return tasks;
-    return tasks.filter(function(t) { return (t.title || '').toLowerCase().indexOf(q) !== -1; });
+    var list = !q ? tasks.slice() : tasks.filter(function(t) { return (t.title || '').toLowerCase().indexOf(q) !== -1; });
+    if (queueBucket === 'all') return list;
+    return list.filter(function(t) { return _taskBucket(t) === queueBucket; });
   }
 
   var _WANTED_POSTER_SVG = '<svg width="160" height="100" viewBox="0 0 160 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="max-width:100%;height:auto">'
@@ -1594,7 +2036,6 @@
     github_list_files:      'builder',
     github_compare_branch:  'builder',
     run_tests:              'tester',
-    run_shell:              'builder',
     get_code_scanning_alert:'tester',
     list_code_scanning_alerts:'tester',
     github_create_pr:       'handoff',
@@ -1624,6 +2065,8 @@
     if (wc) wc.style.display = workspace === 'work' ? '' : 'none';
     if (rev) rev.style.display = workspace === 'personal' ? '' : 'none';
     if (chips) chips.style.display = workspace === 'personal' ? 'flex' : 'none';
+    var cfr = document.getElementById('company-field-row');
+    if (cfr) cfr.style.display = workspace === 'work' ? '' : 'none';
     var aw = document.getElementById('analytics-ws-label');
     if (aw) aw.textContent = workspace;
     initTemplateChips();
@@ -1637,7 +2080,7 @@
     return h;
   }
 
-  function statusClass(s) { return 'status status-' + escHtml(s || 'pending'); }
+  function statusClass(s) { return 'status status-' + _statusClassSlug(s); }
 
   function setAgentState(stage, state) {
     const el = document.getElementById('agent-' + stage);
@@ -1654,6 +2097,7 @@
 
     const running = tasks.filter(t => t.status === 'running');
     const pending  = tasks.filter(t => t.status === 'pending');
+    const holds = tasks.filter(t => t.status === 'compliance_hold');
 
     if (running.length > 0) {
       // Use the first running task; prefer the one being actively streamed
@@ -1671,9 +2115,8 @@
       if (workingAgent !== 'supervisor') {
         setAgentState(workingAgent, 'active');
       }
-    } else if (pending.length > 0) {
-      // Pending tasks — supervisor is watching
-      setAgentState('supervisor', 'active');
+    } else if (pending.length > 0 || holds.length > 0) {
+      setAgentState('supervisor', holds.length > 0 ? 'warning' : 'active');
     } else {
       // No active work — reflect completed/failed state
       const anyFailed    = tasks.some(t => t.status === 'failed');
@@ -1685,13 +2128,14 @@
 
   function updateMetrics() {
     const active = tasks.filter(t => ['pending','running'].includes(t.status)).length;
+    const holds = tasks.filter(t => t.status === 'compliance_hold').length;
     document.getElementById('metric-total').textContent = String(tasks.length);
     document.getElementById('metric-active').textContent = String(active);
-    const stateLabel = active ? 'Active' : 'At Rest';
+    var stateLabel = active ? 'In progress' : (holds ? 'Waiting for compliance' : 'Ready');
     const stateEl = document.getElementById('factory-state');
     stateEl.textContent = stateLabel;
-    stateEl.className = active ? 'status status-running' : 'status status-pending';
-    stateEl.setAttribute('aria-label', 'Tavern state: ' + stateLabel);
+    stateEl.className = active ? 'status status-running' : (holds ? 'status status-compliance-hold' : 'status status-pending');
+    stateEl.setAttribute('aria-label', 'Queue state: ' + stateLabel);
     updateAgentsFromTasks();
   }
 
@@ -1709,19 +2153,21 @@
     const spent = Number(task.usd_spent || 0);
     const budgetText = budgetCap == null ? '$' + spent.toFixed(4) : '$' + spent.toFixed(4) + ' / $' + Number(budgetCap).toFixed(2);
     const sel = task.id === selectedTaskId ? ' selected' : '';
-    const prLink = prUrl ? '<a class="btn-ghost" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">&#x1F4DC; PR</a>' : '';
-    const cancel = ['pending','running'].includes(task.status) ? '<button class="btn-danger" type="button" onclick="event.stopPropagation();cancelTask(\'' + escHtml(task.id) + '\')">&#x2717; Abandon</button>' : '';
+    const holdCls = task.status === 'compliance_hold' ? ' task-card-hold' : '';
+    const prLink = prUrl ? '<a class="btn-ghost" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">&#x1F4DC; Review link</a>' : '';
+    const cancel = ['pending','running','compliance_hold'].includes(task.status) ? '<button class="btn-danger" type="button" onclick="event.stopPropagation();cancelTask(\'' + escHtml(task.id) + '\')">&#x2717; Abandon</button>' : '';
     const retry  = ['failed','cancelled'].includes(task.status)  ? '<button class="btn-ghost"  type="button" onclick="event.stopPropagation();retryTask(\'' + escHtml(task.id) + '\')">&#x21A9; Retry</button>'  : '';
     var pinMark = (task.pinned && Number(task.pinned) !== 0) ? '\uD83D\uDCCC ' : '';
     var clientMark = (task.client_id && clientNameById[task.client_id]) ? '<span class="subtle" style="font-size:0.72rem">Client: ' + escHtml(clientNameById[task.client_id]) + '</span>' : '';
-    return '<article class="task-card' + sel + '" onclick="selectTask(\'' + escHtml(task.id) + '\')">'
+    var stLabel = humanStatusLabel(task.status);
+    return '<article class="task-card' + holdCls + sel + '" onclick="selectTask(\'' + escHtml(task.id) + '\')">'
       + '<div class="task-main"><div>'
       + '<p class="task-title">' + pinMark + escHtml(task.title) + '</p>'
       + (clientMark ? '<p style="margin:2px 0">' + clientMark + '</p>' : '')
       + '<p class="task-id">' + escHtml(task.id) + '</p>'
       + '<p class="subtle">&#x1FA99; ' + escHtml(budgetText) + '</p>'
       + renderBudgetBar(spent, budgetCap)
-      + '</div><span class="' + statusClass(task.status) + '" aria-label="Status: ' + escHtml(task.status) + '">' + escHtml(task.status) + '</span></div>'
+      + '</div><span class="' + statusClass(task.status) + '" aria-label="Status: ' + escHtml(stLabel) + '">' + escHtml(stLabel) + '</span></div>'
       + (task.error ? '<p class="log-line log-error">' + escHtml(task.error) + '</p>' : '')
       + '<div class="card-actions" onclick="event.stopPropagation()">' + prLink + cancel + retry + '</div>'
       + '</article>';
@@ -1734,10 +2180,10 @@
       if (hint) { hint.classList.add('hidden'); hint.textContent = ''; }
       list.innerHTML = '<div class="empty-queue-visual">'
         + _WANTED_POSTER_SVG
-        + '<p>No tasks yet. Create your first task above.</p>'
+        + '<p>No work items yet. Start with the Supervisor above, or open Advanced if you already know the repository details.</p>'
         + '<details class="advanced-section" style="max-width:32em;text-align:left;margin-top:8px"><summary class="advanced-toggle">Tips for your first dispatch</summary>'
         + '<div class="advanced-body"><ol style="margin:0;padding-left:18px;display:grid;gap:6px;font-size:0.85rem;color:var(--muted)">'
-        + '<li>Describe the change in the left panel &mdash; repo and workspace live under Advanced.</li>'
+        + '<li>Use the Supervisor box for plain-English ARIE work; the full brief appears below before you send.</li>'
         + '<li>Use <kbd style="font-family:monospace">Ctrl+Enter</kbd> to send quickly.</li>'
         + '</ol></div></details>'
         + '</div>';
@@ -1745,13 +2191,18 @@
     }
     var filtered = _filteredTasks();
     if (hint) {
-      if ((queueFilterQuery || '').trim() && filtered.length < tasks.length) {
+      var qf = (queueFilterQuery || '').trim();
+      var bucketActive = queueBucket !== 'all';
+      if (qf && filtered.length < tasks.length) {
         hint.classList.remove('hidden');
-        hint.textContent = 'Showing ' + filtered.length + ' of ' + tasks.length + ' tasks.';
+        hint.textContent = 'Showing ' + filtered.length + ' of ' + tasks.length + ' work items.';
+      } else if (bucketActive && filtered.length < tasks.length) {
+        hint.classList.remove('hidden');
+        hint.textContent = 'Showing ' + filtered.length + ' of ' + tasks.length + ' work items for this tab.';
       } else { hint.classList.add('hidden'); hint.textContent = ''; }
     }
     if (!filtered.length) {
-      list.innerHTML = '<div class="empty-queue-visual"><p>No tasks match your search. Try a different title.</p></div>';
+      list.innerHTML = '<div class="empty-queue-visual"><p>No work items match this filter. Try another tab or clear the search.</p></div>';
       if (selectedTaskId) selectedTaskId = null;
       updateMetrics(); renderSelectedTask(); return;
     }
@@ -1816,19 +2267,68 @@
     }
     if (emptyEl) emptyEl.classList.add('hidden');
     if (contentEl) contentEl.classList.remove('hidden');
-    statusEl.className = statusClass(task.status); statusEl.textContent = task.status;
-    titleEl.textContent = task.title || 'Untitled task'; idEl.textContent = task.id;
+    statusEl.className = statusClass(task.status);
+    statusEl.textContent = humanStatusLabel(task.status);
+    statusEl.setAttribute('aria-label', 'Status: ' + humanStatusLabel(task.status));
+    titleEl.textContent = task.title || 'Untitled work item'; idEl.textContent = task.id;
     const tl = logsByTask[task.id] || [];
-    logsEl.innerHTML = tl.length ? tl.map(l => '<p class="log-line log-' + escHtml(l.level||'info') + '">' + escHtml(l.message) + '</p>').join('') : '<p class="log-line">No dispatches yet.</p>';
+    logsEl.innerHTML = tl.length ? tl.map(l => '<p class="log-line log-' + escHtml(l.level||'info') + '">' + escHtml(l.message) + '</p>').join('') : '<p class="log-line">No activity yet.</p>';
     const prUrl = safePrUrl(task.pr_url);
     artEl.innerHTML = prUrl
-      ? '<a class="artifact-chip" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">&#x1F5E1;&#xFE0F; Pull Request Ready</a>'
-      : '<div class="artifact-chip">PR handoff pending&#x2026;</div>';
+      ? '<a class="artifact-chip" href="' + escHtml(prUrl) + '" target="_blank" rel="noopener noreferrer">&#x1F5E1;&#xFE0F; Review link ready</a>'
+      : '<div class="artifact-chip">Review link not created yet&#x2026;</div>';
     var planPanel = document.getElementById('plan-panel');
     var planTxt = document.getElementById('plan-panel-text');
     if (planPanel && planTxt) {
       if (lastPlanByTask[task.id]) { planPanel.classList.remove('hidden'); planTxt.textContent = lastPlanByTask[task.id]; }
       else { planPanel.classList.add('hidden'); planTxt.textContent = ''; }
+    }
+    var compPanel = document.getElementById('compliance-panel');
+    if (compPanel) {
+      if (String(task.workspace || '') === 'work' && task.status === 'compliance_hold') {
+        compPanel.classList.remove('hidden');
+        var readLn = document.getElementById('compliance-readiness-line');
+        var stLn = document.getElementById('compliance-status-line');
+        var pendLn = document.getElementById('compliance-pending-line');
+        var issD = document.getElementById('compliance-issues-display');
+        var nextP = document.getElementById('compliance-next-step');
+        var finBtn = document.getElementById('btn-compliance-finalize');
+        var fe = document.getElementById('compliance-form-error');
+        if (fe) { fe.classList.add('hidden'); fe.textContent = ''; }
+        if (readLn) readLn.textContent = task.readiness_status ? ('Readiness: ' + String(task.readiness_status)) : '';
+        if (stLn) stLn.textContent = task.compliance_status ? ('Compliance status: ' + String(task.compliance_status)) : '';
+        var pend = _parsePendingFinalize(task);
+        if (pendLn) {
+          pendLn.textContent = pend
+            ? ('Pending finalisation: tests/checks \u2014 ' + String(pend.suite || 'default') + ' \u00b7 branch ' + String(pend.branch || '\u2014'))
+            : '';
+        }
+        var rev = _parseComplianceReview(task);
+        if (issD) {
+          if (rev && rev.issues && rev.issues.length) {
+            issD.innerHTML = rev.issues.map(function(it) {
+              return '<div style="margin:6px 0;padding:8px;border-radius:6px;border:1px solid rgba(74,63,107,0.5)"><strong>Issue:</strong> '
+                + escHtml(it.issue || '') + '<br><strong>Why it matters:</strong> ' + escHtml(it.why_it_matters || '')
+                + '<br><strong>Recommended fix:</strong> ' + escHtml(it.recommended_fix || '')
+                + (it.human_compliance_or_legal_review_required ? '<br><em>Human review required.</em>' : '')
+                + '</div>';
+            }).join('');
+          } else { issD.innerHTML = ''; issD.textContent = ''; }
+        }
+        if (nextP) {
+          if (Number(task.compliance_passed) === 1) {
+            nextP.textContent = 'Compliance is recorded as passed. When you are ready, use Finalise to open the review link and complete this work item.';
+          } else {
+            nextP.textContent = 'Record the compliance review below. If something is still missing, choose needs information and describe what you require.';
+          }
+        }
+        if (finBtn) {
+          if (Number(task.compliance_passed) === 1) { finBtn.classList.remove('hidden'); finBtn.disabled = false; }
+          else { finBtn.classList.add('hidden'); finBtn.disabled = true; }
+        }
+      } else {
+        compPanel.classList.add('hidden');
+      }
     }
     var ship = document.getElementById('ship-checklist');
     if (ship) {
@@ -1842,7 +2342,7 @@
     if (grow) {
       grow.style.display = 'flex';
       var ex = document.getElementById('btn-export-deliverable');
-      if (ex) ex.style.display = (workspace === 'work' && terminalStatuses.has(task.status)) ? '' : 'none';
+      if (ex) ex.style.display = (workspace === 'work' && task.status === 'done') ? '' : 'none';
       var chk = document.getElementById('chk-public-task');
       if (chk) chk.checked = !!(task.public && Number(task.public) !== 0);
     }
@@ -1857,7 +2357,7 @@
     github_create_branch:'🌿', github_commit_files:'📦', github_create_pr:'📝',
     github_read_file:'📖', github_list_files:'📂', github_compare_branch:'🔀',
     filesystem_read:'📖', filesystem_write:'✏️', filesystem_list:'📂',
-    run_tests:'🧪', run_shell:'⚡', repo_snapshot:'📸', secret_scan:'🔒',
+    run_tests:'🧪', repo_snapshot:'📸', secret_scan:'🔒',
     humanize_error:'💬', cost_status:'💰', playwright_browse:'🌐',
     final_answer:'🏁', web_search:'🔍', fetch_url:'🌐',
   };
@@ -1921,7 +2421,7 @@
       return '<div class="step-row" id="' + rowId + '">'
         + '<div class="step-hdr" onclick="toggleStepDetail(\'' + rowId + '\')">'
         + '<span class="step-num">#' + escHtml(String(step.step_num + 1)) + '</span>'
-        + '<span class="step-tool">' + escHtml(emoji + '\u00a0' + (step.tool_name || '\u2014')) + '</span>'
+        + '<span class="step-tool">' + escHtml(emoji + '\u00a0' + friendlyToolName(step.tool_name)) + '</span>'
         + '<span class="' + statusClass(step.status) + ' step-status">' + escHtml(step.status) + '</span>'
         + (hasDetail ? '<button class="btn-expand" aria-label="Toggle step detail">▸</button>' : '')
         + '</div>'
@@ -1934,9 +2434,11 @@
 
   async function loadTaskDetail(taskId) {
     try {
-      const res = await fetch(API + '/tasks/' + encodeURIComponent(taskId), {headers: readHeaders(false)});
+      var url = API + '/tasks/' + encodeURIComponent(taskId) + '?workspace=' + encodeURIComponent(workspace);
+      const res = await fetch(url, {headers: readHeaders(false)});
       if (!res.ok) return;
       const d = await res.json();
+      if (d.task && String(d.task.workspace || '') === workspace) mergeTask(d.task);
       stepsByTask[taskId] = d.steps || [];
       if (selectedTaskId === taskId) renderStepList(taskId);
     } catch {}
@@ -1986,7 +2488,9 @@
       if (statusCode === 429) return 'Too many tasks started too quickly \u2014 wait a moment and try again.';
       return 'Something went wrong (HTTP ' + statusCode + '). Please try again.';
     }
-    return detail;
+    var d = typeof detail === 'string' ? detail : JSON.stringify(detail);
+    if (/policy_denied|policy denied/i.test(d)) return 'Blocked for safety: ' + d;
+    return typeof detail === 'string' ? detail : d;
   }
 
   async function createTask() {
@@ -1996,7 +2500,7 @@
     const errEl = document.getElementById('form-error');
     const btn   = document.getElementById('dispatch-btn');
     errEl.classList.add('hidden');
-    if (!promptText) { errEl.textContent = 'Please describe what your coworker should do.'; errEl.classList.remove('hidden'); document.getElementById('prompt-input').focus(); return; }
+    if (!promptText) { errEl.textContent = 'Please describe what you want the Supervisor to do.'; errEl.classList.remove('hidden'); document.getElementById('prompt-input').focus(); return; }
     if (promptText.length > 8000) { errEl.textContent = 'Brief is too long \u2014 please shorten it to 8000 characters or fewer.'; errEl.classList.remove('hidden'); return; }
     if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) { errEl.textContent = 'Repository must be in owner/repo format (e.g. acme/my-repo).'; errEl.classList.remove('hidden'); return; }
     const title = titleInput || _autoTitle(promptText);
@@ -2010,6 +2514,8 @@
       } else {
         var cs = document.getElementById('client-select');
         if (cs && cs.value) body.client_id = cs.value;
+        var compInp = document.getElementById('company-input');
+        if (compInp && compInp.value.trim()) body.company = compInp.value.trim();
       }
       const res = await fetch(API + '/tasks', { method: 'POST', headers: readHeaders(true), body: JSON.stringify(body) });
       if (res.status === 401) {
@@ -2051,13 +2557,14 @@
   async function subscribeSSE(taskId) {
     if (activeStreams[taskId]) return;
     const k = localStorage.getItem('api_key');
-    let streamUrl = API + '/tasks/' + encodeURIComponent(taskId) + '/stream';
+    var wsQ = 'workspace=' + encodeURIComponent(workspace);
+    let streamUrl = API + '/tasks/' + encodeURIComponent(taskId) + '/stream?' + wsQ;
     if (k) {
       try {
-        const tr = await fetch(API + '/tasks/' + encodeURIComponent(taskId) + '/stream-token', {method:'POST', headers:readHeaders(false)});
+        const tr = await fetch(API + '/tasks/' + encodeURIComponent(taskId) + '/stream-token?' + wsQ, {method:'POST', headers:readHeaders(false)});
         if (tr.ok) {
           const { token } = await tr.json();
-          streamUrl += '?token=' + encodeURIComponent(token);
+          streamUrl += '&token=' + encodeURIComponent(token);
         }
       } catch {}
     }
@@ -2068,7 +2575,7 @@
     streamRetryCount[taskId] = 0;
     if (selectedTaskId === taskId) _updateStreamStatusRow(tasks.find(t => t.id === taskId) || null);
 
-    ['task_done','task_failed','task_cancelled','tool_start','tool_done','log','heartbeat','stream_warning','plan'].forEach(type => {
+    ['task_done','task_failed','task_cancelled','compliance_blocked','tool_start','tool_done','log','heartbeat','stream_warning','plan'].forEach(type => {
       es.addEventListener(type, ev => {
         let d = {}; try { d = JSON.parse(ev.data); } catch {}
         if (type === 'plan' && d.plan) {
@@ -2079,11 +2586,11 @@
         if (type === 'tool_start') {
           activeToolByTask[taskId] = d.tool || '';
           patchTask(taskId, {last_tool: d.tool || null});   // keep task object in sync
-          addLog(taskId, '\u2692 Tool: ' + (d.tool||''), 'info');
+          addLog(taskId, '\u2692 Tool: ' + friendlyToolName(d.tool||''), 'info');
         }
         if (type === 'tool_done')  {
           delete activeToolByTask[taskId];
-          addLog(taskId, '\u2713 Done: ' + (d.tool||'') + ' [' + (d.success ? 'ok' : 'fail') + ']', d.success ? 'info' : 'error');
+          addLog(taskId, '\u2713 Done: ' + friendlyToolName(d.tool||'') + ' [' + (d.success ? 'ok' : 'fail') + ']', d.success ? 'info' : 'error');
           if (selectedTaskId === taskId) loadTaskDetail(taskId);
         }
         if (type === 'heartbeat') {
@@ -2096,6 +2603,17 @@
           streamHealthByTask[taskId].dropped += Number(d.dropped || 1);
           addLog(taskId, 'Stream: ' + (d.dropped || 1) + ' event(s) dropped', 'warning');
           if (selectedTaskId === taskId) _updateStreamStatusRow(tasks.find(t => t.id === taskId) || null);
+        }
+        if (type === 'compliance_blocked') {
+          patchTask(taskId, {
+            status: 'compliance_hold',
+            readiness_status: 'compliance_review_required',
+            compliance_status: 'compliance_review_required',
+          });
+          var cmsg = (d && d.issue) ? String(d.issue) : 'Compliance review required before this work item can be finalised.';
+          addLog(taskId, cmsg, 'warning');
+          loadTaskDetail(taskId);
+          if (selectedTaskId === taskId) renderSelectedTask();
         }
         if (type === 'task_done')      patchTask(taskId, {status:'done',      pr_url:d.pr_url});
         if (type === 'task_failed')    patchTask(taskId, {status:'failed',    error:d.error, pr_url:d.pr_url});
@@ -2152,7 +2670,7 @@
   async function loadTasks() {
     try {
       const res = await fetch(API + '/tasks?limit=50&offset=0&workspace=' + encodeURIComponent(workspace), {headers:readHeaders(false)});
-      if (!res.ok) { document.getElementById('conn-status').textContent = 'Tavern is closed\u2026'; renderTasks(); return; }
+      if (!res.ok) { document.getElementById('conn-status').textContent = 'Offline \u2014 cannot load work items'; renderTasks(); return; }
       const d = await res.json();
       tasks = d.tasks || [];
       budgetCap = d.max_task_usd == null ? budgetCap : d.max_task_usd;
@@ -2164,11 +2682,11 @@
       }
       for (const t of tasks) { if (['pending','running'].includes(t.status)) await subscribeSSE(t.id); }
       document.getElementById('conn-status').textContent = tasks.length
-        ? tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + ' on the board'
-        : 'Ready — no tasks yet';
+        ? tasks.length + ' work item' + (tasks.length === 1 ? '' : 's') + ' on the board'
+        : 'Ready — no work items yet';
       renderTasks();
       if (selectedTaskId) loadTaskDetail(selectedTaskId);
-    } catch { document.getElementById('conn-status').textContent = 'Tavern is closed\u2026'; renderTasks(); }
+    } catch { document.getElementById('conn-status').textContent = 'Offline \u2014 cannot load work items'; renderTasks(); }
   }
 
   function renderPreviewRows(items, emptyText, renderRow) {
@@ -2187,20 +2705,20 @@
       if (aRes.ok) {
         const d = await aRes.json();
         document.getElementById('artifact-count').textContent = String(d.count||0);
-        document.getElementById('artifact-preview').innerHTML = renderPreviewRows(d.artifacts||[], 'Vault is empty.',
+        document.getElementById('artifact-preview').innerHTML = renderPreviewRows(d.artifacts||[], 'No outputs yet.',
           item => '<p>\uD83D\uDDE1\uFE0F ' + escHtml(item.title) + ' <em>(' + escHtml(item.artifact_type) + ')</em></p>');
       }
       if (rRes.ok) {
         const d = await rRes.json();
         document.getElementById('recipe-count').textContent = String(d.count||0);
-        document.getElementById('recipe-preview').innerHTML = renderPreviewRows(d.recipes||[], 'No recipes inscribed.',
+        document.getElementById('recipe-preview').innerHTML = renderPreviewRows(d.recipes||[], 'No saved workflows yet.',
           item => '<p>\uD83D\uDCDC ' + escHtml(item.name) + '</p>');
       }
       if (runRes.ok) {
         const d = await runRes.json();
         document.getElementById('run-count').textContent = String(d.count||0);
-        document.getElementById('run-preview').innerHTML = renderPreviewRows(d.runs||[], 'Chronicle is blank.',
-          item => '<p><span class="' + escHtml('status status-' + item.status) + '">' + escHtml(item.status) + '</span> ' + escHtml(item.title) + '</p>');
+        document.getElementById('run-preview').innerHTML = renderPreviewRows(d.runs||[], 'No recent runs yet.',
+          item => '<p><span class="' + escHtml('status status-' + _statusClassSlug(item.status)) + '">' + escHtml(humanStatusLabel(item.status)) + '</span> ' + escHtml(item.title) + '</p>');
       }
     } catch {}
   }
@@ -2244,10 +2762,12 @@
     var wc = document.getElementById('work-client-block');
     var rev = document.getElementById('personal-revenue-block');
     var chips = document.getElementById('template-chips');
+    var cfr = document.getElementById('company-field-row');
     if (pp) pp.style.display = workspace === 'personal' ? '' : 'none';
     if (wc) wc.style.display = workspace === 'work' ? '' : 'none';
     if (rev) rev.style.display = workspace === 'personal' ? '' : 'none';
     if (chips) chips.style.display = workspace === 'personal' ? 'flex' : 'none';
+    if (cfr) cfr.style.display = workspace === 'work' ? '' : 'none';
   })();
 
   loadAll();
