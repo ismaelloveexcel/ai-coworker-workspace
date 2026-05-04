@@ -297,4 +297,17 @@ BUILTIN_AGENTS = [
         default_model_policy="analysis",
         approval_profile="work_data_sensitive",
     ),
+    AgentDefinition(
+        id="arie_technology_expert",
+        display_name="ARIE Technology Expert",
+        role="Internal systems, integrations, prototypes, and technical feasibility for ARIE Finance tooling.",
+        expertise=["integrations", "APIs", "prototypes", "security-by-design", "technical debt"],
+        workspace_scope=["work"],
+        allowed_tools=["github_read_file", "github_list_files"],
+        can_commit=False,
+        can_research_web=False,
+        can_create_artifacts=True,
+        default_model_policy="balanced",
+        approval_profile="work_data_sensitive",
+    ),
 ]

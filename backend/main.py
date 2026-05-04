@@ -606,6 +606,7 @@ class SupervisorPlanRequest(BaseModel):
     prompt: str
     workspace: str = "personal"
     company: Optional[str] = None
+    output_mode: Optional[str] = None
 
     @field_validator("workspace")
     @classmethod
@@ -618,6 +619,14 @@ class SupervisorPlanRequest(BaseModel):
     @field_validator("company")
     @classmethod
     def strip_plan_company(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        s = v.strip()
+        return s or None
+
+    @field_validator("output_mode")
+    @classmethod
+    def strip_output_mode(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return None
         s = v.strip()
@@ -730,7 +739,7 @@ async def supervisor_plan(req: SupervisorPlanRequest):
     company = req.company
     if req.workspace == "work" and company is None:
         company = default_company_for_workspace("work")
-    return plan_task(req.prompt, req.workspace, company)
+    return plan_task(req.prompt, req.workspace, company, req.output_mode)
 
 
 @app.post("/tasks", status_code=201, dependencies=[Depends(require_auth)])

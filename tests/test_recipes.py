@@ -25,6 +25,9 @@ def test_plan_task_returns_recipe_agents_and_stages():
     assert any(agent["id"] == "arie_compliance_expert" for agent in plan["agents"])
     assert plan["agent_ids"][-1] == "arie_compliance_expert"
     assert plan["stages"]
+    assert "arie_plan" in plan
+    assert plan["arie_plan"]["related_gaps"] is not None
+    assert "structured_prompt" in plan["arie_plan"]
 
 
 def test_plan_task_work_non_arie_skips_compliance_experts():
